@@ -1,0 +1,384 @@
+// ==============================================================================
+// CGRA Processing Element (PE)
+// ==============================================================================
+// Implements ALU/MAC, scratchpad, register file, bypass network, and predicate execution
+// Configuration frame format (64-bit):
+//   [5:0]   - op_code
+//   [9:6]   - src0 select
+//   [13:10] - src1 select
+//   [17:14] - dst select
+//   [21:18] - route mask (N/E/S/W/local)
+//   [22]    - pred_en
+//   [23]    - pred_inv
+//   [39:24] - imm (16-bit immediate)
+//   [63:40] - extended metadata
+
+module cgra_pe #(
+    parameter DATA_WIDTH = 16,
+    parameter ADDR_WIDTH = 8,
+    parameter SPM_DEPTH = 256,
+    parameter RF_DEPTH = 16
+)(
+    input  logic clk,
+    input  logic rst_n,
+    
+    // Configuration interface
+    input  logic [63:0] config_frame,
+    input  logic        config_valid,
+    
+    // Routing inputs (from N/E/S/W neighbors)
+    input  logic [DATA_WIDTH-1:0] data_in_n,
+    input  logic [DATA_WIDTH-1:0] data_in_e,
+    input  logic [DATA_WIDTH-1:0] data_in_s,
+    input  logic [DATA_WIDTH-1:0] data_in_w,
+    input  logic                  valid_in_n,
+    input  logic                  valid_in_e,
+    input  logic                  valid_in_s,
+    input  logic                  valid_in_w,
+    
+    // Routing outputs (to N/E/S/W neighbors)
+    output logic [DATA_WIDTH-1:0] data_out_n,
+    output logic [DATA_WIDTH-1:0] data_out_e,
+    output logic [DATA_WIDTH-1:0] data_out_s,
+    output logic [DATA_WIDTH-1:0] data_out_w,
+    output logic                  valid_out_n,
+    output logic                  valid_out_e,
+    output logic                  valid_out_s,
+    output logic                  valid_out_w,
+    
+    // Local data output
+    output logic [DATA_WIDTH-1:0] data_out_local,
+    output logic                  valid_out_local
+);
+
+    // =========================================================================
+    // Configuration frame decoding
+    // =========================================================================
+    logic [5:0]  op_code;
+    logic [3:0]  src0_sel;
+    logic [3:0]  src1_sel;
+    logic [3:0]  dst_sel;
+    logic [4:0]  route_mask;
+    logic        pred_en;
+    logic        pred_inv;
+    logic [15:0] immediate;
+    logic [23:0] extended;
+    
+    always_comb begin
+        op_code   = config_frame[5:0];
+        src0_sel  = config_frame[9:6];
+        src1_sel  = config_frame[13:10];
+        dst_sel   = config_frame[17:14];
+        route_mask = config_frame[21:18];
+        pred_en   = config_frame[22];
+        pred_inv  = config_frame[23];
+        immediate = config_frame[39:24];
+        extended  = config_frame[63:40];
+    end
+    
+    // =========================================================================
+    // Scratchpad Memory (SPM)
+    // =========================================================================
+    logic [DATA_WIDTH-1:0] spm_mem [0:SPM_DEPTH-1];
+    logic [ADDR_WIDTH-1:0] spm_addr;
+    logic [DATA_WIDTH-1:0] spm_rdata;
+    logic [DATA_WIDTH-1:0] spm_wdata;
+    logic                  spm_we;
+    
+    always_ff @(posedge clk) begin
+        if (spm_we) begin
+            spm_mem[spm_addr] <= spm_wdata;
+        end
+        spm_rdata <= spm_mem[spm_addr];
+    end
+    
+    // =========================================================================
+    // Register File (RF)
+    // =========================================================================
+    logic [DATA_WIDTH-1:0] rf_mem [0:RF_DEPTH-1];
+    logic [3:0]            rf_raddr0;
+    logic [3:0]            rf_raddr1;
+    logic [3:0]            rf_waddr;
+    logic [DATA_WIDTH-1:0] rf_rdata0;
+    logic [DATA_WIDTH-1:0] rf_rdata1;
+    logic [DATA_WIDTH-1:0] rf_wdata;
+    logic                  rf_we;
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            rf_mem[0] <= '0;
+            rf_mem[1] <= '0;
+            rf_mem[2] <= '0;
+            rf_mem[3] <= '0;
+            rf_mem[4] <= '0;
+            rf_mem[5] <= '0;
+            rf_mem[6] <= '0;
+            rf_mem[7] <= '0;
+            rf_mem[8] <= '0;
+            rf_mem[9] <= '0;
+            rf_mem[10] <= '0;
+            rf_mem[11] <= '0;
+            rf_mem[12] <= '0;
+            rf_mem[13] <= '0;
+            rf_mem[14] <= '0;
+            rf_mem[15] <= '0;
+        end else if (rf_we) begin
+            rf_mem[rf_waddr] <= rf_wdata;
+        end
+    end
+    
+    always_comb begin
+        rf_rdata0 = rf_mem[rf_raddr0];
+        rf_rdata1 = rf_mem[rf_raddr1];
+    end
+    
+    // =========================================================================
+    // Operand Multiplexing
+    // =========================================================================
+    logic [DATA_WIDTH-1:0] operand0;
+    logic [DATA_WIDTH-1:0] operand1;
+    
+    always_comb begin
+        // src0 selection
+        case (src0_sel)
+            4'd0:    operand0 = rf_rdata0;
+            4'd1:    operand0 = data_in_n;
+            4'd2:    operand0 = data_in_e;
+            4'd3:    operand0 = data_in_s;
+            4'd4:    operand0 = data_in_w;
+            4'd5:    operand0 = spm_rdata;
+            4'd6:    operand0 = immediate;
+            default: operand0 = '0;
+        endcase
+        
+        // src1 selection
+        case (src1_sel)
+            4'd0:    operand1 = rf_rdata1;
+            4'd1:    operand1 = data_in_n;
+            4'd2:    operand1 = data_in_e;
+            4'd3:    operand1 = data_in_s;
+            4'd4:    operand1 = data_in_w;
+            4'd5:    operand1 = spm_rdata;
+            4'd6:    operand1 = immediate;
+            default: operand1 = '0;
+        endcase
+    end
+    
+    // =========================================================================
+    // ALU/MAC Unit
+    // =========================================================================
+    logic [31:0]           alu_result;
+    logic signed [39:0]    accumulator;
+    logic                  predicate_flag;
+    logic signed [39:0]    op0_ext;
+    logic signed [39:0]    op1_ext;
+    logic signed [31:0]    mult_result;
+    logic signed [39:0]    mult_ext;
+    logic signed [39:0]    lif_next_v;
+    logic signed [39:0]    add_result;
+    logic signed [39:0]    sub_result;
+    
+    function automatic logic [31:0] saturate_to_32(input logic signed [39:0] value);
+        if (value > 40'sd2147483647) begin
+            saturate_to_32 = 32'sd2147483647;
+        end else if (value < -40'sd2147483648) begin
+            saturate_to_32 = -32'sd2147483648;
+        end else begin
+            saturate_to_32 = value[31:0];
+        end
+    endfunction
+    
+    // OpCode definitions
+    localparam OP_NOP   = 6'd0;
+    localparam OP_ADD   = 6'd1;
+    localparam OP_SUB   = 6'd2;
+    localparam OP_MUL   = 6'd3;
+    localparam OP_MAC   = 6'd4;  // Multiply-Accumulate
+    localparam OP_AND   = 6'd5;
+    localparam OP_OR    = 6'd6;
+    localparam OP_XOR   = 6'd7;
+    localparam OP_SHL   = 6'd8;
+    localparam OP_SHR   = 6'd9;
+    localparam OP_CMP_GT = 6'd10;
+    localparam OP_CMP_LT = 6'd11;
+    localparam OP_CMP_EQ = 6'd12;
+    localparam OP_LOAD_SPM = 6'd13;
+    localparam OP_STORE_SPM = 6'd14;
+    localparam OP_ACC_CLR = 6'd15;
+    localparam OP_PASS0 = 6'd16;
+    localparam OP_PASS1 = 6'd17;
+    localparam OP_LIF   = 6'd18;
+    
+    always_comb begin
+        op0_ext = {{(40-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0};
+        op1_ext = {{(40-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1};
+        mult_result = $signed(operand0) * $signed(operand1);
+        mult_ext = {{8{mult_result[31]}}, mult_result};
+        add_result = op0_ext + op1_ext;
+        sub_result = op0_ext - op1_ext;
+        lif_next_v = mult_ext + accumulator;
+    end
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            accumulator <= '0;
+            predicate_flag <= 1'b0;
+        end else if (config_valid) begin
+            case (op_code)
+                OP_NOP: begin
+                    alu_result <= '0;
+                end
+                OP_ADD: begin
+                    accumulator <= add_result;
+                    alu_result <= saturate_to_32(add_result);
+                end
+                OP_SUB: begin
+                    accumulator <= sub_result;
+                    alu_result <= saturate_to_32(sub_result);
+                end
+                OP_MUL: begin
+                    alu_result <= operand0 * operand1;
+                end
+                OP_MAC: begin
+                    accumulator <= accumulator + mult_ext;
+                    alu_result <= saturate_to_32(accumulator + mult_ext);
+                end
+                OP_AND: begin
+                    alu_result <= operand0 & operand1;
+                end
+                OP_OR: begin
+                    alu_result <= operand0 | operand1;
+                end
+                OP_XOR: begin
+                    alu_result <= operand0 ^ operand1;
+                end
+                OP_SHL: begin
+                    alu_result <= operand0 << operand1[3:0];
+                end
+                OP_SHR: begin
+                    alu_result <= operand0 >> operand1[3:0];
+                end
+                OP_CMP_GT: begin
+                    predicate_flag <= (operand0 > operand1);
+                    alu_result <= (operand0 > operand1) ? 32'd1 : 32'd0;
+                end
+                OP_CMP_LT: begin
+                    predicate_flag <= (operand0 < operand1);
+                    alu_result <= (operand0 < operand1) ? 32'd1 : 32'd0;
+                end
+                OP_CMP_EQ: begin
+                    predicate_flag <= (operand0 == operand1);
+                    alu_result <= (operand0 == operand1) ? 32'd1 : 32'd0;
+                end
+                OP_LOAD_SPM: begin
+                    alu_result <= spm_rdata;
+                end
+                OP_STORE_SPM: begin
+                    alu_result <= operand0;
+                end
+                OP_ACC_CLR: begin
+                    accumulator <= '0;
+                    alu_result <= '0;
+                end
+                OP_PASS0: begin
+                    alu_result <= operand0;
+                end
+                OP_PASS1: begin
+                    alu_result <= operand1;
+                end
+                OP_LIF: begin
+                    if (lif_next_v > 40'sd1000) begin
+                        predicate_flag <= 1'b1;
+                        accumulator <= 40'sd0;
+                        alu_result <= 32'd0;
+                    end else begin
+                        predicate_flag <= 1'b0;
+                        accumulator <= lif_next_v;
+                        alu_result <= saturate_to_32(lif_next_v);
+                    end
+                end
+                default: begin
+                    alu_result <= '0;
+                end
+            endcase
+        end
+    end
+    
+    // =========================================================================
+    // Predicate Execution Logic
+    // =========================================================================
+    logic execute_enable;
+    
+    always_comb begin
+        if (pred_en) begin
+            execute_enable = pred_inv ? ~predicate_flag : predicate_flag;
+        end else begin
+            execute_enable = 1'b1;
+        end
+    end
+    
+    // =========================================================================
+    // Write-back Logic
+    // =========================================================================
+    always_comb begin
+        rf_we = 1'b0;
+        rf_waddr = dst_sel;
+        rf_wdata = alu_result[DATA_WIDTH-1:0];
+        
+        spm_we = 1'b0;
+        spm_addr = operand1[ADDR_WIDTH-1:0];
+        spm_wdata = operand0;
+        
+        if (config_valid && execute_enable) begin
+            case (op_code)
+                OP_STORE_SPM: begin
+                    spm_we = 1'b1;
+                end
+                OP_LOAD_SPM: begin
+                    rf_we = 1'b1;
+                end
+                OP_ADD, OP_SUB, OP_MUL, OP_MAC, OP_AND, OP_OR, OP_XOR,
+                OP_SHL, OP_SHR, OP_CMP_GT, OP_CMP_LT, OP_CMP_EQ,
+                OP_PASS0, OP_PASS1: begin
+                    rf_we = 1'b1;
+                end
+                default: begin
+                    rf_we = 1'b0;
+                end
+            endcase
+        end
+    end
+    
+    // Set RF read addresses
+    always_comb begin
+        rf_raddr0 = src0_sel;
+        rf_raddr1 = src1_sel;
+    end
+    
+    // =========================================================================
+    // Bypass Network / Routing
+    // =========================================================================
+    logic [DATA_WIDTH-1:0] output_data;
+    logic                  output_valid;
+    
+    always_comb begin
+        output_data = alu_result[DATA_WIDTH-1:0];
+        output_valid = config_valid && execute_enable;
+    end
+    
+    // Route mask: [4] = local, [3] = N, [2] = E, [1] = S, [0] = W
+    always_comb begin
+        data_out_n = output_data;
+        data_out_e = output_data;
+        data_out_s = output_data;
+        data_out_w = output_data;
+        data_out_local = output_data;
+        
+        valid_out_n = output_valid && route_mask[3];
+        valid_out_e = output_valid && route_mask[2];
+        valid_out_s = output_valid && route_mask[1];
+        valid_out_w = output_valid && route_mask[0];
+        valid_out_local = output_valid && route_mask[4];
+    end
+
+endmodule
