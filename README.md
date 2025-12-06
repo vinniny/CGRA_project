@@ -10,7 +10,10 @@ CGRA_project/
 │   ├── cgra_array_4x4.sv       # 4x4 PE array
 │   ├── cgra_config_loader.sv   # Configuration loader with double buffering
 │   ├── cgra_axi_csr.sv         # AXI4-Lite CSR interface
-│   └── cgra_top.sv             # Top-level wrapper
+│   ├── cgra_tile_memory.sv     # Row-banked tile memory (4 banks)
+│   ├── cgra_dma_engine.sv      # AXI4 master DMA engine
+│   ├── cgra_control_unit.sv    # Timestep/control FSM (used in new top)
+│   └── cgra_top.sv             # Top-level wrapper (AXI-Lite + DMA + tile mem)
 ├── 01_bench/         # Testbenches
 │   ├── tb_cgra_pe.sv
 │   ├── tb_cgra_router.sv
@@ -26,8 +29,8 @@ CGRA_project/
 ## Module Overview
 
 ### 1. Processing Element (cgra_pe.sv)
-- **Features**: ALU/MAC unit, scratchpad memory (256 entries), register file (16 registers)
-- **Operations**: ADD, SUB, MUL, MAC, logical ops, comparisons, load/store
+- **Features**: ALU/MAC unit, scratchpad memory (256 entries), register file (16 registers), 40-bit accumulator with 32-bit saturation
+- **Operations**: ADD, SUB, MUL, MAC, logical ops, comparisons, load/store, LIF (leaky integrate-and-fire) neuromorphic op
 - **Configuration**: 64-bit frame per cycle
 - **Routing**: Supports N/E/S/W/local output with multi-cast
 
@@ -52,10 +55,17 @@ CGRA_project/
 - **Offsets**: See specification Section 4.2
 
 ### 6. Top-Level (cgra_top.sv)
-- **Integration**: All components connected
+- **Integration**: AXI4-Lite CSR, configuration loader, 4x4 PE array, AXI4 master DMA, row-banked tile memory
 - **FSM**: Execution control (IDLE, WAIT_CFG, SETUP, RUN, DRAIN, COMPLETE, ERROR)
 - **Counters**: Cycle counter, stall counter
 
+### 7. Tile Memory (cgra_tile_memory.sv)
+- **Organization**: 4 banks (one per PE row), 16-bit data width, DMA-accessible external port
+- **Access**: Parallel per-bank ports plus external read/write
+
+### 8. DMA Engine (cgra_dma_engine.sv)
+- **Interface**: AXI4 master (read/write bursts)
+- **Control**: Descriptor-based jobs from CSR, drives tile memory through local interface
 ## Configuration Frame Format (64-bit)
 
 | Bits    | Field     | Description                    |
@@ -92,6 +102,7 @@ CGRA_project/
 | 15   | ACC_CLR    | Clear accumulator              |
 | 16   | PASS0      | Pass operand 0                 |
 | 17   | PASS1      | Pass operand 1                 |
+| 18   | LIF        | Leaky integrate-and-fire step  |
 
 ## CSR Register Map (AXI4-Lite)
 
@@ -125,6 +136,7 @@ chmod +x run_sim.sh
 ./run_sim.sh tb_cgra_config_loader
 ./run_sim.sh tb_cgra_top
 ```
+`run_sim.sh` now compiles the DMA and tile memory alongside the core RTL.
 
 ### View Waveforms
 
