@@ -701,10 +701,12 @@ module tb_cgra_top_new;
         // SNN-SPECIFIC TEST CASES
         // =====================================================================
         
-        // Test 19: LIF Neuron
-        $display("\n[Test 19] SNN LIF Neuron");
-        config_memory[0] = 64'h0000_0000_0A41_0001;
-        config_memory[1] = 64'h0000_0000_1641_0002;
+        // Test 19: SNN Hardware LIF Neuron
+        $display("\n[Test 19] SNN Hardware LIF Neuron");
+        // OP_LIF (18): src0 = immediate input, src1 = immediate threshold, route local
+        // Immediate=120 so V_mem integrates and crosses threshold after two cycles with leak=10
+        config_memory[0] = 64'h0000_0000_7840_1992;
+        config_memory[1] = 64'h0000_0000_0000_0000;
         axi_write(ADDR_CTRL, 32'h0000_0005);
         #(CLK_PERIOD*2);
         read_data = 0;
@@ -713,13 +715,13 @@ module tb_cgra_top_new;
             axi_read(ADDR_STATUS, read_data);
         end
         #(CLK_PERIOD*20);
-        $display("  [PASS] LIF neuron configured");
+        $display("  [PASS] Hardware LIF neuron configured (OP_LIF)");
         axi_write(ADDR_CTRL, 32'h0000_0000);
         #(CLK_PERIOD*5);
         
         // Test 20: Spike Generation
         $display("\n[Test 20] SNN Spike Generation");
-        config_memory[4] = 64'h0000_0000_0A41_0008;
+        config_memory[4] = 64'h0000_0000_0A41_000A;
         config_memory[5] = 64'h0000_0000_0641_0011;
         axi_write(ADDR_CTRL, 32'h0000_0005);
         #(CLK_PERIOD*2);
@@ -800,7 +802,7 @@ module tb_cgra_top_new;
         
         // Test 25: Refractory Period
         $display("\n[Test 25] SNN Refractory Period");
-        config_memory[10] = 64'h0000_0000_0A41_0008;
+        config_memory[10] = 64'h0000_0000_0A41_000A;
         config_memory[11] = 64'h0000_0000_0641_0005;
         axi_write(ADDR_CTRL, 32'h0000_0005);
         #(CLK_PERIOD*2);

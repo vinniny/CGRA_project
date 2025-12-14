@@ -177,6 +177,7 @@ module cgra_pe #(
     logic signed [39:0]    lif_next_v;
     logic signed [39:0]    add_result;
     logic signed [39:0]    sub_result;
+    localparam signed [39:0] LIF_LEAK = 40'sd10;
     
     function automatic logic [31:0] saturate_to_32(input logic signed [39:0] value);
         if (value > 40'sd2147483647) begin
@@ -216,7 +217,7 @@ module cgra_pe #(
         mult_ext = {{8{mult_result[31]}}, mult_result};
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
-        lif_next_v = mult_ext + accumulator;
+        lif_next_v = accumulator + op0_ext - LIF_LEAK;
     end
     
     always_ff @(posedge clk) begin
@@ -287,14 +288,14 @@ module cgra_pe #(
                     alu_result <= operand1;
                 end
                 OP_LIF: begin
-                    if (lif_next_v > 40'sd1000) begin
+                    if (lif_next_v >= op1_ext) begin
                         predicate_flag <= 1'b1;
                         accumulator <= 40'sd0;
-                        alu_result <= 32'd0;
+                        alu_result <= 32'd1;
                     end else begin
                         predicate_flag <= 1'b0;
                         accumulator <= lif_next_v;
-                        alu_result <= saturate_to_32(lif_next_v);
+                        alu_result <= 32'd0;
                     end
                 end
                 default: begin

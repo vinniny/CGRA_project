@@ -162,6 +162,42 @@ module tb_cgra_pe;
         config_valid = 0;
         #(CLK_PERIOD*2);
         
+        // Test 7: Hardware LIF operation
+        $display("[TEST 7] Hardware LIF Operation (OP_LIF)");
+        // Clear accumulator before LIF sequence
+        config_frame = 64'h0;
+        config_frame[5:0]   = 6'd15;     // OP_ACC_CLR
+        config_valid = 1;
+        #(CLK_PERIOD);
+        config_valid = 0;
+        #(CLK_PERIOD);
+
+        // src0 = data_in_n (input current), src1 = immediate (threshold)
+        config_frame = 64'h0;
+        config_frame[5:0]   = 6'd18;      // OP_LIF
+        config_frame[9:6]   = 4'd1;       // src0 = N input
+        config_frame[13:10] = 4'd6;       // src1 = immediate (threshold)
+        config_frame[17:14] = 4'd0;       // dst (unused for LIF)
+        config_frame[21:18] = 5'b10000;   // route to local
+        config_frame[39:24] = 16'd100;    // threshold = 100
+        config_valid = 1;
+
+        // Cycle 1: 0 + 50 - leak(10) = 40 < 100 (no spike)
+        data_in_n = 16'd50;
+        #(CLK_PERIOD);
+        $display("  Cycle 1: Input=50, Thresh=100 -> Spike=%b", data_out_local[0]);
+        if (data_out_local == 0) $display("  PASS: No spike as expected"); else $display("  FAIL: Spiked early");
+
+        // Cycle 2: 40 + 80 - leak(10) = 110 >= 100 (spike)
+        data_in_n = 16'd80;
+        #(CLK_PERIOD);
+        $display("  Cycle 2: Input=80, Thresh=100 -> Spike=%b", data_out_local[0]);
+        if (data_out_local == 1) $display("  PASS: Spike generated"); else $display("  FAIL: Missing spike");
+
+        config_valid = 0;
+        data_in_n = 16'd0;
+        #(CLK_PERIOD*2);
+        
         // End simulation
         #(CLK_PERIOD*10);
         $display("\n======================================");

@@ -675,10 +675,10 @@ module tb_cgra_top;
         
         // Test 29: SNN Leaky Integrate-and-Fire (LIF) Neuron Operation
         $display("\n[TEST 29] SNN LIF Neuron - Membrane Potential Integration");
-        // Configure PE for LIF: V_mem += weight * spike - leak
-        // PE 0,0: ADD for integration, PE 0,1: SUB for leak
-        config_mem[0] = 64'h0000_0000_0A41_0001;  // PE 0,0: ADD with routing to East
-        config_mem[1] = 64'h0000_0000_1641_0002;  // PE 0,1: SUB (leak decay)
+        // Configure PE for hardware LIF: OP_LIF integrates with leak and compares to threshold
+        // Immediate=120 so V_mem crosses threshold after two cycles (leak=10) and spikes
+        config_mem[0] = 64'h0000_0000_7840_1992;  // PE 0,0: OP_LIF routed local
+        config_mem[1] = 64'h0000_0000_0000_0000;  // Clear adjacent PE used in old emulation path
         
         axi_write(32'h00, 32'h0000_0004);  // Start config load
         #(CLK_PERIOD*5);
@@ -697,7 +697,7 @@ module tb_cgra_top;
         $display("\n[TEST 30] SNN Spike Generation - Threshold Comparison");
         // Configure PE to compare membrane potential with threshold
         // PE 1,0: CMP_GT (V_mem > V_th), PE 1,1: SELECT spike output
-        config_mem[4] = 64'h0000_0000_0A41_0008;  // PE 1,0: CMP_GT with routing
+        config_mem[4] = 64'h0000_0000_0A41_000A;  // PE 1,0: CMP_GT with routing
         config_mem[5] = 64'h0000_0000_0641_0011;  // PE 1,1: SELECT for spike
         
         axi_write(32'h00, 32'h0000_0004);  // Reload config
@@ -798,7 +798,7 @@ module tb_cgra_top;
         $display("\n[TEST 35] SNN Refractory Period - Spike Blocking");
         // Configure PE to block spikes during refractory period
         // PE 2,2: CMP_GT (time check), PE 2,3: AND (gate spikes)
-        config_mem[10] = 64'h0000_0000_0A41_0008;  // PE 2,2: CMP_GT for timer
+        config_mem[10] = 64'h0000_0000_0A41_000A;  // PE 2,2: CMP_GT for timer
         config_mem[11] = 64'h0000_0000_0641_0005;  // PE 2,3: AND for gating
         
         axi_write(32'h00, 32'h0000_0004);  // Reload config
