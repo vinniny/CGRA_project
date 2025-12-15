@@ -256,6 +256,7 @@ module cgra_top_new #(
         .cgra_start(cgra_start),
         .cgra_reset(cgra_reset),
         .cfg_start(cfg_start),
+        .cfg_size(bitstream_size),
         .cgra_busy(cgra_busy),
         .cgra_done(cgra_done),
         .cgra_error(cgra_error),

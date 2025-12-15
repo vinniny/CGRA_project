@@ -19,6 +19,7 @@ module cgra_control_unit #(
     input  logic        cgra_start,
     input  logic        cgra_reset,
     input  logic        cfg_start,
+    input  logic [15:0] cfg_size,        // Number of cycles to run per timestep
     output logic        cgra_busy,
     output logic        cgra_done,
     output logic        cgra_error,
@@ -152,7 +153,7 @@ module cgra_control_unit #(
                 // Main execution phase
                 if (!cgra_start) begin
                     state_next = STATE_COMPLETE;
-                end else if (cycles_in_timestep >= 16'd100) begin  // Configurable cycle limit
+                end else if (cycles_in_timestep >= cfg_size) begin
                     state_next = STATE_EXEC_DRAIN;
                 end else if (cgra_error) begin
                     state_next = STATE_ERROR;
