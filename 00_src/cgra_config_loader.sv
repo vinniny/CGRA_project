@@ -108,7 +108,7 @@ module cgra_config_loader #(
     always_comb begin
         next_state = state;
         
-        case (state)
+        unique case (state)
             IDLE: begin
                 if (start_load) begin
                     next_state = LOAD_HEADER;
@@ -175,9 +175,10 @@ module cgra_config_loader #(
             bank1_30 <= '0; bank1_31 <= '0; bank1_32 <= '0; bank1_33 <= '0;
             
         end else begin
-            case (state)
+            unique case (state)
                 IDLE: begin
-                    load_done <= 1'b0;
+                    // Only clear load_done when starting a new load
+                    // (This allows external logic to see completion before next load)
                     load_error <= 1'b0;
                     mem_read <= 1'b0;
                     
@@ -201,7 +202,7 @@ module cgra_config_loader #(
                     if (mem_read && mem_valid) begin
                         // Write to target buffer based on pe_index
                         if (target_buffer == 1'b0) begin
-                            case (pe_index)
+                            unique case (pe_index)
                                 4'd0:  bank0_00 <= mem_rdata;
                                 4'd1:  bank0_01 <= mem_rdata;
                                 4'd2:  bank0_02 <= mem_rdata;
@@ -221,7 +222,7 @@ module cgra_config_loader #(
                                 default: begin end
                             endcase
                         end else begin
-                            case (pe_index)
+                            unique case (pe_index)
                                 4'd0:  bank1_00 <= mem_rdata;
                                 4'd1:  bank1_01 <= mem_rdata;
                                 4'd2:  bank1_02 <= mem_rdata;

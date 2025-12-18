@@ -112,7 +112,7 @@ module cgra_axi_csr #(
     always_comb begin
         w_next_state = w_state;
         
-        case (w_state)
+        unique case (w_state)
             W_IDLE: begin
                 if (s_axi_awvalid) begin
                     w_next_state = W_DATA;
@@ -190,7 +190,7 @@ module cgra_axi_csr #(
             dma_start <= 1'b0;
             
             if (w_state == W_DATA && s_axi_wvalid) begin
-                case (w_addr_reg[7:0])
+                unique case (w_addr_reg[7:0])
                     ADDR_CTRL: begin
                         ctrl_reg <= s_axi_wdata;
                     end
@@ -257,7 +257,7 @@ module cgra_axi_csr #(
     always_comb begin
         r_next_state = r_state;
         
-        case (r_state)
+        unique case (r_state)
             R_IDLE: begin
                 if (s_axi_arvalid) begin
                     r_next_state = R_DATA;
@@ -295,7 +295,7 @@ module cgra_axi_csr #(
     logic [31:0] read_data;
     
     always_comb begin
-        case (r_addr_reg[7:0])
+        unique case (r_addr_reg[7:0])
             ADDR_CTRL:         read_data = ctrl_reg;
             ADDR_STATUS:       read_data = status_reg;
             ADDR_BITSTR_ADDR:  read_data = bitstr_addr_reg;

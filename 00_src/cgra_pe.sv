@@ -11,13 +11,19 @@
 //   [22]    - pred_en
 //   [23]    - pred_inv
 //   [39:24] - imm (16-bit immediate)
-//   [63:40] - extended metadata
+//   [63:40] - extended metadata (routing header fields, LSB-first)
+//             [2*COORD_WIDTH]                   - multicast
+//             [2*COORD_WIDTH-1:COORD_WIDTH]     - dest_y
+//             [COORD_WIDTH-1:0]                - dest_x
+//             [23:(2*COORD_WIDTH)+1]           - reserved
 
 module cgra_pe #(
-    parameter DATA_WIDTH = 16,
-    parameter ADDR_WIDTH = 8,
-    parameter SPM_DEPTH = 256,
-    parameter RF_DEPTH = 16
+    parameter DATA_WIDTH  = 32,
+    parameter COORD_WIDTH = 4,
+    parameter PAYLOAD_WIDTH = 16,
+    parameter ADDR_WIDTH  = 8,
+    parameter SPM_DEPTH   = 256,
+    parameter RF_DEPTH    = 16
 )(
     input  logic clk,
     input  logic rst_n,
@@ -48,7 +54,11 @@ module cgra_pe #(
     
     // Local data output
     output logic [DATA_WIDTH-1:0] data_out_local,
-    output logic                  valid_out_local
+    output logic                  valid_out_local,
+
+    // Backpressure (from/to router local port)
+    input  logic                  ready_in,
+    output logic                  ready_out
 );
 
     // =========================================================================
@@ -63,17 +73,31 @@ module cgra_pe #(
     logic        pred_inv;
     logic [15:0] immediate;
     logic [23:0] extended;
+    logic [COORD_WIDTH-1:0] cfg_dest_x;
+    logic [COORD_WIDTH-1:0] cfg_dest_y;
+    logic                   cfg_multicast;
+
+    localparam int HEADER_WIDTH  = DATA_WIDTH - PAYLOAD_WIDTH;
+    localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
+
+    // Stall when router cannot accept output
+    logic stall;
+    assign stall = !ready_in;
+    assign ready_out = ready_in;
     
     always_comb begin
-        op_code   = config_frame[5:0];
-        src0_sel  = config_frame[9:6];
-        src1_sel  = config_frame[13:10];
-        dst_sel   = config_frame[17:14];
+        op_code    = config_frame[5:0];
+        src0_sel   = config_frame[9:6];
+        src1_sel   = config_frame[13:10];
+        dst_sel    = config_frame[17:14];
         route_mask = config_frame[21:18];
-        pred_en   = config_frame[22];
-        pred_inv  = config_frame[23];
-        immediate = config_frame[39:24];
-        extended  = config_frame[63:40];
+        pred_en    = config_frame[22];
+        pred_inv   = config_frame[23];
+        immediate  = config_frame[39:24];
+        extended   = config_frame[63:40];
+        cfg_dest_x = extended[COORD_WIDTH-1:0];
+        cfg_dest_y = extended[(2 * COORD_WIDTH)-1:COORD_WIDTH];
+        cfg_multicast = extended[2 * COORD_WIDTH];
     end
     
     // =========================================================================
@@ -86,10 +110,12 @@ module cgra_pe #(
     logic                  spm_we;
     
     always_ff @(posedge clk) begin
-        if (spm_we) begin
+        if (spm_we && !stall) begin
             spm_mem[spm_addr] <= spm_wdata;
         end
-        spm_rdata <= spm_mem[spm_addr];
+        if (!stall) begin
+            spm_rdata <= spm_mem[spm_addr];
+        end
     end
     
     // =========================================================================
@@ -122,7 +148,7 @@ module cgra_pe #(
             rf_mem[13] <= '0;
             rf_mem[14] <= '0;
             rf_mem[15] <= '0;
-        end else if (rf_we) begin
+        end else if (rf_we && !stall) begin
             rf_mem[rf_waddr] <= rf_wdata;
         end
     end
@@ -133,31 +159,51 @@ module cgra_pe #(
     end
     
     // =========================================================================
-    // Operand Multiplexing
+    // Operand Multiplexing (payload extracted from packets)
     // =========================================================================
     logic [DATA_WIDTH-1:0] operand0;
     logic [DATA_WIDTH-1:0] operand1;
+    logic [PAYLOAD_WIDTH-1:0] payload_n;
+    logic [PAYLOAD_WIDTH-1:0] payload_e;
+    logic [PAYLOAD_WIDTH-1:0] payload_s;
+    logic [PAYLOAD_WIDTH-1:0] payload_w;
+    logic [DATA_WIDTH-1:0] data_in_n_payload;
+    logic [DATA_WIDTH-1:0] data_in_e_payload;
+    logic [DATA_WIDTH-1:0] data_in_s_payload;
+    logic [DATA_WIDTH-1:0] data_in_w_payload;
+
+    always_comb begin
+        payload_n = data_in_n[PAYLOAD_WIDTH-1:0];
+        payload_e = data_in_e[PAYLOAD_WIDTH-1:0];
+        payload_s = data_in_s[PAYLOAD_WIDTH-1:0];
+        payload_w = data_in_w[PAYLOAD_WIDTH-1:0];
+
+        data_in_n_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_n[PAYLOAD_WIDTH-1]}}, payload_n};
+        data_in_e_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_e[PAYLOAD_WIDTH-1]}}, payload_e};
+        data_in_s_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_s[PAYLOAD_WIDTH-1]}}, payload_s};
+        data_in_w_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_w[PAYLOAD_WIDTH-1]}}, payload_w};
+    end
     
     always_comb begin
         // src0 selection
-        case (src0_sel)
+        unique case (src0_sel)
             4'd0:    operand0 = rf_rdata0;
-            4'd1:    operand0 = data_in_n;
-            4'd2:    operand0 = data_in_e;
-            4'd3:    operand0 = data_in_s;
-            4'd4:    operand0 = data_in_w;
+            4'd1:    operand0 = data_in_n_payload;
+            4'd2:    operand0 = data_in_e_payload;
+            4'd3:    operand0 = data_in_s_payload;
+            4'd4:    operand0 = data_in_w_payload;
             4'd5:    operand0 = spm_rdata;
             4'd6:    operand0 = immediate;
             default: operand0 = '0;
         endcase
         
         // src1 selection
-        case (src1_sel)
+        unique case (src1_sel)
             4'd0:    operand1 = rf_rdata1;
-            4'd1:    operand1 = data_in_n;
-            4'd2:    operand1 = data_in_e;
-            4'd3:    operand1 = data_in_s;
-            4'd4:    operand1 = data_in_w;
+            4'd1:    operand1 = data_in_n_payload;
+            4'd2:    operand1 = data_in_e_payload;
+            4'd3:    operand1 = data_in_s_payload;
+            4'd4:    operand1 = data_in_w_payload;
             4'd5:    operand1 = spm_rdata;
             4'd6:    operand1 = immediate;
             default: operand1 = '0;
@@ -224,8 +270,8 @@ module cgra_pe #(
         if (!rst_n) begin
             accumulator <= '0;
             predicate_flag <= 1'b0;
-        end else if (config_valid) begin
-            case (op_code)
+        end else if (config_valid && !stall) begin
+            unique case (op_code)
                 OP_NOP: begin
                     alu_result <= '0;
                 end
@@ -330,8 +376,8 @@ module cgra_pe #(
         spm_addr = operand1[ADDR_WIDTH-1:0];
         spm_wdata = operand0;
         
-        if (config_valid && execute_enable) begin
-            case (op_code)
+        if (config_valid && execute_enable && !stall) begin
+            unique case (op_code)
                 OP_STORE_SPM: begin
                     spm_we = 1'b1;
                 end
@@ -360,10 +406,12 @@ module cgra_pe #(
     // Bypass Network / Routing
     // =========================================================================
     logic [DATA_WIDTH-1:0] output_data;
+    logic [PAYLOAD_WIDTH-1:0] output_payload;
     logic                  output_valid;
     
     always_comb begin
-        output_data = alu_result[DATA_WIDTH-1:0];
+        output_payload = alu_result[PAYLOAD_WIDTH-1:0];
+        output_data = {cfg_multicast, cfg_dest_x, cfg_dest_y, {RESERVED_WIDTH{1'b0}}, output_payload};
         output_valid = config_valid && execute_enable;
     end
     
@@ -379,7 +427,7 @@ module cgra_pe #(
         valid_out_e = output_valid && route_mask[2];
         valid_out_s = output_valid && route_mask[1];
         valid_out_w = output_valid && route_mask[0];
-        valid_out_local = output_valid && route_mask[4];
+        valid_out_local = output_valid;
     end
 
 endmodule

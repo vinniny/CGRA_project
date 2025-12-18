@@ -53,20 +53,20 @@ module cgra_control_unit #(
     // =========================================================================
     // FSM States
     // =========================================================================
-    logic [3:0] state;
-    logic [3:0] state_next;
-    
-    localparam STATE_IDLE           = 4'd0;
-    localparam STATE_WAIT_CFG       = 4'd1;
-    localparam STATE_SETUP_DMA      = 4'd2;
-    localparam STATE_LOAD_CONTEXT   = 4'd3;
-    localparam STATE_EXEC_INIT      = 4'd4;
-    localparam STATE_EXEC_RUN       = 4'd5;
-    localparam STATE_EXEC_DRAIN     = 4'd6;
-    localparam STATE_TIMESTEP_DONE  = 4'd7;
-    localparam STATE_CONTEXT_SWAP   = 4'd8;
-    localparam STATE_COMPLETE       = 4'd9;
-    localparam STATE_ERROR          = 4'd10;
+    typedef enum logic [3:0] {
+        STATE_IDLE           = 4'd0,
+        STATE_WAIT_CFG       = 4'd1,
+        STATE_SETUP_DMA      = 4'd2,
+        STATE_LOAD_CONTEXT   = 4'd3,
+        STATE_EXEC_INIT      = 4'd4,
+        STATE_EXEC_RUN       = 4'd5,
+        STATE_EXEC_DRAIN     = 4'd6,
+        STATE_TIMESTEP_DONE  = 4'd7,
+        STATE_CONTEXT_SWAP   = 4'd8,
+        STATE_COMPLETE       = 4'd9,
+        STATE_ERROR          = 4'd10
+    } ctrl_state_t;
+    ctrl_state_t state, state_next;
     
     // =========================================================================
     // Timestep management
@@ -105,7 +105,7 @@ module cgra_control_unit #(
     always_comb begin
         state_next = state;
         
-        case (state)
+        unique case (state)
             STATE_IDLE: begin
                 if (cgra_start && cfg_start) begin
                     state_next = STATE_WAIT_CFG;
@@ -215,7 +215,7 @@ module cgra_control_unit #(
         if (!rst_n || cgra_reset) begin
             timestep_counter <= 16'd0;
             cycles_in_timestep <= 16'd0;
-            timestep_target <= 16'd255;
+            timestep_target <= NUM_TIMESTEPS - 1;
         end else begin
             if (state == STATE_IDLE) begin
                 timestep_counter <= 16'd0;

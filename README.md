@@ -1,176 +1,131 @@
-# CGRA Project README
+# CGRA Project
+
+A Coarse-Grained Reconfigurable Array (CGRA) accelerator for SNN inference, targeting the DE10-Standard FPGA.
+
+## Quick Start
+
+```bash
+# List available testbenches
+make list
+
+# Run a testbench
+make sim TB=tb_cgra_top_golden
+
+# View waveforms
+make wave TB=tb_cgra_top_golden
+
+# Clean generated files
+make clean
+```
 
 ## Project Structure
 
 ```
 CGRA_project/
-├── 00_src/           # Source files
-│   ├── cgra_pe.sv              # Processing Element
-│   ├── cgra_router.sv          # Router for mesh network
-│   ├── cgra_array_4x4.sv       # 4x4 PE array
-│   ├── cgra_config_loader.sv   # Configuration loader with double buffering
-│   ├── cgra_axi_csr.sv         # AXI4-Lite CSR interface
-│   ├── cgra_tile_memory.sv     # Row-banked tile memory (4 banks)
-│   ├── cgra_dma_engine.sv      # AXI4 master DMA engine
-│   ├── cgra_control_unit.sv    # Timestep/control FSM (used in new top)
-│   └── cgra_top.sv             # Top-level wrapper (AXI-Lite + DMA + tile mem)
-├── 01_bench/         # Testbenches
-│   ├── tb_cgra_pe.sv
-│   ├── tb_cgra_router.sv
-│   ├── tb_cgra_config_loader.sv
-│   ├── tb_cgra_top.sv
-│   └── run_sim.sh              # Simulation script
-├── 02_test/          # Test data and scripts
-├── 03_sim/           # Simulation outputs
-└── 04_doc/           # Documentation
-    └── spec_CGRA.md            # Complete specification
+├── 00_src/                          # RTL Source (10 modules)
+│   ├── cgra_pe.sv                   # Processing Element
+│   ├── cgra_router.sv               # 5-port mesh router
+│   ├── cgra_tile.sv                 # PE + Router wrapper
+│   ├── cgra_array_4x4.sv            # 4×4 PE mesh array
+│   ├── cgra_tile_memory.sv          # 4-bank row memory
+│   ├── cgra_axi_csr.sv              # AXI4-Lite CSR interface
+│   ├── cgra_control_unit.sv         # Execution FSM
+│   ├── cgra_config_loader.sv        # Double-buffered config
+│   ├── cgra_dma_engine.sv           # AXI4 DMA master
+│   └── cgra_top.sv                  # Top-level integration
+│
+├── 01_bench/                        # Golden Testbenches (10 files)
+│   ├── tb_cgra_top_golden.sv        # Top-level integration (6 tests)
+│   ├── tb_cgra_array_4x4_golden.sv  # Mesh routing (6 tests)
+│   ├── tb_cgra_tile_memory_golden.sv
+│   ├── tb_cgra_axi_csr_golden.sv
+│   ├── tb_cgra_dma_engine_golden.sv
+│   ├── tb_cgra_config_loader_golden.sv
+│   ├── tb_cgra_control_unit_golden.sv
+│   ├── tb_cgra_pe_golden.sv
+│   ├── tb_cgra_router_golden.sv
+│   └── tb_cgra_tile_golden.sv
+│
+├── 03_sim/                          # Simulation outputs (.vvp, .vcd)
+├── 04_doc/                          # Documentation
+│   └── spec_CGRA.md                 # Full specification
+├── Makefile                         # Build system
+└── README.md
 ```
 
-## Module Overview
+## Makefile Usage
 
-### 1. Processing Element (cgra_pe.sv)
-- **Features**: ALU/MAC unit, scratchpad memory (256 entries), register file (16 registers), 40-bit accumulator with 32-bit saturation
-- **Operations**: ADD, SUB, MUL, MAC, logical ops, comparisons, load/store, LIF (leaky integrate-and-fire) neuromorphic op
-- **Configuration**: 64-bit frame per cycle
-- **Routing**: Supports N/E/S/W/local output with multi-cast
+| Command | Description |
+|---------|-------------|
+| `make sim TB=<name>` | Compile and run testbench |
+| `make compile TB=<name>` | Compile only |
+| `make wave TB=<name>` | Open waveform in GTKWave |
+| `make list` | Show available testbenches |
+| `make clean` | Remove generated files |
+| `make help` | Show all commands |
 
-### 2. Router (cgra_router.sv)
-- **Routing**: XY deterministic routing
-- **Features**: Unicast, multicast, broadcast support
-- **Ports**: 5 ports (N/E/S/W/Local)
+## Architecture Overview
 
-### 3. CGRA Array (cgra_array_4x4.sv)
-- **Size**: 4×4 = 16 Processing Elements
-- **Topology**: 2D mesh with torus connections
-- **Configuration**: Simultaneous configuration of all PEs
-
-### 4. Configuration Loader (cgra_config_loader.sv)
-- **Features**: Double-buffered context storage
-- **FSM States**: IDLE, LOAD_HEADER, LOAD_FRAMES, SWAP, DONE, ERROR
-- **Atomic Swap**: Zero-stall context switching
-
-### 5. AXI4-Lite CSR (cgra_axi_csr.sv)
-- **Interface**: Standard AXI4-Lite slave
-- **Registers**: Control, Status, Bitstream addr/size, Performance counters
-- **Offsets**: See specification Section 4.2
-
-### 6. Top-Level (cgra_top.sv)
-- **Integration**: AXI4-Lite CSR, configuration loader, 4x4 PE array, AXI4 master DMA, row-banked tile memory
-- **FSM**: Execution control (IDLE, WAIT_CFG, SETUP, RUN, DRAIN, COMPLETE, ERROR)
-- **Counters**: Cycle counter, stall counter
-
-### 7. Tile Memory (cgra_tile_memory.sv)
-- **Organization**: 4 banks (one per PE row), 16-bit data width, DMA-accessible external port
-- **Access**: Parallel per-bank ports plus external read/write
-
-### 8. DMA Engine (cgra_dma_engine.sv)
-- **Interface**: AXI4 master (read/write bursts)
-- **Control**: Descriptor-based jobs from CSR, drives tile memory through local interface
-## Configuration Frame Format (64-bit)
-
-| Bits    | Field     | Description                    |
-|---------|-----------|--------------------------------|
-| [5:0]   | op_code   | Operation code                 |
-| [9:6]   | src0      | Source operand 0 select        |
-| [13:10] | src1      | Source operand 1 select        |
-| [17:14] | dst       | Destination register select    |
-| [21:18] | route     | Routing mask (N/E/S/W/local)   |
-| [22]    | pred_en   | Predicate enable               |
-| [23]    | pred_inv  | Predicate invert               |
-| [39:24] | imm       | 16-bit immediate value         |
-| [63:40] | extended  | Extended metadata              |
-
-## Operation Codes
-
-| Code | Operation  | Description                    |
-|------|------------|--------------------------------|
-| 0    | NOP        | No operation                   |
-| 1    | ADD        | Addition                       |
-| 2    | SUB        | Subtraction                    |
-| 3    | MUL        | Multiplication                 |
-| 4    | MAC        | Multiply-accumulate            |
-| 5    | AND        | Bitwise AND                    |
-| 6    | OR         | Bitwise OR                     |
-| 7    | XOR        | Bitwise XOR                    |
-| 8    | SHL        | Shift left                     |
-| 9    | SHR        | Shift right                    |
-| 10   | CMP_GT     | Compare greater than           |
-| 11   | CMP_LT     | Compare less than              |
-| 12   | CMP_EQ     | Compare equal                  |
-| 13   | LOAD_SPM   | Load from scratchpad           |
-| 14   | STORE_SPM  | Store to scratchpad            |
-| 15   | ACC_CLR    | Clear accumulator              |
-| 16   | PASS0      | Pass operand 0                 |
-| 17   | PASS1      | Pass operand 1                 |
-| 18   | LIF        | Leaky integrate-and-fire step  |
-
-## CSR Register Map (AXI4-Lite)
-
-| Offset | Name          | Access | Description                    |
-|--------|---------------|--------|--------------------------------|
-| 0x00   | CTRL          | R/W    | Control: start, reset, cfg_start |
-| 0x04   | STATUS        | R/W1C  | Status: busy, done, error, cfg_done |
-| 0x08   | BITSTR_ADDR   | R/W    | Bitstream base address         |
-| 0x0C   | BITSTR_SIZE   | R/W    | Bitstream size (frames)        |
-| 0x10   | DMA_DOORBELL  | W      | DMA start trigger              |
-| 0x14   | DMA_HEAD      | R      | DMA head pointer               |
-| 0x18   | JOB_DESC_ADDR | R/W    | Job descriptor address         |
-| 0x1C   | PERF0         | R      | Performance counter (cycles)   |
-| 0x20   | PERF1         | R      | Performance counter (stalls)   |
-| 0x24   | IRQ_MASK      | R/W    | Interrupt enable mask          |
-
-## Running Simulations
-
-### Prerequisites
-- Icarus Verilog (`iverilog`)
-- VVP (Verilog simulator)
-- GTKWave (optional, for waveform viewing)
-
-### Run a Testbench
-
-```bash
-cd 01_bench
-chmod +x run_sim.sh
-./run_sim.sh tb_cgra_pe
-./run_sim.sh tb_cgra_router
-./run_sim.sh tb_cgra_config_loader
-./run_sim.sh tb_cgra_top
 ```
-`run_sim.sh` now compiles the DMA and tile memory alongside the core RTL.
-
-### View Waveforms
-
-```bash
-cd 03_sim
-gtkwave cgra_top.vcd
+┌─────────────────────────────────────────────────────────────┐
+│                       cgra_top                              │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌───────────────┐  ┌─────────────────┐  │
+│  │ AXI4-Lite    │  │ Control Unit  │  │  Config Loader  │  │
+│  │ CSR          │──│ (FSM)         │──│ (Double-Buffer) │  │
+│  └──────────────┘  └───────────────┘  └─────────────────┘  │
+│         │                 │                    │            │
+│  ┌──────┴──────┐  ┌───────┴───────┐   ┌───────┴───────┐   │
+│  │ DMA Engine  │  │   4×4 CGRA    │   │ Tile Memory   │   │
+│  │ (AXI4)      │  │   PE Array    │   │ (4 banks)     │   │
+│  └─────────────┘  └───────────────┘   └───────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Design Constraints
+## CSR Register Map
 
-Following SystemVerilog restrictions:
-- No `typedef struct` - all signals defined directly
-- No `integer`, `genvar`, `generate`, or `for` loops
-- All PE instances and connections manually instantiated
+| Offset | Name | Access | Description |
+|--------|------|--------|-------------|
+| 0x00 | CTRL | R/W | [0]=start, [1]=reset, [2]=cfg_start |
+| 0x04 | STATUS | R/W1C | [0]=busy, [1]=done, [2]=error, [3]=cfg_done |
+| 0x08 | BITSTR_ADDR | R/W | Bitstream base address |
+| 0x0C | BITSTR_SIZE | R/W | Bitstream size (frames) |
+| 0x10 | DMA_DOORBELL | W | DMA start trigger |
+| 0x18 | JOB_DESC | R/W | DMA descriptor address |
+| 0x24 | IRQ_MASK | R/W | [0]=done, [1]=error, [2]=dma_done |
 
-## Synthesis Notes
+## Configuration Frame (64-bit)
 
-Target: DE10-Standard FPGA (Intel Cyclone V)
-- Clock target: 50-100 MHz
-- Resources: 16 PEs with 256-entry SPM each
-- Memory: Block RAM for scratchpads
-- Configuration: Distributed to all PEs simultaneously
+| Bits | Field | Description |
+|------|-------|-------------|
+| [5:0] | op_code | ALU operation |
+| [9:6] | src0 | Source 0 select |
+| [13:10] | src1 | Source 1 select |
+| [17:14] | dst | Destination register |
+| [21:18] | route | Output routing (N/E/S/W/L) |
+| [22] | pred_en | Predicate enable |
+| [39:24] | imm | 16-bit immediate |
 
-## Performance KPIs
+## RTL Coding Standards
 
-- **Latency**: Target ≥2×-5× improvement over CPU baseline
-- **PE Utilization**: Target ≥70% on mapped workloads
-- **Memory Traffic Reduction**: Target ≥30% due to sparsity exploitation
-- **Reconfiguration**: Zero-stall context switching
+All RTL follows SystemVerilog synthesis best practices:
+- ✅ `always_ff` / `always_comb` (no generic `always`)
+- ✅ `unique case` with `default` clauses
+- ✅ `typedef enum` for FSM states
+- ✅ `logic` type (no `reg`)
+- ✅ Sync reset, nonblocking (<=) in always_ff
 
-## Authors
+## Prerequisites
 
-CGRA design for SNN inference acceleration
-Implementation follows specification in `04_doc/spec_CGRA.md`
+- [Icarus Verilog](http://iverilog.icarus.com/) (`iverilog`)
+- [GTKWave](http://gtkwave.sourceforge.net/) (optional, for waveforms)
+
+## Target Platform
+
+- **Board**: DE10-Standard (Intel Cyclone V)
+- **Clock**: 50-100 MHz
+- **Array Size**: 4×4 = 16 PEs
+- **SPM per PE**: 256 entries × 32-bit
 
 ## License
 

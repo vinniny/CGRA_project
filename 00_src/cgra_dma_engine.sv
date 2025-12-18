@@ -95,17 +95,17 @@ module cgra_dma_engine #(
     // =========================================================================
     // DMA FSM States
     // =========================================================================
-    logic [2:0] state;
-    logic [2:0] state_next;
-    
-    localparam STATE_IDLE        = 3'd0;
-    localparam STATE_FETCH_DESC  = 3'd1;
-    localparam STATE_READ_SETUP  = 3'd2;
-    localparam STATE_READ_DATA   = 3'd3;
-    localparam STATE_WRITE_SETUP = 3'd4;
-    localparam STATE_WRITE_DATA  = 3'd5;
-    localparam STATE_WAIT_RESP   = 3'd6;
-    localparam STATE_DONE        = 3'd7;
+    typedef enum logic [2:0] {
+        STATE_IDLE        = 3'd0,
+        STATE_FETCH_DESC  = 3'd1,
+        STATE_READ_SETUP  = 3'd2,
+        STATE_READ_DATA   = 3'd3,
+        STATE_WRITE_SETUP = 3'd4,
+        STATE_WRITE_DATA  = 3'd5,
+        STATE_WAIT_RESP   = 3'd6,
+        STATE_DONE        = 3'd7
+    } dma_state_t;
+    dma_state_t state, state_next;
     
     // =========================================================================
     // Transfer counters
@@ -119,14 +119,15 @@ module cgra_dma_engine #(
     // =========================================================================
     // Descriptor fetch FSM
     // =========================================================================
-    logic [1:0] desc_fetch_state;
+    typedef enum logic [1:0] {
+        DESC_IDLE = 2'd0,
+        DESC_READ = 2'd1,
+        DESC_WAIT = 2'd2,
+        DESC_DONE = 2'd3
+    } desc_state_t;
+    desc_state_t desc_fetch_state;
     logic [31:0] desc_buffer[0:3];
     logic [1:0] desc_word_idx;
-    
-    localparam DESC_IDLE = 2'd0;
-    localparam DESC_READ = 2'd1;
-    localparam DESC_WAIT = 2'd2;
-    localparam DESC_DONE = 2'd3;
     
     // =========================================================================
     // FSM Sequential Logic
@@ -145,7 +146,7 @@ module cgra_dma_engine #(
     always_comb begin
         state_next = state;
         
-        case (state)
+        unique case (state)
             STATE_IDLE: begin
                 if (dma_start) begin
                     state_next = STATE_FETCH_DESC;
@@ -220,7 +221,7 @@ module cgra_dma_engine #(
             desc_length <= 32'd0;
             desc_dir <= 1'b0;
         end else begin
-            case (desc_fetch_state)
+            unique case (desc_fetch_state)
                 DESC_IDLE: begin
                     if (state == STATE_FETCH_DESC) begin
                         desc_fetch_state <= DESC_READ;
@@ -255,6 +256,10 @@ module cgra_dma_engine #(
                         desc_fetch_state <= DESC_IDLE;
                     end
                 end
+                
+                default: begin
+                    desc_fetch_state <= DESC_IDLE;
+                end
             endcase
         end
     end
@@ -275,10 +280,13 @@ module cgra_dma_engine #(
                 current_src_addr <= desc_src_addr;
                 current_dst_addr <= desc_dst_addr;
             end else if (state == STATE_READ_SETUP || state == STATE_WRITE_SETUP) begin
+                // Compute burst_count with underflow guard
                 if (bytes_remaining >= (MAX_BURST_LEN * (DATA_WIDTH/8))) begin
                     burst_count <= MAX_BURST_LEN - 1;
-                end else begin
+                end else if (bytes_remaining >= (DATA_WIDTH/8)) begin
                     burst_count <= (bytes_remaining / (DATA_WIDTH/8)) - 1;
+                end else begin
+                    burst_count <= 8'd0;  // Single beat for small transfers
                 end
                 beat_count <= 8'd0;
             end else if ((state == STATE_READ_DATA && m_axi_rvalid && m_axi_rready) ||
@@ -314,7 +322,15 @@ module cgra_dma_engine #(
                 m_axi_arvalid <= 1'b1;
             end else if (state == STATE_READ_SETUP && !m_axi_arvalid) begin
                 m_axi_araddr <= current_src_addr;
-                m_axi_arlen <= burst_count;
+                // Compute burst length directly to avoid timing issue with burst_count
+                // Guard against underflow when bytes_remaining is 0
+                if (bytes_remaining >= (MAX_BURST_LEN * (DATA_WIDTH/8))) begin
+                    m_axi_arlen <= MAX_BURST_LEN - 1;
+                end else if (bytes_remaining >= (DATA_WIDTH/8)) begin
+                    m_axi_arlen <= (bytes_remaining / (DATA_WIDTH/8)) - 1;
+                end else begin
+                    m_axi_arlen <= 8'd0;  // Single beat for small transfers
+                end
                 m_axi_arvalid <= 1'b1;
             end else if (m_axi_arvalid && m_axi_arready) begin
                 m_axi_arvalid <= 1'b0;

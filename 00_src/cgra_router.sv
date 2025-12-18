@@ -1,436 +1,407 @@
 // ==============================================================================
-// CGRA Router for Mesh Network
+// CGRA ROUTER (FIXED FLOW CONTROL)
 // ==============================================================================
-// Implements XY routing with unicast, multicast, and broadcast support
-// Routes packets between N/E/S/W directions based on destination address
+// 1. Explicit Handshake Logic to prevent "Stuck Valid" / Looping
+// 2. Correct parameter propagation for X/Y Coordinates
+// ==============================================================================
 
 module cgra_router #(
-    parameter DATA_WIDTH = 16,
-    parameter ADDR_WIDTH = 4,
+    parameter DATA_WIDTH = 32,
+    parameter COORD_WIDTH = 4,
+    parameter PAYLOAD_WIDTH = 16,
     parameter X_COORD = 0,
     parameter Y_COORD = 0
 )(
     input  logic clk,
     input  logic rst_n,
-    
-    // North port
+
+    // North Port
     input  logic [DATA_WIDTH-1:0] data_in_n,
-    input  logic [ADDR_WIDTH-1:0] dest_x_n,
-    input  logic [ADDR_WIDTH-1:0] dest_y_n,
-    input  logic                  multicast_n,
     input  logic                  valid_in_n,
+    output logic                  ready_out_n,
     output logic [DATA_WIDTH-1:0] data_out_n,
-    output logic [ADDR_WIDTH-1:0] dest_x_out_n,
-    output logic [ADDR_WIDTH-1:0] dest_y_out_n,
-    output logic                  multicast_out_n,
     output logic                  valid_out_n,
-    
-    // East port
+    input  logic                  ready_in_n,
+
+    // East Port
     input  logic [DATA_WIDTH-1:0] data_in_e,
-    input  logic [ADDR_WIDTH-1:0] dest_x_e,
-    input  logic [ADDR_WIDTH-1:0] dest_y_e,
-    input  logic                  multicast_e,
     input  logic                  valid_in_e,
+    output logic                  ready_out_e,
     output logic [DATA_WIDTH-1:0] data_out_e,
-    output logic [ADDR_WIDTH-1:0] dest_x_out_e,
-    output logic [ADDR_WIDTH-1:0] dest_y_out_e,
-    output logic                  multicast_out_e,
     output logic                  valid_out_e,
-    
-    // South port
+    input  logic                  ready_in_e,
+
+    // South Port
     input  logic [DATA_WIDTH-1:0] data_in_s,
-    input  logic [ADDR_WIDTH-1:0] dest_x_s,
-    input  logic [ADDR_WIDTH-1:0] dest_y_s,
-    input  logic                  multicast_s,
     input  logic                  valid_in_s,
+    output logic                  ready_out_s,
     output logic [DATA_WIDTH-1:0] data_out_s,
-    output logic [ADDR_WIDTH-1:0] dest_x_out_s,
-    output logic [ADDR_WIDTH-1:0] dest_y_out_s,
-    output logic                  multicast_out_s,
     output logic                  valid_out_s,
-    
-    // West port
+    input  logic                  ready_in_s,
+
+    // West Port
     input  logic [DATA_WIDTH-1:0] data_in_w,
-    input  logic [ADDR_WIDTH-1:0] dest_x_w,
-    input  logic [ADDR_WIDTH-1:0] dest_y_w,
-    input  logic                  multicast_w,
     input  logic                  valid_in_w,
+    output logic                  ready_out_w,
     output logic [DATA_WIDTH-1:0] data_out_w,
-    output logic [ADDR_WIDTH-1:0] dest_x_out_w,
-    output logic [ADDR_WIDTH-1:0] dest_y_out_w,
-    output logic                  multicast_out_w,
     output logic                  valid_out_w,
-    
-    // Local port (to/from PE)
+    input  logic                  ready_in_w,
+
+    // Local Port
     input  logic [DATA_WIDTH-1:0] data_in_local,
-    input  logic [ADDR_WIDTH-1:0] dest_x_local,
-    input  logic [ADDR_WIDTH-1:0] dest_y_local,
-    input  logic                  multicast_local,
     input  logic                  valid_in_local,
+    output logic                  ready_out_local,
     output logic [DATA_WIDTH-1:0] data_out_local,
-    output logic                  valid_out_local
+    output logic                  valid_out_local,
+    input  logic                  ready_in_local
 );
 
-    // =========================================================================
-    // Input Buffers (1-Stage FIFO / Pipeline Registers)
-    // =========================================================================
-    logic [DATA_WIDTH-1:0] buf_data_n, buf_data_e, buf_data_s, buf_data_w, buf_data_l;
-    logic [ADDR_WIDTH-1:0] buf_dx_n, buf_dx_e, buf_dx_s, buf_dx_w, buf_dx_l;
-    logic [ADDR_WIDTH-1:0] buf_dy_n, buf_dy_e, buf_dy_s, buf_dy_w, buf_dy_l;
-    logic                  buf_mc_n, buf_mc_e, buf_mc_s, buf_mc_w, buf_mc_l;
-    logic                  buf_val_n, buf_val_e, buf_val_s, buf_val_w, buf_val_l;
+    // Internal Buffers
+    logic [DATA_WIDTH-1:0] b_data_n, b_data_e, b_data_s, b_data_w, b_data_l;
+    logic                  b_val_n,  b_val_e,  b_val_s,  b_val_w,  b_val_l;
+    
+    // Stall Signals (Computed later)
+    logic stall_n, stall_e, stall_s, stall_w, stall_l;
 
-    always_ff @(posedge clk or negedge rst_n) begin
+    // =========================================================================
+    // 1. INPUT BUFFER MANAGEMENT (Skid Buffers)
+    // =========================================================================
+    // A buffer accepts data if it is EMPTY or if it is currently STALLING=0 (moving data).
+    
+    // North Buffer
+    assign ready_out_n = !b_val_n || !stall_n;
+    always_ff @(posedge clk) begin
         if (!rst_n) begin
-            {buf_val_n, buf_val_e, buf_val_s, buf_val_w, buf_val_l} <= 5'b0;
-            {buf_data_n, buf_data_e, buf_data_s, buf_data_w, buf_data_l} <= '0;
-            {buf_dx_n, buf_dx_e, buf_dx_s, buf_dx_w, buf_dx_l} <= '0;
-            {buf_dy_n, buf_dy_e, buf_dy_s, buf_dy_w, buf_dy_l} <= '0;
-            {buf_mc_n, buf_mc_e, buf_mc_s, buf_mc_w, buf_mc_l} <= 5'b0;
+            b_val_n <= 1'b0;
+            b_data_n <= '0;
         end else begin
-            buf_val_n <= valid_in_n; buf_data_n <= data_in_n; buf_dx_n <= dest_x_n; buf_dy_n <= dest_y_n; buf_mc_n <= multicast_n;
-            buf_val_e <= valid_in_e; buf_data_e <= data_in_e; buf_dx_e <= dest_x_e; buf_dy_e <= dest_y_e; buf_mc_e <= multicast_e;
-            buf_val_s <= valid_in_s; buf_data_s <= data_in_s; buf_dx_s <= dest_x_s; buf_dy_s <= dest_y_s; buf_mc_s <= multicast_s;
-            buf_val_w <= valid_in_w; buf_data_w <= data_in_w; buf_dx_w <= dest_x_w; buf_dy_w <= dest_y_w; buf_mc_w <= multicast_w;
-            buf_val_l <= valid_in_local; buf_data_l <= data_in_local; buf_dx_l <= dest_x_local; buf_dy_l <= dest_y_local; buf_mc_l <= multicast_local;
+            if (ready_out_n) begin
+                // Ready to accept: Load new data if valid, or clear valid if not
+                b_val_n <= valid_in_n;
+                if (valid_in_n) b_data_n <= data_in_n;
+            end
+        end
+    end
+
+    // East Buffer
+    assign ready_out_e = !b_val_e || !stall_e;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            b_val_e <= 1'b0;
+            b_data_e <= '0;
+        end else begin
+            if (ready_out_e) begin
+                b_val_e <= valid_in_e;
+                if (valid_in_e) b_data_e <= data_in_e;
+            end
+        end
+    end
+
+    // South Buffer
+    assign ready_out_s = !b_val_s || !stall_s;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            b_val_s <= 1'b0;
+            b_data_s <= '0;
+        end else begin
+            if (ready_out_s) begin
+                b_val_s <= valid_in_s;
+                if (valid_in_s) b_data_s <= data_in_s;
+            end
+        end
+    end
+
+    // West Buffer
+    assign ready_out_w = !b_val_w || !stall_w;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            b_val_w <= 1'b0;
+            b_data_w <= '0;
+        end else begin
+            if (ready_out_w) begin
+                b_val_w <= valid_in_w;
+                if (valid_in_w) b_data_w <= data_in_w;
+            end
+        end
+    end
+
+    // Local Buffer
+    assign ready_out_local = !b_val_l || !stall_l;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            b_val_l <= 1'b0;
+            b_data_l <= '0;
+        end else begin
+            if (ready_out_local) begin
+                b_val_l <= valid_in_local;
+                if (valid_in_local) b_data_l <= data_in_local;
+            end
         end
     end
 
     // =========================================================================
-    // XY Routing Logic
+    // 2. ROUTING LOGIC (In-Band Header Extraction)
     // =========================================================================
-    // Route packets first in X direction, then Y direction
-    // Multicast packets are forwarded to multiple outputs
+    // Format: [31:28 DX][27:24 DY][23:16 RSVD][15:0 PAYLOAD]
     
-    logic route_n_to_n, route_n_to_e, route_n_to_s, route_n_to_w, route_n_to_local;
-    logic route_e_to_n, route_e_to_e, route_e_to_s, route_e_to_w, route_e_to_local;
-    logic route_s_to_n, route_s_to_e, route_s_to_s, route_s_to_w, route_s_to_local;
-    logic route_w_to_n, route_w_to_e, route_w_to_s, route_w_to_w, route_w_to_local;
-    logic route_l_to_n, route_l_to_e, route_l_to_s, route_l_to_w, route_l_to_local;
-    
-    // =========================================================================
-    // North input routing
-    // =========================================================================
+    logic [COORD_WIDTH-1:0] dx_n, dy_n;
+    logic [COORD_WIDTH-1:0] dx_e, dy_e;
+    logic [COORD_WIDTH-1:0] dx_s, dy_s;
+    logic [COORD_WIDTH-1:0] dx_w, dy_w;
+    logic [COORD_WIDTH-1:0] dx_l, dy_l;
+
+    // Header Extraction
+    assign dx_n = b_data_n[31:28];
+    assign dy_n = b_data_n[27:24];
+    assign dx_e = b_data_e[31:28];
+    assign dy_e = b_data_e[27:24];
+    assign dx_s = b_data_s[31:28];
+    assign dy_s = b_data_s[27:24];
+    assign dx_w = b_data_w[31:28];
+    assign dy_w = b_data_w[27:24];
+    assign dx_l = b_data_l[31:28];
+    assign dy_l = b_data_l[27:24];
+
+    // Request Vector Generation
+    // req_from_X[4:0] -> {Local, West, South, East, North}
+    logic [4:0] req_n, req_e, req_s, req_w, req_l;
+
+    // Routing logic: XY routing - X first, then Y
     always_comb begin
-        route_n_to_n = 1'b0;
-        route_n_to_e = 1'b0;
-        route_n_to_s = 1'b0;
-        route_n_to_w = 1'b0;
-        route_n_to_local = 1'b0;
-        
-        if (buf_val_n) begin
-            if (buf_mc_n) begin
-                // Broadcast/multicast mode
-                route_n_to_e = 1'b1;
-                route_n_to_s = 1'b1;
-                route_n_to_w = 1'b1;
-                route_n_to_local = 1'b1;
-            end else begin
-                // Unicast XY routing
-                if (buf_dx_n > X_COORD) begin
-                    route_n_to_e = 1'b1;
-                end else if (buf_dx_n < X_COORD) begin
-                    route_n_to_w = 1'b1;
-                end else if (buf_dy_n > Y_COORD) begin
-                    route_n_to_s = 1'b1;
-                end else if (buf_dy_n < Y_COORD) begin
-                    route_n_to_n = 1'b1;
-                end else begin
-                    route_n_to_local = 1'b1;
-                end
-            end
+        req_n = 5'b0;
+        if (b_val_n) begin
+            if      (dx_n > X_COORD) req_n[1] = 1; // East
+            else if (dx_n < X_COORD) req_n[3] = 1; // West
+            else if (dy_n > Y_COORD) req_n[2] = 1; // South
+            else if (dy_n < Y_COORD) req_n[0] = 1; // North
+            else                     req_n[4] = 1; // Local (arrived)
         end
     end
-    
-    // =========================================================================
-    // East input routing
-    // =========================================================================
+
     always_comb begin
-        route_e_to_n = 1'b0;
-        route_e_to_e = 1'b0;
-        route_e_to_s = 1'b0;
-        route_e_to_w = 1'b0;
-        route_e_to_local = 1'b0;
-        
-        if (buf_val_e) begin
-            if (buf_mc_e) begin
-                route_e_to_n = 1'b1;
-                route_e_to_s = 1'b1;
-                route_e_to_w = 1'b1;
-                route_e_to_local = 1'b1;
-            end else begin
-                if (buf_dx_e > X_COORD) begin
-                    route_e_to_e = 1'b1;
-                end else if (buf_dx_e < X_COORD) begin
-                    route_e_to_w = 1'b1;
-                end else if (buf_dy_e > Y_COORD) begin
-                    route_e_to_s = 1'b1;
-                end else if (buf_dy_e < Y_COORD) begin
-                    route_e_to_n = 1'b1;
-                end else begin
-                    route_e_to_local = 1'b1;
-                end
-            end
+        req_e = 5'b0;
+        if (b_val_e) begin
+            if      (dx_e > X_COORD) req_e[1] = 1;
+            else if (dx_e < X_COORD) req_e[3] = 1;
+            else if (dy_e > Y_COORD) req_e[2] = 1;
+            else if (dy_e < Y_COORD) req_e[0] = 1;
+            else                     req_e[4] = 1;
         end
     end
-    
-    // =========================================================================
-    // South input routing
-    // =========================================================================
+
     always_comb begin
-        route_s_to_n = 1'b0;
-        route_s_to_e = 1'b0;
-        route_s_to_s = 1'b0;
-        route_s_to_w = 1'b0;
-        route_s_to_local = 1'b0;
-        
-        if (buf_val_s) begin
-            if (buf_mc_s) begin
-                route_s_to_n = 1'b1;
-                route_s_to_e = 1'b1;
-                route_s_to_w = 1'b1;
-                route_s_to_local = 1'b1;
-            end else begin
-                if (buf_dx_s > X_COORD) begin
-                    route_s_to_e = 1'b1;
-                end else if (buf_dx_s < X_COORD) begin
-                    route_s_to_w = 1'b1;
-                end else if (buf_dy_s > Y_COORD) begin
-                    route_s_to_s = 1'b1;
-                end else if (buf_dy_s < Y_COORD) begin
-                    route_s_to_n = 1'b1;
-                end else begin
-                    route_s_to_local = 1'b1;
-                end
-            end
+        req_s = 5'b0;
+        if (b_val_s) begin
+            if      (dx_s > X_COORD) req_s[1] = 1;
+            else if (dx_s < X_COORD) req_s[3] = 1;
+            else if (dy_s > Y_COORD) req_s[2] = 1;
+            else if (dy_s < Y_COORD) req_s[0] = 1;
+            else                     req_s[4] = 1;
         end
     end
-    
-    // =========================================================================
-    // West input routing
-    // =========================================================================
+
     always_comb begin
-        route_w_to_n = 1'b0;
-        route_w_to_e = 1'b0;
-        route_w_to_s = 1'b0;
-        route_w_to_w = 1'b0;
-        route_w_to_local = 1'b0;
-        
-        if (buf_val_w) begin
-            if (buf_mc_w) begin
-                route_w_to_n = 1'b1;
-                route_w_to_e = 1'b1;
-                route_w_to_s = 1'b1;
-                route_w_to_local = 1'b1;
-            end else begin
-                if (buf_dx_w > X_COORD) begin
-                    route_w_to_e = 1'b1;
-                end else if (buf_dx_w < X_COORD) begin
-                    route_w_to_w = 1'b1;
-                end else if (buf_dy_w > Y_COORD) begin
-                    route_w_to_s = 1'b1;
-                end else if (buf_dy_w < Y_COORD) begin
-                    route_w_to_n = 1'b1;
-                end else begin
-                    route_w_to_local = 1'b1;
-                end
-            end
+        req_w = 5'b0;
+        if (b_val_w) begin
+            if      (dx_w > X_COORD) req_w[1] = 1;
+            else if (dx_w < X_COORD) req_w[3] = 1;
+            else if (dy_w > Y_COORD) req_w[2] = 1;
+            else if (dy_w < Y_COORD) req_w[0] = 1;
+            else                     req_w[4] = 1;
         end
     end
-    
+
+    always_comb begin
+        req_l = 5'b0;
+        if (b_val_l) begin
+            if      (dx_l > X_COORD) req_l[1] = 1;
+            else if (dx_l < X_COORD) req_l[3] = 1;
+            else if (dy_l > Y_COORD) req_l[2] = 1;
+            else if (dy_l < Y_COORD) req_l[0] = 1;
+            else                     req_l[4] = 1;
+        end
+    end
+
     // =========================================================================
-    // Local input routing
+    // 3. ARBITRATION (Fixed Priority)
+    // =========================================================================
+    // Transpose Requests: "Who wants Output N?"
+    logic [4:0] wants_n, wants_e, wants_s, wants_w, wants_l;
+    // Order in vector: {L, W, S, E, N}
+    assign wants_n = {req_l[0], req_w[0], req_s[0], req_e[0], req_n[0]};
+    assign wants_e = {req_l[1], req_w[1], req_s[1], req_e[1], req_n[1]};
+    assign wants_s = {req_l[2], req_w[2], req_s[2], req_e[2], req_n[2]};
+    assign wants_w = {req_l[3], req_w[3], req_s[3], req_e[3], req_n[3]};
+    assign wants_l = {req_l[4], req_w[4], req_s[4], req_e[4], req_n[4]};
+
+    // Grants: One-Hot vectors indicating who won
+    logic [4:0] grant_n, grant_e, grant_s, grant_w, grant_l;
+
+    // Simple Fixed Priority Arbiter (L > W > S > E > N)
+    always_comb begin
+        if      (wants_n[4]) grant_n = 5'b10000;
+        else if (wants_n[3]) grant_n = 5'b01000;
+        else if (wants_n[2]) grant_n = 5'b00100;
+        else if (wants_n[1]) grant_n = 5'b00010;
+        else if (wants_n[0]) grant_n = 5'b00001;
+        else                 grant_n = 5'b00000;
+    end
+
+    always_comb begin
+        if      (wants_e[4]) grant_e = 5'b10000;
+        else if (wants_e[3]) grant_e = 5'b01000;
+        else if (wants_e[2]) grant_e = 5'b00100;
+        else if (wants_e[1]) grant_e = 5'b00010;
+        else if (wants_e[0]) grant_e = 5'b00001;
+        else                 grant_e = 5'b00000;
+    end
+
+    always_comb begin
+        if      (wants_s[4]) grant_s = 5'b10000;
+        else if (wants_s[3]) grant_s = 5'b01000;
+        else if (wants_s[2]) grant_s = 5'b00100;
+        else if (wants_s[1]) grant_s = 5'b00010;
+        else if (wants_s[0]) grant_s = 5'b00001;
+        else                 grant_s = 5'b00000;
+    end
+
+    always_comb begin
+        if      (wants_w[4]) grant_w = 5'b10000;
+        else if (wants_w[3]) grant_w = 5'b01000;
+        else if (wants_w[2]) grant_w = 5'b00100;
+        else if (wants_w[1]) grant_w = 5'b00010;
+        else if (wants_w[0]) grant_w = 5'b00001;
+        else                 grant_w = 5'b00000;
+    end
+
+    always_comb begin
+        if      (wants_l[4]) grant_l = 5'b10000;
+        else if (wants_l[3]) grant_l = 5'b01000;
+        else if (wants_l[2]) grant_l = 5'b00100;
+        else if (wants_l[1]) grant_l = 5'b00010;
+        else if (wants_l[0]) grant_l = 5'b00001;
+        else                 grant_l = 5'b00000;
+    end
+
+    // =========================================================================
+    // 4. CROSSBAR (Data Muxing)
     // =========================================================================
     always_comb begin
-        route_l_to_n = 1'b0;
-        route_l_to_e = 1'b0;
-        route_l_to_s = 1'b0;
-        route_l_to_w = 1'b0;
-        route_l_to_local = 1'b0;
-        
-        if (buf_val_l) begin
-            if (buf_mc_l) begin
-                route_l_to_n = 1'b1;
-                route_l_to_e = 1'b1;
-                route_l_to_s = 1'b1;
-                route_l_to_w = 1'b1;
-            end else begin
-                if (buf_dx_l > X_COORD) begin
-                    route_l_to_e = 1'b1;
-                end else if (buf_dx_l < X_COORD) begin
-                    route_l_to_w = 1'b1;
-                end else if (buf_dy_l > Y_COORD) begin
-                    route_l_to_s = 1'b1;
-                end else if (buf_dy_l < Y_COORD) begin
-                    route_l_to_n = 1'b1;
-                end else begin
-                    route_l_to_local = 1'b1;
-                end
-            end
-        end
+        unique case (grant_n)
+            5'b10000: data_out_n = b_data_l;
+            5'b01000: data_out_n = b_data_w;
+            5'b00100: data_out_n = b_data_s;
+            5'b00010: data_out_n = b_data_e;
+            5'b00001: data_out_n = b_data_n;
+            default:  data_out_n = '0;
+        endcase
     end
-    
+    assign valid_out_n = |grant_n;
+
+    always_comb begin
+        unique case (grant_e)
+            5'b10000: data_out_e = b_data_l;
+            5'b01000: data_out_e = b_data_w;
+            5'b00100: data_out_e = b_data_s;
+            5'b00010: data_out_e = b_data_e;
+            5'b00001: data_out_e = b_data_n;
+            default:  data_out_e = '0;
+        endcase
+    end
+    assign valid_out_e = |grant_e;
+
+    always_comb begin
+        unique case (grant_s)
+            5'b10000: data_out_s = b_data_l;
+            5'b01000: data_out_s = b_data_w;
+            5'b00100: data_out_s = b_data_s;
+            5'b00010: data_out_s = b_data_e;
+            5'b00001: data_out_s = b_data_n;
+            default:  data_out_s = '0;
+        endcase
+    end
+    assign valid_out_s = |grant_s;
+
+    always_comb begin
+        unique case (grant_w)
+            5'b10000: data_out_w = b_data_l;
+            5'b01000: data_out_w = b_data_w;
+            5'b00100: data_out_w = b_data_s;
+            5'b00010: data_out_w = b_data_e;
+            5'b00001: data_out_w = b_data_n;
+            default:  data_out_w = '0;
+        endcase
+    end
+    assign valid_out_w = |grant_w;
+
+    always_comb begin
+        unique case (grant_l)
+            5'b10000: data_out_local = b_data_l;
+            5'b01000: data_out_local = b_data_w;
+            5'b00100: data_out_local = b_data_s;
+            5'b00010: data_out_local = b_data_e;
+            5'b00001: data_out_local = b_data_n;
+            default:  data_out_local = '0;
+        endcase
+    end
+    assign valid_out_local = |grant_l;
+
     // =========================================================================
-    // Output Multiplexing with Arbitration (Priority: Local > N > E > S > W)
+    // 5. STALL LOGIC (Backpressure Upstream)
     // =========================================================================
+    // A buffer is stalled if it wants an output, is granted that output, 
+    // but the output's downstream neighbor is NOT ready.
+    // OR if it wants an output but is NOT granted (Arbitration loss).
     
-    // North output
     always_comb begin
-        if (route_l_to_n) begin
-            data_out_n = buf_data_l;
-            dest_x_out_n = buf_dx_l;
-            dest_y_out_n = buf_dy_l;
-            multicast_out_n = buf_mc_l;
-            valid_out_n = buf_val_l;
-        end else if (route_e_to_n) begin
-            data_out_n = buf_data_e;
-            dest_x_out_n = buf_dx_e;
-            dest_y_out_n = buf_dy_e;
-            multicast_out_n = buf_mc_e;
-            valid_out_n = buf_val_e;
-        end else if (route_s_to_n) begin
-            data_out_n = buf_data_s;
-            dest_x_out_n = buf_dx_s;
-            dest_y_out_n = buf_dy_s;
-            multicast_out_n = buf_mc_s;
-            valid_out_n = buf_val_s;
-        end else if (route_w_to_n) begin
-            data_out_n = buf_data_w;
-            dest_x_out_n = buf_dx_w;
-            dest_y_out_n = buf_dy_w;
-            multicast_out_n = buf_mc_w;
-            valid_out_n = buf_val_w;
-        end else begin
-            data_out_n = '0;
-            dest_x_out_n = '0;
-            dest_y_out_n = '0;
-            multicast_out_n = 1'b0;
-            valid_out_n = 1'b0;
+        // North Buffer Stall Check
+        stall_n = 0;
+        if (b_val_n) begin
+            if (req_n[0] && (!grant_n[0] || !ready_in_n)) stall_n = 1;
+            if (req_n[1] && (!grant_e[0] || !ready_in_e)) stall_n = 1;
+            if (req_n[2] && (!grant_s[0] || !ready_in_s)) stall_n = 1;
+            if (req_n[3] && (!grant_w[0] || !ready_in_w)) stall_n = 1;
+            if (req_n[4] && (!grant_l[0] || !ready_in_local)) stall_n = 1;
         end
-    end
-    
-    // East output
-    always_comb begin
-        if (route_l_to_e) begin
-            data_out_e = buf_data_l;
-            dest_x_out_e = buf_dx_l;
-            dest_y_out_e = buf_dy_l;
-            multicast_out_e = buf_mc_l;
-            valid_out_e = buf_val_l;
-        end else if (route_n_to_e) begin
-            data_out_e = buf_data_n;
-            dest_x_out_e = buf_dx_n;
-            dest_y_out_e = buf_dy_n;
-            multicast_out_e = buf_mc_n;
-            valid_out_e = buf_val_n;
-        end else if (route_s_to_e) begin
-            data_out_e = buf_data_s;
-            dest_x_out_e = buf_dx_s;
-            dest_y_out_e = buf_dy_s;
-            multicast_out_e = buf_mc_s;
-            valid_out_e = buf_val_s;
-        end else if (route_w_to_e) begin
-            data_out_e = buf_data_w;
-            dest_x_out_e = buf_dx_w;
-            dest_y_out_e = buf_dy_w;
-            multicast_out_e = buf_mc_w;
-            valid_out_e = buf_val_w;
-        end else begin
-            data_out_e = '0;
-            dest_x_out_e = '0;
-            dest_y_out_e = '0;
-            multicast_out_e = 1'b0;
-            valid_out_e = 1'b0;
+
+        // East Buffer Stall Check
+        stall_e = 0;
+        if (b_val_e) begin
+            if (req_e[0] && (!grant_n[1] || !ready_in_n)) stall_e = 1;
+            if (req_e[1] && (!grant_e[1] || !ready_in_e)) stall_e = 1;
+            if (req_e[2] && (!grant_s[1] || !ready_in_s)) stall_e = 1;
+            if (req_e[3] && (!grant_w[1] || !ready_in_w)) stall_e = 1;
+            if (req_e[4] && (!grant_l[1] || !ready_in_local)) stall_e = 1;
         end
-    end
-    
-    // South output
-    always_comb begin
-        if (route_l_to_s) begin
-            data_out_s = buf_data_l;
-            dest_x_out_s = buf_dx_l;
-            dest_y_out_s = buf_dy_l;
-            multicast_out_s = buf_mc_l;
-            valid_out_s = buf_val_l;
-        end else if (route_n_to_s) begin
-            data_out_s = buf_data_n;
-            dest_x_out_s = buf_dx_n;
-            dest_y_out_s = buf_dy_n;
-            multicast_out_s = buf_mc_n;
-            valid_out_s = buf_val_n;
-        end else if (route_e_to_s) begin
-            data_out_s = buf_data_e;
-            dest_x_out_s = buf_dx_e;
-            dest_y_out_s = buf_dy_e;
-            multicast_out_s = buf_mc_e;
-            valid_out_s = buf_val_e;
-        end else if (route_w_to_s) begin
-            data_out_s = buf_data_w;
-            dest_x_out_s = buf_dx_w;
-            dest_y_out_s = buf_dy_w;
-            multicast_out_s = buf_mc_w;
-            valid_out_s = buf_val_w;
-        end else begin
-            data_out_s = '0;
-            dest_x_out_s = '0;
-            dest_y_out_s = '0;
-            multicast_out_s = 1'b0;
-            valid_out_s = 1'b0;
+
+        // South Buffer Stall Check
+        stall_s = 0;
+        if (b_val_s) begin
+            if (req_s[0] && (!grant_n[2] || !ready_in_n)) stall_s = 1;
+            if (req_s[1] && (!grant_e[2] || !ready_in_e)) stall_s = 1;
+            if (req_s[2] && (!grant_s[2] || !ready_in_s)) stall_s = 1;
+            if (req_s[3] && (!grant_w[2] || !ready_in_w)) stall_s = 1;
+            if (req_s[4] && (!grant_l[2] || !ready_in_local)) stall_s = 1;
         end
-    end
-    
-    // West output
-    always_comb begin
-        if (route_l_to_w) begin
-            data_out_w = buf_data_l;
-            dest_x_out_w = buf_dx_l;
-            dest_y_out_w = buf_dy_l;
-            multicast_out_w = buf_mc_l;
-            valid_out_w = buf_val_l;
-        end else if (route_n_to_w) begin
-            data_out_w = buf_data_n;
-            dest_x_out_w = buf_dx_n;
-            dest_y_out_w = buf_dy_n;
-            multicast_out_w = buf_mc_n;
-            valid_out_w = buf_val_n;
-        end else if (route_e_to_w) begin
-            data_out_w = buf_data_e;
-            dest_x_out_w = buf_dx_e;
-            dest_y_out_w = buf_dy_e;
-            multicast_out_w = buf_mc_e;
-            valid_out_w = buf_val_e;
-        end else if (route_s_to_w) begin
-            data_out_w = buf_data_s;
-            dest_x_out_w = buf_dx_s;
-            dest_y_out_w = buf_dy_s;
-            multicast_out_w = buf_mc_s;
-            valid_out_w = buf_val_s;
-        end else begin
-            data_out_w = '0;
-            dest_x_out_w = '0;
-            dest_y_out_w = '0;
-            multicast_out_w = 1'b0;
-            valid_out_w = 1'b0;
+
+        // West Buffer Stall Check
+        stall_w = 0;
+        if (b_val_w) begin
+            if (req_w[0] && (!grant_n[3] || !ready_in_n)) stall_w = 1;
+            if (req_w[1] && (!grant_e[3] || !ready_in_e)) stall_w = 1;
+            if (req_w[2] && (!grant_s[3] || !ready_in_s)) stall_w = 1;
+            if (req_w[3] && (!grant_w[3] || !ready_in_w)) stall_w = 1;
+            if (req_w[4] && (!grant_l[3] || !ready_in_local)) stall_w = 1;
         end
-    end
-    
-    // Local output
-    always_comb begin
-        if (route_n_to_local) begin
-            data_out_local = buf_data_n;
-            valid_out_local = buf_val_n;
-        end else if (route_e_to_local) begin
-            data_out_local = buf_data_e;
-            valid_out_local = buf_val_e;
-        end else if (route_s_to_local) begin
-            data_out_local = buf_data_s;
-            valid_out_local = buf_val_s;
-        end else if (route_w_to_local) begin
-            data_out_local = buf_data_w;
-            valid_out_local = buf_val_w;
-        end else begin
-            data_out_local = '0;
-            valid_out_local = 1'b0;
+
+        // Local Buffer Stall Check
+        stall_l = 0;
+        if (b_val_l) begin
+            if (req_l[0] && (!grant_n[4] || !ready_in_n)) stall_l = 1;
+            if (req_l[1] && (!grant_e[4] || !ready_in_e)) stall_l = 1;
+            if (req_l[2] && (!grant_s[4] || !ready_in_s)) stall_l = 1;
+            if (req_l[3] && (!grant_w[4] || !ready_in_w)) stall_l = 1;
+            if (req_l[4] && (!grant_l[4] || !ready_in_local)) stall_l = 1;
         end
     end
 
