@@ -225,15 +225,15 @@ module cgra_pe #(
     logic signed [39:0]    sub_result;
     localparam signed [39:0] LIF_LEAK = 40'sd10;
     
-    function automatic logic [31:0] saturate_to_32(input logic signed [39:0] value);
-        if (value > 40'sd2147483647) begin
-            saturate_to_32 = 32'sd2147483647;
-        end else if (value < -40'sd2147483648) begin
-            saturate_to_32 = -32'sd2147483648;
-        end else begin
-            saturate_to_32 = value[31:0];
-        end
-    endfunction
+    // Pre-computed saturated values (replacing function)
+    logic [31:0] add_result_sat;
+    logic [31:0] sub_result_sat;
+    logic [31:0] mac_result_sat;
+    logic signed [39:0] mac_sum;
+    
+    // Saturation constants
+    localparam signed [39:0] MAX_VAL = 40'sd2147483647;
+    localparam signed [39:0] MIN_VAL = -40'sd2147483648;
     
     // OpCode definitions
     localparam OP_NOP   = 6'd0;
@@ -264,6 +264,34 @@ module cgra_pe #(
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
         lif_next_v = accumulator + op0_ext - LIF_LEAK;
+        mac_sum = accumulator + mult_ext;
+        
+        // Inline saturation for ADD result
+        if (add_result > MAX_VAL) begin
+            add_result_sat = 32'sd2147483647;
+        end else if (add_result < MIN_VAL) begin
+            add_result_sat = -32'sd2147483648;
+        end else begin
+            add_result_sat = add_result[31:0];
+        end
+        
+        // Inline saturation for SUB result
+        if (sub_result > MAX_VAL) begin
+            sub_result_sat = 32'sd2147483647;
+        end else if (sub_result < MIN_VAL) begin
+            sub_result_sat = -32'sd2147483648;
+        end else begin
+            sub_result_sat = sub_result[31:0];
+        end
+        
+        // Inline saturation for MAC result
+        if (mac_sum > MAX_VAL) begin
+            mac_result_sat = 32'sd2147483647;
+        end else if (mac_sum < MIN_VAL) begin
+            mac_result_sat = -32'sd2147483648;
+        end else begin
+            mac_result_sat = mac_sum[31:0];
+        end
     end
     
     always_ff @(posedge clk) begin
@@ -277,18 +305,18 @@ module cgra_pe #(
                 end
                 OP_ADD: begin
                     accumulator <= add_result;
-                    alu_result <= saturate_to_32(add_result);
+                    alu_result <= add_result_sat;
                 end
                 OP_SUB: begin
                     accumulator <= sub_result;
-                    alu_result <= saturate_to_32(sub_result);
+                    alu_result <= sub_result_sat;
                 end
                 OP_MUL: begin
                     alu_result <= operand0 * operand1;
                 end
                 OP_MAC: begin
-                    accumulator <= accumulator + mult_ext;
-                    alu_result <= saturate_to_32(accumulator + mult_ext);
+                    accumulator <= mac_sum;
+                    alu_result <= mac_result_sat;
                 end
                 OP_AND: begin
                     alu_result <= operand0 & operand1;
@@ -427,7 +455,7 @@ module cgra_pe #(
         valid_out_e = output_valid && route_mask[2];
         valid_out_s = output_valid && route_mask[1];
         valid_out_w = output_valid && route_mask[0];
-        valid_out_local = output_valid;
+        valid_out_local = output_valid && route_mask[4];  // Only output if route_mask[4] set
     end
 
 endmodule

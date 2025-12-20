@@ -1,340 +1,204 @@
 // ==============================================================================
-// CGRA AXI4-Lite CSR (Control and Status Register) Interface
+// CGRA APB CSR - Centralized Configuration and Status Registers
 // ==============================================================================
-// Implements control and status registers per specification
-// Register Map (32-bit aligned):
-//   0x00 - CTRL: start, reset, cfg_start
-//   0x04 - STATUS: busy, done, error, cfg_done
-//   0x08 - BITSTR_ADDR: bitstream base address
-//   0x0C - BITSTR_SIZE: bitstream size
-//   0x10 - DMA_DOORBELL: DMA start (write-only)
-//   0x14 - DMA_HEAD: head pointer
-//   0x18 - JOB_DESC_ADDR: descriptor address
-//   0x1C - PERF0: cycles counter
-//   0x20 - PERF1: stalls/memory ops counter
-//   0x24 - IRQ_MASK: interrupt enable mask
+// APB Slave interface for CPU configuration
+// Provides static config wires to DMA and Control Unit
+// ==============================================================================
 
 module cgra_axi_csr #(
     parameter ADDR_WIDTH = 32,
     parameter DATA_WIDTH = 32
 )(
-    input  logic clk,
-    input  logic rst_n,
+    input  logic                  clk,
+    input  logic                  rst_n,
     
-    // AXI4-Lite interface
-    input  logic [ADDR_WIDTH-1:0] s_axi_awaddr,
-    input  logic                  s_axi_awvalid,
-    output logic                  s_axi_awready,
+    // =========================================================================
+    // APB Slave Interface
+    // =========================================================================
+    input  logic                  psel,
+    input  logic                  penable,
+    input  logic                  pwrite,
+    input  logic [ADDR_WIDTH-1:0] paddr,
+    input  logic [DATA_WIDTH-1:0] pwdata,
+    output logic [DATA_WIDTH-1:0] prdata,
+    output logic                  pready,
+    output logic                  pslverr,
     
-    input  logic [DATA_WIDTH-1:0] s_axi_wdata,
-    input  logic [3:0]            s_axi_wstrb,
-    input  logic                  s_axi_wvalid,
-    output logic                  s_axi_wready,
+    // =========================================================================
+    // DMA Configuration Wires (Static Config)
+    // =========================================================================
+    output logic [31:0]           dma_src,
+    output logic [31:0]           dma_dst,
+    output logic [31:0]           dma_size,
+    output logic                  dma_start,      // Auto-clearing pulse
+    input  logic                  dma_busy_i,
+    input  logic                  dma_done_i,
     
-    output logic [1:0]            s_axi_bresp,
-    output logic                  s_axi_bvalid,
-    input  logic                  s_axi_bready,
+    // =========================================================================
+    // Control Unit Configuration Wires
+    // =========================================================================
+    output logic                  cu_start,       // Auto-clearing pulse
+    output logic                  cu_soft_reset,
+    input  logic                  cu_busy_i,
+    input  logic                  cu_done_i,
+    input  logic [31:0]           cu_cycles_i,
     
-    input  logic [ADDR_WIDTH-1:0] s_axi_araddr,
-    input  logic                  s_axi_arvalid,
-    output logic                  s_axi_arready,
-    
-    output logic [DATA_WIDTH-1:0] s_axi_rdata,
-    output logic [1:0]            s_axi_rresp,
-    output logic                  s_axi_rvalid,
-    input  logic                  s_axi_rready,
-    
-    // Control outputs
-    output logic                  cgra_start,
-    output logic                  cgra_reset,
-    output logic                  cfg_start,
-    output logic [ADDR_WIDTH-1:0] bitstream_addr,
-    output logic [15:0]           bitstream_size,
-    output logic                  dma_start,
-    output logic [ADDR_WIDTH-1:0] job_desc_addr,
-    output logic [31:0]           irq_mask,
-    
-    // Status inputs
-    input  logic                  cgra_busy,
-    input  logic                  cgra_done,
-    input  logic                  cgra_error,
-    input  logic                  cfg_done,
-    input  logic [31:0]           dma_head,
-    input  logic [31:0]           perf_cycles,
-    input  logic [31:0]           perf_stalls
+    // =========================================================================
+    // Interrupt Output
+    // =========================================================================
+    output logic                  irq
 );
 
     // =========================================================================
-    // Register addresses
+    // Address Map - Register Definitions
     // =========================================================================
-    localparam ADDR_CTRL         = 8'h00;
-    localparam ADDR_STATUS       = 8'h04;
-    localparam ADDR_BITSTR_ADDR  = 8'h08;
-    localparam ADDR_BITSTR_SIZE  = 8'h0C;
-    localparam ADDR_DMA_DOORBELL = 8'h10;
-    localparam ADDR_DMA_HEAD     = 8'h14;
-    localparam ADDR_JOB_DESC     = 8'h18;
-    localparam ADDR_PERF0        = 8'h1C;
-    localparam ADDR_PERF1        = 8'h20;
-    localparam ADDR_IRQ_MASK     = 8'h24;
+    // DMA Region
+    localparam ADDR_DMA_CTRL   = 8'h00;  // RW: [0] Start (auto-clear)
+    localparam ADDR_DMA_STATUS = 8'h04;  // RO: [0] Busy, [1] Done
+    localparam ADDR_DMA_SRC    = 8'h08;  // RW: Source address
+    localparam ADDR_DMA_DST    = 8'h0C;  // RW: Dest address
+    localparam ADDR_DMA_SIZE   = 8'h10;  // RW: Transfer size (bytes)
+    
+    // Control Unit Region
+    localparam ADDR_CU_CTRL    = 8'h20;  // RW: [0] Start, [1] Soft Reset
+    localparam ADDR_CU_STATUS  = 8'h24;  // RO: [0] Busy, [1] Done
+    localparam ADDR_CU_CYCLES  = 8'h28;  // RO: Cycle counter
+    
+    // IRQ Region
+    localparam ADDR_IRQ_STATUS = 8'h30;  // RO: [0] DMA Done, [1] CU Done
+    localparam ADDR_IRQ_MASK   = 8'h34;  // RW: IRQ enable mask
     
     // =========================================================================
-    // Internal registers
+    // Internal Registers
     // =========================================================================
-    logic [31:0] ctrl_reg;
-    logic [31:0] status_reg;
-    logic [31:0] bitstr_addr_reg;
-    logic [31:0] bitstr_size_reg;
-    logic [31:0] job_desc_reg;
-    logic [31:0] irq_mask_reg;
+    logic [31:0] reg_dma_ctrl;
+    logic [31:0] reg_dma_src;
+    logic [31:0] reg_dma_dst;
+    logic [31:0] reg_dma_size;
+    
+    logic [31:0] reg_cu_ctrl;
+    
+    logic [31:0] reg_irq_mask;
+    
+    // Status registers - latched (done bits are sticky)
+    logic        dma_done_latch;
+    logic        cu_done_latch;
     
     // =========================================================================
-    // AXI4-Lite Write FSM
+    // APB Interface - Zero Wait States
     // =========================================================================
-    typedef enum logic [1:0] {
-        W_IDLE  = 2'd0,
-        W_ADDR  = 2'd1,
-        W_DATA  = 2'd2,
-        W_RESP  = 2'd3
-    } write_state_t;
+    assign pready = 1'b1;
+    assign pslverr = 1'b0;
     
-    write_state_t w_state, w_next_state;
-    logic [ADDR_WIDTH-1:0] w_addr_reg;
-    
+    // =========================================================================
+    // Done Bit Latching - Sticky until next start
+    // =========================================================================
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            w_state <= W_IDLE;
+            dma_done_latch <= 1'b0;
+            cu_done_latch <= 1'b0;
         end else begin
-            w_state <= w_next_state;
+            // Latch DMA done
+            if (dma_done_i) begin
+                dma_done_latch <= 1'b1;
+            end else if (dma_start) begin
+                dma_done_latch <= 1'b0;  // Clear on new start
+            end
+            
+            // Latch CU done
+            if (cu_done_i) begin
+                cu_done_latch <= 1'b1;
+            end else if (cu_start) begin
+                cu_done_latch <= 1'b0;  // Clear on new start
+            end
         end
     end
+    
+    // =========================================================================
+    // Status Register Construction
+    // =========================================================================
+    logic [31:0] reg_dma_status;
+    logic [31:0] reg_cu_status;
+    logic [31:0] reg_irq_status;
     
     always_comb begin
-        w_next_state = w_state;
-        
-        unique case (w_state)
-            W_IDLE: begin
-                if (s_axi_awvalid) begin
-                    w_next_state = W_DATA;
-                end
-            end
-            
-            W_DATA: begin
-                if (s_axi_wvalid) begin
-                    w_next_state = W_RESP;
-                end
-            end
-            
-            W_RESP: begin
-                if (s_axi_bready) begin
-                    w_next_state = W_IDLE;
-                end
-            end
-            
-            default: w_next_state = W_IDLE;
-        endcase
-    end
-    
-    // Write address channel
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            w_addr_reg <= '0;
-            s_axi_awready <= 1'b0;
-        end else begin
-            if (w_state == W_IDLE && s_axi_awvalid) begin
-                w_addr_reg <= s_axi_awaddr;
-                s_axi_awready <= 1'b1;
-            end else begin
-                s_axi_awready <= 1'b0;
-            end
-        end
-    end
-    
-    // Write data channel
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            s_axi_wready <= 1'b0;
-        end else begin
-            s_axi_wready <= (w_state == W_DATA);
-        end
-    end
-    
-    // Write response channel
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            s_axi_bvalid <= 1'b0;
-            s_axi_bresp <= 2'b00;
-        end else begin
-            if (w_state == W_RESP) begin
-                s_axi_bvalid <= 1'b1;
-                s_axi_bresp <= 2'b00;  // OKAY
-            end else if (s_axi_bready) begin
-                s_axi_bvalid <= 1'b0;
-            end
-        end
+        reg_dma_status = {30'd0, dma_done_latch, dma_busy_i};
+        reg_cu_status  = {30'd0, cu_done_latch, cu_busy_i};
+        reg_irq_status = {30'd0, cu_done_latch, dma_done_latch};
     end
     
     // =========================================================================
-    // Register Write Logic
+    // Write Logic - Register Updates
     // =========================================================================
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            ctrl_reg <= '0;
-            bitstr_addr_reg <= '0;
-            bitstr_size_reg <= '0;
-            job_desc_reg <= '0;
-            irq_mask_reg <= '0;
-            dma_start <= 1'b0;
+            reg_dma_ctrl <= 32'd0;
+            reg_dma_src  <= 32'd0;
+            reg_dma_dst  <= 32'd0;
+            reg_dma_size <= 32'd0;
+            reg_cu_ctrl  <= 32'd0;
+            reg_irq_mask <= 32'd0;
         end else begin
-            // Auto-clear one-shot signals
-            dma_start <= 1'b0;
-            
-            if (w_state == W_DATA && s_axi_wvalid) begin
-                unique case (w_addr_reg[7:0])
-                    ADDR_CTRL: begin
-                        ctrl_reg <= s_axi_wdata;
-                    end
-                    
-                    ADDR_STATUS: begin
-                        // W1C (Write 1 to Clear) for status bits
-                        status_reg <= status_reg & ~s_axi_wdata;
-                    end
-                    
-                    ADDR_BITSTR_ADDR: begin
-                        bitstr_addr_reg <= s_axi_wdata;
-                    end
-                    
-                    ADDR_BITSTR_SIZE: begin
-                        bitstr_size_reg <= s_axi_wdata;
-                    end
-                    
-                    ADDR_DMA_DOORBELL: begin
-                        dma_start <= 1'b1;
-                    end
-                    
-                    ADDR_JOB_DESC: begin
-                        job_desc_reg <= s_axi_wdata;
-                    end
-                    
-                    ADDR_IRQ_MASK: begin
-                        irq_mask_reg <= s_axi_wdata;
-                    end
-                    
-                    default: begin
-                        // Read-only or undefined registers
-                    end
+            // APB Write Phase
+            if (psel && penable && pwrite) begin
+                case (paddr[7:0])
+                    ADDR_DMA_CTRL:   reg_dma_ctrl <= pwdata;
+                    ADDR_DMA_SRC:    reg_dma_src  <= pwdata;
+                    ADDR_DMA_DST:    reg_dma_dst  <= pwdata;
+                    ADDR_DMA_SIZE:   reg_dma_size <= pwdata;
+                    ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
+                    ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
+                    // Read-only registers: ignore writes
+                    default: ;
                 endcase
-            end
-            
-            // Update status register from hardware
-            status_reg[0] <= cgra_busy;
-            status_reg[1] <= cgra_done;
-            status_reg[2] <= cgra_error;
-            status_reg[3] <= cfg_done;
-        end
-    end
-    
-    // =========================================================================
-    // AXI4-Lite Read FSM
-    // =========================================================================
-    typedef enum logic [1:0] {
-        R_IDLE = 2'd0,
-        R_ADDR = 2'd1,
-        R_DATA = 2'd2
-    } read_state_t;
-    
-    read_state_t r_state, r_next_state;
-    logic [ADDR_WIDTH-1:0] r_addr_reg;
-    
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            r_state <= R_IDLE;
-        end else begin
-            r_state <= r_next_state;
-        end
-    end
-    
-    always_comb begin
-        r_next_state = r_state;
-        
-        unique case (r_state)
-            R_IDLE: begin
-                if (s_axi_arvalid) begin
-                    r_next_state = R_DATA;
-                end
-            end
-            
-            R_DATA: begin
-                if (s_axi_rready) begin
-                    r_next_state = R_IDLE;
-                end
-            end
-            
-            default: r_next_state = R_IDLE;
-        endcase
-    end
-    
-    // Read address channel
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            r_addr_reg <= '0;
-            s_axi_arready <= 1'b0;
-        end else begin
-            if (r_state == R_IDLE && s_axi_arvalid) begin
-                r_addr_reg <= s_axi_araddr;
-                s_axi_arready <= 1'b1;
             end else begin
-                s_axi_arready <= 1'b0;
+                // Auto-clear Start bits after 1 cycle (pulse generation)
+                if (reg_dma_ctrl[0]) reg_dma_ctrl[0] <= 1'b0;
+                if (reg_cu_ctrl[0])  reg_cu_ctrl[0]  <= 1'b0;
             end
         end
     end
     
     // =========================================================================
-    // Register Read Logic
+    // Read Logic - Register Mux
     // =========================================================================
-    logic [31:0] read_data;
-    
     always_comb begin
-        unique case (r_addr_reg[7:0])
-            ADDR_CTRL:         read_data = ctrl_reg;
-            ADDR_STATUS:       read_data = status_reg;
-            ADDR_BITSTR_ADDR:  read_data = bitstr_addr_reg;
-            ADDR_BITSTR_SIZE:  read_data = bitstr_size_reg;
-            ADDR_DMA_HEAD:     read_data = dma_head;
-            ADDR_JOB_DESC:     read_data = job_desc_reg;
-            ADDR_PERF0:        read_data = perf_cycles;
-            ADDR_PERF1:        read_data = perf_stalls;
-            ADDR_IRQ_MASK:     read_data = irq_mask_reg;
-            default:           read_data = 32'hDEADBEEF;
+        case (paddr[7:0])
+            ADDR_DMA_CTRL:   prdata = reg_dma_ctrl;
+            ADDR_DMA_STATUS: prdata = reg_dma_status;
+            ADDR_DMA_SRC:    prdata = reg_dma_src;
+            ADDR_DMA_DST:    prdata = reg_dma_dst;
+            ADDR_DMA_SIZE:   prdata = reg_dma_size;
+            ADDR_CU_CTRL:    prdata = reg_cu_ctrl;
+            ADDR_CU_STATUS:  prdata = reg_cu_status;
+            ADDR_CU_CYCLES:  prdata = cu_cycles_i;
+            ADDR_IRQ_STATUS: prdata = reg_irq_status;
+            ADDR_IRQ_MASK:   prdata = reg_irq_mask;
+            default:         prdata = 32'hDEAD_BEEF;  // Undefined address
         endcase
     end
     
-    // Read data channel
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            s_axi_rdata <= '0;
-            s_axi_rvalid <= 1'b0;
-            s_axi_rresp <= 2'b00;
-        end else begin
-            if (r_state == R_DATA) begin
-                s_axi_rdata <= read_data;
-                s_axi_rvalid <= 1'b1;
-                s_axi_rresp <= 2'b00;  // OKAY
-            end else if (s_axi_rready) begin
-                s_axi_rvalid <= 1'b0;
-            end
-        end
-    end
+    // =========================================================================
+    // Output Wire Assignments
+    // =========================================================================
+    assign dma_src  = reg_dma_src;
+    assign dma_dst  = reg_dma_dst;
+    assign dma_size = reg_dma_size;
+    assign dma_start = reg_dma_ctrl[0];
+    
+    assign cu_start = reg_cu_ctrl[0];
+    assign cu_soft_reset = reg_cu_ctrl[1];
     
     // =========================================================================
-    // Output assignments
+    // IRQ Generation
     // =========================================================================
-    assign cgra_start     = ctrl_reg[0];
-    assign cgra_reset     = ctrl_reg[1];
-    assign cfg_start      = ctrl_reg[2];
-    assign bitstream_addr = bitstr_addr_reg;
-    assign bitstream_size = bitstr_size_reg[15:0];
-    assign job_desc_addr  = job_desc_reg;
-    assign irq_mask       = irq_mask_reg;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            irq <= 1'b0;
+        end else begin
+            // IRQ = (Status & Mask) != 0
+            irq <= |(reg_irq_status & reg_irq_mask);
+        end
+    end
 
 endmodule

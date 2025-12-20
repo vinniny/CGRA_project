@@ -246,7 +246,7 @@ module cgra_config_loader #(
                         // Update counters
                         frame_counter <= frame_counter + 16'd1;
                         pe_index <= (pe_index == 4'd15) ? 4'd0 : (pe_index + 4'd1);
-                        mem_addr <= mem_addr + 32'd1;
+                        mem_addr <= mem_addr + 32'd8;  // 8 bytes per 64-bit config frame
                         
                         if (frame_counter + 16'd1 >= total_frames) begin
                             mem_read <= 1'b0;
@@ -280,10 +280,16 @@ module cgra_config_loader #(
     // =========================================================================
     // Active Buffer Management (Atomic Swap)
     // =========================================================================
+    // Swap buffers automatically when loading completes (transitioning to DONE)
+    // This ensures newly loaded configuration immediately becomes active
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             active_buf_reg <= 1'b0;
+        end else if (state == LOAD_FRAMES && next_state == DONE) begin
+            // Swap when transitioning from LOAD_FRAMES to DONE
+            active_buf_reg <= ~active_buf_reg;
         end else if (state == SWAP) begin
+            // Also support explicit swap for context switching
             active_buf_reg <= ~active_buf_reg;
         end
     end

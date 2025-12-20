@@ -2,43 +2,45 @@
 # CGRA Project Makefile
 # ==============================================================================
 # Usage:
-#   make compile TB=<testbench>   - Compile a testbench
-#   make sim TB=<testbench>       - Compile and run simulation
-#   make wave TB=<testbench>      - Open waveform in GTKWave
+#   make sim                      - Run master verification (80 tests)
+#   make compile                  - Compile testbench only
+#   make wave                     - Open waveform in GTKWave
 #   make clean                    - Remove all generated files
-#   make list                     - List available testbenches
-#
-# Available testbenches:
-#   tb_cgra_top_golden       - Top-level integration (6 tests)
-#   tb_cgra_array_4x4_golden - 4x4 mesh routing (6 tests)
-#   tb_cgra_tile_memory_golden - Tile memory
-#   tb_cgra_axi_csr_golden   - AXI CSR interface
-#   tb_cgra_dma_engine_golden - DMA engine
+#   make help                     - Show available commands
 #
 # Example:
-#   make sim TB=tb_cgra_top_golden
+#   make sim
+#   make wave
 # ==============================================================================
 
 # Directories
 SRC_DIR  := 00_src
+BSG_DIR  := 00_src/bsg_mem
 TB_DIR   := 01_bench
 SIM_DIR  := 03_sim
 
-# Default testbench
-TB ?= tb_cgra_top_golden
-
 # Output files
-VVP_FILE := $(SIM_DIR)/$(TB).vvp
-VCD_FILE := $(SIM_DIR)/$(TB).vcd
+VVP_FILE := $(SIM_DIR)/tb_top.vvp
+VCD_FILE := $(SIM_DIR)/cgra_master_sim.vcd
 
 # Compiler and flags
 IVERILOG := iverilog
 VVP      := vvp
 GTKWAVE  := gtkwave
-VFLAGS   := -g2012
+VFLAGS   := -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR)
+
+# BSG Library files (must be compiled FIRST for macro definitions)
+BSG_SRCS := \
+	$(BSG_DIR)/bsg_defines.sv \
+	$(BSG_DIR)/bsg_dff.sv \
+	$(BSG_DIR)/bsg_dff_en_bypass.sv \
+	$(BSG_DIR)/bsg_mem_1r1w_sync_synth.sv \
+	$(BSG_DIR)/bsg_mem_1r1w_sync.sv \
+	$(BSG_DIR)/cgra_config_mem_bsg.sv
 
 # RTL Source files (order matters for dependencies)
 RTL_SRCS := \
+	$(SRC_DIR)/axi_ram.sv \
 	$(SRC_DIR)/cgra_pe.sv \
 	$(SRC_DIR)/cgra_router.sv \
 	$(SRC_DIR)/cgra_tile.sv \
@@ -50,14 +52,19 @@ RTL_SRCS := \
 	$(SRC_DIR)/cgra_dma_engine.sv \
 	$(SRC_DIR)/cgra_top.sv
 
-# Testbench file
-TB_SRC := $(TB_DIR)/$(TB).sv
+# Testbench files
+TB_SRCS := \
+	$(TB_DIR)/cgra_protocol_monitor.sv \
+	$(TB_DIR)/tb_top.sv
+
+# All sources in correct compilation order
+ALL_SRCS := $(BSG_SRCS) $(RTL_SRCS) $(TB_SRCS)
 
 # ==============================================================================
 # Targets
 # ==============================================================================
 
-.PHONY: all compile sim wave clean list help
+.PHONY: all compile sim wave clean help
 
 # Default target
 all: sim
@@ -65,22 +72,24 @@ all: sim
 # Compile testbench
 compile: $(VVP_FILE)
 
-$(VVP_FILE): $(RTL_SRCS) $(TB_SRC)
+$(VVP_FILE): $(ALL_SRCS) $(TB_DIR)/tb_tasks.svh $(TB_DIR)/tb_test_suites.svh
 	@echo "============================================"
-	@echo "Compiling: $(TB)"
+	@echo "Compiling CGRA Master Testbench (80 tests)"
 	@echo "============================================"
 	@mkdir -p $(SIM_DIR)
-	$(IVERILOG) $(VFLAGS) -o $(VVP_FILE) $(RTL_SRCS) $(TB_SRC)
+	$(IVERILOG) $(VFLAGS) -o $(VVP_FILE) $(ALL_SRCS)
 	@echo "Output: $(VVP_FILE)"
 
 # Run simulation
 sim: compile
 	@echo "============================================"
-	@echo "Running: $(TB)"
+	@echo "Running 80-Vector Master Verification"
 	@echo "============================================"
-	cd $(SIM_DIR) && $(VVP) $(TB).vvp
+	cd $(SIM_DIR) && $(VVP) ../$(VVP_FILE)
 	@if [ -f $(VCD_FILE) ]; then \
+		echo ""; \
 		echo "Waveform: $(VCD_FILE)"; \
+		echo "View with: make wave"; \
 	fi
 
 # Open waveform viewer
@@ -94,33 +103,27 @@ $(VCD_FILE): sim
 clean:
 	@echo "Cleaning simulation files..."
 	rm -f $(SIM_DIR)/*.vvp $(SIM_DIR)/*.vcd $(SIM_DIR)/*.log
+	rm -f *.vcd
 	@echo "Done."
-
-# List available testbenches
-list:
-	@echo "Available testbenches:"
-	@echo "  tb_cgra_top_golden         - Top-level integration (6 tests)"
-	@echo "  tb_cgra_array_4x4_golden   - 4x4 mesh routing (6 tests)"
-	@echo "  tb_cgra_tile_memory_golden - Tile memory (10 tests)"
-	@echo "  tb_cgra_axi_csr_golden     - AXI CSR interface (10 tests)"
-	@echo "  tb_cgra_dma_engine_golden  - DMA engine (10 tests)"
-	@echo ""
-	@echo "Usage: make sim TB=<testbench_name>"
 
 # Help
 help:
-	@echo "CGRA Project Makefile"
-	@echo "====================="
 	@echo ""
-	@echo "Targets:"
-	@echo "  compile  - Compile testbench (TB=<name>)"
-	@echo "  sim      - Compile and run simulation (TB=<name>)"
-	@echo "  wave     - Open VCD waveform in GTKWave (TB=<name>)"
-	@echo "  clean    - Remove generated files"
-	@echo "  list     - Show available testbenches"
-	@echo "  help     - Show this help"
+	@echo "CGRA Master Verification Makefile"
+	@echo "=================================="
 	@echo ""
-	@echo "Examples:"
-	@echo "  make sim TB=tb_cgra_top_golden"
-	@echo "  make wave TB=tb_cgra_array_4x4_golden"
-	@echo "  make sim  (uses default: tb_cgra_top_golden)"
+	@echo "Commands:"
+	@echo "  make sim     - Compile and run 80-test verification suite"
+	@echo "  make compile - Compile testbench only"
+	@echo "  make wave    - Open waveform in GTKWave"  
+	@echo "  make clean   - Remove generated files"
+	@echo "  make help    - Show this help"
+	@echo ""
+	@echo "Test Coverage (80 vectors):"
+	@echo "  Suite A: Register Logic & Config (19 tests)"
+	@echo "  Suite B: DMA Datapath (16 tests)"
+	@echo "  Suite C: Protocol Compliance (15 tests)"
+	@echo "  Suite D: Performance & Timing (10 tests)"
+	@echo "  Suite E: Stress Testing (10 tests)"
+	@echo "  Suite F: System Integration (10 tests)"
+	@echo ""

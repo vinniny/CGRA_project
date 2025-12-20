@@ -3,6 +3,7 @@
 // ==============================================================================
 // Instantiates 16 tiles in a 4x4 mesh topology. Each tile wraps a router and PE.
 // Edge interfaces expose data/valid only; edge ready signals are tied high.
+// NOTE: This version uses explicit instantiation (no generate/genvar/for loops)
 
 module cgra_array_4x4 #(
     parameter DATA_WIDTH = 32,
@@ -34,7 +35,7 @@ module cgra_array_4x4 #(
     input  logic [63:0] config_frame_33,
     input  logic        config_valid,
 
-    // Edge inputs (from external)
+    // Edge inputs (from external) - North
     input  logic [DATA_WIDTH-1:0] edge_data_in_n0,
     input  logic [DATA_WIDTH-1:0] edge_data_in_n1,
     input  logic [DATA_WIDTH-1:0] edge_data_in_n2,
@@ -44,6 +45,7 @@ module cgra_array_4x4 #(
     input  logic                  edge_valid_in_n2,
     input  logic                  edge_valid_in_n3,
 
+    // Edge inputs (from external) - South
     input  logic [DATA_WIDTH-1:0] edge_data_in_s0,
     input  logic [DATA_WIDTH-1:0] edge_data_in_s1,
     input  logic [DATA_WIDTH-1:0] edge_data_in_s2,
@@ -53,6 +55,7 @@ module cgra_array_4x4 #(
     input  logic                  edge_valid_in_s2,
     input  logic                  edge_valid_in_s3,
 
+    // Edge inputs (from external) - East
     input  logic [DATA_WIDTH-1:0] edge_data_in_e0,
     input  logic [DATA_WIDTH-1:0] edge_data_in_e1,
     input  logic [DATA_WIDTH-1:0] edge_data_in_e2,
@@ -62,6 +65,7 @@ module cgra_array_4x4 #(
     input  logic                  edge_valid_in_e2,
     input  logic                  edge_valid_in_e3,
 
+    // Edge inputs (from external) - West
     input  logic [DATA_WIDTH-1:0] edge_data_in_w0,
     input  logic [DATA_WIDTH-1:0] edge_data_in_w1,
     input  logic [DATA_WIDTH-1:0] edge_data_in_w2,
@@ -71,7 +75,7 @@ module cgra_array_4x4 #(
     input  logic                  edge_valid_in_w2,
     input  logic                  edge_valid_in_w3,
 
-    // Edge outputs (to external)
+    // Edge outputs (to external) - North
     output logic [DATA_WIDTH-1:0] edge_data_out_n0,
     output logic [DATA_WIDTH-1:0] edge_data_out_n1,
     output logic [DATA_WIDTH-1:0] edge_data_out_n2,
@@ -81,6 +85,7 @@ module cgra_array_4x4 #(
     output logic                  edge_valid_out_n2,
     output logic                  edge_valid_out_n3,
 
+    // Edge outputs (to external) - South
     output logic [DATA_WIDTH-1:0] edge_data_out_s0,
     output logic [DATA_WIDTH-1:0] edge_data_out_s1,
     output logic [DATA_WIDTH-1:0] edge_data_out_s2,
@@ -90,6 +95,7 @@ module cgra_array_4x4 #(
     output logic                  edge_valid_out_s2,
     output logic                  edge_valid_out_s3,
 
+    // Edge outputs (to external) - East
     output logic [DATA_WIDTH-1:0] edge_data_out_e0,
     output logic [DATA_WIDTH-1:0] edge_data_out_e1,
     output logic [DATA_WIDTH-1:0] edge_data_out_e2,
@@ -99,6 +105,7 @@ module cgra_array_4x4 #(
     output logic                  edge_valid_out_e2,
     output logic                  edge_valid_out_e3,
 
+    // Edge outputs (to external) - West
     output logic [DATA_WIDTH-1:0] edge_data_out_w0,
     output logic [DATA_WIDTH-1:0] edge_data_out_w1,
     output logic [DATA_WIDTH-1:0] edge_data_out_w2,
@@ -109,195 +116,886 @@ module cgra_array_4x4 #(
     output logic                  edge_valid_out_w3
 );
 
-    localparam int ROWS = 4;
-    localparam int COLS = 4;
-
+    // =========================================================================
+    // Inter-tile connection wires
+    // =========================================================================
+    // Naming convention: tile_YX_dir_data/valid/ready
+    // Y = row (0-3), X = column (0-3)
+    // dir = n (north), e (east), s (south), w (west)
+    
     // -------------------------------------------------------------------------
-    // Configuration frame matrix
+    // Horizontal links (East-West connections)
     // -------------------------------------------------------------------------
-    logic [63:0] cfg_frames [0:ROWS-1][0:COLS-1];
-
-    assign cfg_frames[0][0] = config_frame_00;
-    assign cfg_frames[0][1] = config_frame_01;
-    assign cfg_frames[0][2] = config_frame_02;
-    assign cfg_frames[0][3] = config_frame_03;
-    assign cfg_frames[1][0] = config_frame_10;
-    assign cfg_frames[1][1] = config_frame_11;
-    assign cfg_frames[1][2] = config_frame_12;
-    assign cfg_frames[1][3] = config_frame_13;
-    assign cfg_frames[2][0] = config_frame_20;
-    assign cfg_frames[2][1] = config_frame_21;
-    assign cfg_frames[2][2] = config_frame_22;
-    assign cfg_frames[2][3] = config_frame_23;
-    assign cfg_frames[3][0] = config_frame_30;
-    assign cfg_frames[3][1] = config_frame_31;
-    assign cfg_frames[3][2] = config_frame_32;
-    assign cfg_frames[3][3] = config_frame_33;
-
+    // Row 0: Tile(0,0) <-> Tile(0,1) <-> Tile(0,2) <-> Tile(0,3)
+    logic [DATA_WIDTH-1:0] tile_00_e_data, tile_01_w_data, tile_01_e_data, tile_02_w_data;
+    logic [DATA_WIDTH-1:0] tile_02_e_data, tile_03_w_data;
+    logic tile_00_e_valid, tile_01_w_valid, tile_01_e_valid, tile_02_w_valid;
+    logic tile_02_e_valid, tile_03_w_valid;
+    logic tile_00_e_ready, tile_01_w_ready, tile_01_e_ready, tile_02_w_ready;
+    logic tile_02_e_ready, tile_03_w_ready;
+    
+    // Row 1: Tile(1,0) <-> Tile(1,1) <-> Tile(1,2) <-> Tile(1,3)
+    logic [DATA_WIDTH-1:0] tile_10_e_data, tile_11_w_data, tile_11_e_data, tile_12_w_data;
+    logic [DATA_WIDTH-1:0] tile_12_e_data, tile_13_w_data;
+    logic tile_10_e_valid, tile_11_w_valid, tile_11_e_valid, tile_12_w_valid;
+    logic tile_12_e_valid, tile_13_w_valid;
+    logic tile_10_e_ready, tile_11_w_ready, tile_11_e_ready, tile_12_w_ready;
+    logic tile_12_e_ready, tile_13_w_ready;
+    
+    // Row 2: Tile(2,0) <-> Tile(2,1) <-> Tile(2,2) <-> Tile(2,3)
+    logic [DATA_WIDTH-1:0] tile_20_e_data, tile_21_w_data, tile_21_e_data, tile_22_w_data;
+    logic [DATA_WIDTH-1:0] tile_22_e_data, tile_23_w_data;
+    logic tile_20_e_valid, tile_21_w_valid, tile_21_e_valid, tile_22_w_valid;
+    logic tile_22_e_valid, tile_23_w_valid;
+    logic tile_20_e_ready, tile_21_w_ready, tile_21_e_ready, tile_22_w_ready;
+    logic tile_22_e_ready, tile_23_w_ready;
+    
+    // Row 3: Tile(3,0) <-> Tile(3,1) <-> Tile(3,2) <-> Tile(3,3)
+    logic [DATA_WIDTH-1:0] tile_30_e_data, tile_31_w_data, tile_31_e_data, tile_32_w_data;
+    logic [DATA_WIDTH-1:0] tile_32_e_data, tile_33_w_data;
+    logic tile_30_e_valid, tile_31_w_valid, tile_31_e_valid, tile_32_w_valid;
+    logic tile_32_e_valid, tile_33_w_valid;
+    logic tile_30_e_ready, tile_31_w_ready, tile_31_e_ready, tile_32_w_ready;
+    logic tile_32_e_ready, tile_33_w_ready;
+    
     // -------------------------------------------------------------------------
-    // Mesh links
+    // Vertical links (North-South connections)
     // -------------------------------------------------------------------------
-    // Horizontal: data moving right/left
-    logic [DATA_WIDTH-1:0] h_link_data_right [ROWS][COLS+1];
-    logic                  h_link_valid_right [ROWS][COLS+1];
-    logic                  h_link_ready_right [ROWS][COLS+1];
-
-    logic [DATA_WIDTH-1:0] h_link_data_left [ROWS][COLS+1];
-    logic                  h_link_valid_left [ROWS][COLS+1];
-    logic                  h_link_ready_left [ROWS][COLS+1];
-
-    // Vertical: data moving down/up
-    logic [DATA_WIDTH-1:0] v_link_data_down [ROWS+1][COLS];
-    logic                  v_link_valid_down [ROWS+1][COLS];
-    logic                  v_link_ready_down [ROWS+1][COLS];
-
-    logic [DATA_WIDTH-1:0] v_link_data_up [ROWS+1][COLS];
-    logic                  v_link_valid_up [ROWS+1][COLS];
-    logic                  v_link_ready_up [ROWS+1][COLS];
-
+    // Column 0: Tile(0,0) <-> Tile(1,0) <-> Tile(2,0) <-> Tile(3,0)
+    logic [DATA_WIDTH-1:0] tile_00_s_data, tile_10_n_data, tile_10_s_data, tile_20_n_data;
+    logic [DATA_WIDTH-1:0] tile_20_s_data, tile_30_n_data;
+    logic tile_00_s_valid, tile_10_n_valid, tile_10_s_valid, tile_20_n_valid;
+    logic tile_20_s_valid, tile_30_n_valid;
+    logic tile_00_s_ready, tile_10_n_ready, tile_10_s_ready, tile_20_n_ready;
+    logic tile_20_s_ready, tile_30_n_ready;
+    
+    // Column 1: Tile(0,1) <-> Tile(1,1) <-> Tile(2,1) <-> Tile(3,1)
+    logic [DATA_WIDTH-1:0] tile_01_s_data, tile_11_n_data, tile_11_s_data, tile_21_n_data;
+    logic [DATA_WIDTH-1:0] tile_21_s_data, tile_31_n_data;
+    logic tile_01_s_valid, tile_11_n_valid, tile_11_s_valid, tile_21_n_valid;
+    logic tile_21_s_valid, tile_31_n_valid;
+    logic tile_01_s_ready, tile_11_n_ready, tile_11_s_ready, tile_21_n_ready;
+    logic tile_21_s_ready, tile_31_n_ready;
+    
+    // Column 2: Tile(0,2) <-> Tile(1,2) <-> Tile(2,2) <-> Tile(3,2)
+    logic [DATA_WIDTH-1:0] tile_02_s_data, tile_12_n_data, tile_12_s_data, tile_22_n_data;
+    logic [DATA_WIDTH-1:0] tile_22_s_data, tile_32_n_data;
+    logic tile_02_s_valid, tile_12_n_valid, tile_12_s_valid, tile_22_n_valid;
+    logic tile_22_s_valid, tile_32_n_valid;
+    logic tile_02_s_ready, tile_12_n_ready, tile_12_s_ready, tile_22_n_ready;
+    logic tile_22_s_ready, tile_32_n_ready;
+    
+    // Column 3: Tile(0,3) <-> Tile(1,3) <-> Tile(2,3) <-> Tile(3,3)
+    logic [DATA_WIDTH-1:0] tile_03_s_data, tile_13_n_data, tile_13_s_data, tile_23_n_data;
+    logic [DATA_WIDTH-1:0] tile_23_s_data, tile_33_n_data;
+    logic tile_03_s_valid, tile_13_n_valid, tile_13_s_valid, tile_23_n_valid;
+    logic tile_23_s_valid, tile_33_n_valid;
+    logic tile_03_s_ready, tile_13_n_ready, tile_13_s_ready, tile_23_n_ready;
+    logic tile_23_s_ready, tile_33_n_ready;
+    
     // -------------------------------------------------------------------------
-    // Connect edge inputs to mesh links
+    // Edge output wires (from boundary tiles)
     // -------------------------------------------------------------------------
-    assign v_link_data_down[0][0] = edge_data_in_n0;
-    assign v_link_valid_down[0][0] = edge_valid_in_n0;
-    assign v_link_data_down[0][1] = edge_data_in_n1;
-    assign v_link_valid_down[0][1] = edge_valid_in_n1;
-    assign v_link_data_down[0][2] = edge_data_in_n2;
-    assign v_link_valid_down[0][2] = edge_valid_in_n2;
-    assign v_link_data_down[0][3] = edge_data_in_n3;
-    assign v_link_valid_down[0][3] = edge_valid_in_n3;
+    // North edge outputs (from row 0)
+    logic [DATA_WIDTH-1:0] tile_00_n_data, tile_01_n_data, tile_02_n_data, tile_03_n_data;
+    logic tile_00_n_valid, tile_01_n_valid, tile_02_n_valid, tile_03_n_valid;
+    
+    // South edge outputs (from row 3)
+    logic [DATA_WIDTH-1:0] tile_30_s_data, tile_31_s_data, tile_32_s_data, tile_33_s_data;
+    logic tile_30_s_valid, tile_31_s_valid, tile_32_s_valid, tile_33_s_valid;
+    
+    // West edge outputs (from column 0)
+    logic [DATA_WIDTH-1:0] tile_00_w_data, tile_10_w_data, tile_20_w_data, tile_30_w_data;
+    logic tile_00_w_valid, tile_10_w_valid, tile_20_w_valid, tile_30_w_valid;
+    
+    // East edge outputs (from column 3)
+    logic [DATA_WIDTH-1:0] tile_03_e_data, tile_13_e_data, tile_23_e_data, tile_33_e_data;
+    logic tile_03_e_valid, tile_13_e_valid, tile_23_e_valid, tile_33_e_valid;
+    
+    // Edge ready signals (directly from tiles for boundary)
+    logic tile_00_n_ready, tile_01_n_ready, tile_02_n_ready, tile_03_n_ready;
+    logic tile_30_s_ready, tile_31_s_ready, tile_32_s_ready, tile_33_s_ready;
+    logic tile_00_w_ready, tile_10_w_ready, tile_20_w_ready, tile_30_w_ready;
+    logic tile_03_e_ready, tile_13_e_ready, tile_23_e_ready, tile_33_e_ready;
 
-    assign v_link_data_up[ROWS][0] = edge_data_in_s0;
-    assign v_link_valid_up[ROWS][0] = edge_valid_in_s0;
-    assign v_link_data_up[ROWS][1] = edge_data_in_s1;
-    assign v_link_valid_up[ROWS][1] = edge_valid_in_s1;
-    assign v_link_data_up[ROWS][2] = edge_data_in_s2;
-    assign v_link_valid_up[ROWS][2] = edge_valid_in_s2;
-    assign v_link_data_up[ROWS][3] = edge_data_in_s3;
-    assign v_link_valid_up[ROWS][3] = edge_valid_in_s3;
+    // =========================================================================
+    // Tile Instantiations - Row 0
+    // =========================================================================
+    
+    // Tile (0,0) - Top-left corner
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(0),
+        .Y_COORD(0)
+    ) u_tile_00 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_00),
+        .config_valid(config_valid),
+        // North - external edge
+        .data_in_n(edge_data_in_n0),
+        .valid_in_n(edge_valid_in_n0),
+        .ready_out_n(tile_00_n_ready),
+        .data_out_n(tile_00_n_data),
+        .valid_out_n(tile_00_n_valid),
+        .ready_in_n(1'b1),
+        // East - to tile(0,1)
+        .data_in_e(tile_01_w_data),
+        .valid_in_e(tile_01_w_valid),
+        .ready_out_e(tile_00_e_ready),
+        .data_out_e(tile_00_e_data),
+        .valid_out_e(tile_00_e_valid),
+        .ready_in_e(tile_01_w_ready),
+        // South - to tile(1,0)
+        .data_in_s(tile_10_n_data),
+        .valid_in_s(tile_10_n_valid),
+        .ready_out_s(tile_00_s_ready),
+        .data_out_s(tile_00_s_data),
+        .valid_out_s(tile_00_s_valid),
+        .ready_in_s(tile_10_n_ready),
+        // West - external edge
+        .data_in_w(edge_data_in_w0),
+        .valid_in_w(edge_valid_in_w0),
+        .ready_out_w(tile_00_w_ready),
+        .data_out_w(tile_00_w_data),
+        .valid_out_w(tile_00_w_valid),
+        .ready_in_w(1'b1)
+    );
+    
+    // Tile (0,1)
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(1),
+        .Y_COORD(0)
+    ) u_tile_01 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_01),
+        .config_valid(config_valid),
+        // North - external edge
+        .data_in_n(edge_data_in_n1),
+        .valid_in_n(edge_valid_in_n1),
+        .ready_out_n(tile_01_n_ready),
+        .data_out_n(tile_01_n_data),
+        .valid_out_n(tile_01_n_valid),
+        .ready_in_n(1'b1),
+        // East - to tile(0,2)
+        .data_in_e(tile_02_w_data),
+        .valid_in_e(tile_02_w_valid),
+        .ready_out_e(tile_01_e_ready),
+        .data_out_e(tile_01_e_data),
+        .valid_out_e(tile_01_e_valid),
+        .ready_in_e(tile_02_w_ready),
+        // South - to tile(1,1)
+        .data_in_s(tile_11_n_data),
+        .valid_in_s(tile_11_n_valid),
+        .ready_out_s(tile_01_s_ready),
+        .data_out_s(tile_01_s_data),
+        .valid_out_s(tile_01_s_valid),
+        .ready_in_s(tile_11_n_ready),
+        // West - to tile(0,0)
+        .data_in_w(tile_00_e_data),
+        .valid_in_w(tile_00_e_valid),
+        .ready_out_w(tile_01_w_ready),
+        .data_out_w(tile_01_w_data),
+        .valid_out_w(tile_01_w_valid),
+        .ready_in_w(tile_00_e_ready)
+    );
+    
+    // Tile (0,2)
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(2),
+        .Y_COORD(0)
+    ) u_tile_02 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_02),
+        .config_valid(config_valid),
+        // North - external edge
+        .data_in_n(edge_data_in_n2),
+        .valid_in_n(edge_valid_in_n2),
+        .ready_out_n(tile_02_n_ready),
+        .data_out_n(tile_02_n_data),
+        .valid_out_n(tile_02_n_valid),
+        .ready_in_n(1'b1),
+        // East - to tile(0,3)
+        .data_in_e(tile_03_w_data),
+        .valid_in_e(tile_03_w_valid),
+        .ready_out_e(tile_02_e_ready),
+        .data_out_e(tile_02_e_data),
+        .valid_out_e(tile_02_e_valid),
+        .ready_in_e(tile_03_w_ready),
+        // South - to tile(1,2)
+        .data_in_s(tile_12_n_data),
+        .valid_in_s(tile_12_n_valid),
+        .ready_out_s(tile_02_s_ready),
+        .data_out_s(tile_02_s_data),
+        .valid_out_s(tile_02_s_valid),
+        .ready_in_s(tile_12_n_ready),
+        // West - to tile(0,1)
+        .data_in_w(tile_01_e_data),
+        .valid_in_w(tile_01_e_valid),
+        .ready_out_w(tile_02_w_ready),
+        .data_out_w(tile_02_w_data),
+        .valid_out_w(tile_02_w_valid),
+        .ready_in_w(tile_01_e_ready)
+    );
+    
+    // Tile (0,3) - Top-right corner
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(3),
+        .Y_COORD(0)
+    ) u_tile_03 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_03),
+        .config_valid(config_valid),
+        // North - external edge
+        .data_in_n(edge_data_in_n3),
+        .valid_in_n(edge_valid_in_n3),
+        .ready_out_n(tile_03_n_ready),
+        .data_out_n(tile_03_n_data),
+        .valid_out_n(tile_03_n_valid),
+        .ready_in_n(1'b1),
+        // East - external edge
+        .data_in_e(edge_data_in_e0),
+        .valid_in_e(edge_valid_in_e0),
+        .ready_out_e(tile_03_e_ready),
+        .data_out_e(tile_03_e_data),
+        .valid_out_e(tile_03_e_valid),
+        .ready_in_e(1'b1),
+        // South - to tile(1,3)
+        .data_in_s(tile_13_n_data),
+        .valid_in_s(tile_13_n_valid),
+        .ready_out_s(tile_03_s_ready),
+        .data_out_s(tile_03_s_data),
+        .valid_out_s(tile_03_s_valid),
+        .ready_in_s(tile_13_n_ready),
+        // West - to tile(0,2)
+        .data_in_w(tile_02_e_data),
+        .valid_in_w(tile_02_e_valid),
+        .ready_out_w(tile_03_w_ready),
+        .data_out_w(tile_03_w_data),
+        .valid_out_w(tile_03_w_valid),
+        .ready_in_w(tile_02_e_ready)
+    );
 
-    assign h_link_data_right[0][0] = edge_data_in_w0;
-    assign h_link_valid_right[0][0] = edge_valid_in_w0;
-    assign h_link_data_right[1][0] = edge_data_in_w1;
-    assign h_link_valid_right[1][0] = edge_valid_in_w1;
-    assign h_link_data_right[2][0] = edge_data_in_w2;
-    assign h_link_valid_right[2][0] = edge_valid_in_w2;
-    assign h_link_data_right[3][0] = edge_data_in_w3;
-    assign h_link_valid_right[3][0] = edge_valid_in_w3;
+    // =========================================================================
+    // Tile Instantiations - Row 1
+    // =========================================================================
+    
+    // Tile (1,0) - Left edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(0),
+        .Y_COORD(1)
+    ) u_tile_10 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_10),
+        .config_valid(config_valid),
+        // North - to tile(0,0)
+        .data_in_n(tile_00_s_data),
+        .valid_in_n(tile_00_s_valid),
+        .ready_out_n(tile_10_n_ready),
+        .data_out_n(tile_10_n_data),
+        .valid_out_n(tile_10_n_valid),
+        .ready_in_n(tile_00_s_ready),
+        // East - to tile(1,1)
+        .data_in_e(tile_11_w_data),
+        .valid_in_e(tile_11_w_valid),
+        .ready_out_e(tile_10_e_ready),
+        .data_out_e(tile_10_e_data),
+        .valid_out_e(tile_10_e_valid),
+        .ready_in_e(tile_11_w_ready),
+        // South - to tile(2,0)
+        .data_in_s(tile_20_n_data),
+        .valid_in_s(tile_20_n_valid),
+        .ready_out_s(tile_10_s_ready),
+        .data_out_s(tile_10_s_data),
+        .valid_out_s(tile_10_s_valid),
+        .ready_in_s(tile_20_n_ready),
+        // West - external edge
+        .data_in_w(edge_data_in_w1),
+        .valid_in_w(edge_valid_in_w1),
+        .ready_out_w(tile_10_w_ready),
+        .data_out_w(tile_10_w_data),
+        .valid_out_w(tile_10_w_valid),
+        .ready_in_w(1'b1)
+    );
+    
+    // Tile (1,1) - Internal
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(1),
+        .Y_COORD(1)
+    ) u_tile_11 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_11),
+        .config_valid(config_valid),
+        // North - to tile(0,1)
+        .data_in_n(tile_01_s_data),
+        .valid_in_n(tile_01_s_valid),
+        .ready_out_n(tile_11_n_ready),
+        .data_out_n(tile_11_n_data),
+        .valid_out_n(tile_11_n_valid),
+        .ready_in_n(tile_01_s_ready),
+        // East - to tile(1,2)
+        .data_in_e(tile_12_w_data),
+        .valid_in_e(tile_12_w_valid),
+        .ready_out_e(tile_11_e_ready),
+        .data_out_e(tile_11_e_data),
+        .valid_out_e(tile_11_e_valid),
+        .ready_in_e(tile_12_w_ready),
+        // South - to tile(2,1)
+        .data_in_s(tile_21_n_data),
+        .valid_in_s(tile_21_n_valid),
+        .ready_out_s(tile_11_s_ready),
+        .data_out_s(tile_11_s_data),
+        .valid_out_s(tile_11_s_valid),
+        .ready_in_s(tile_21_n_ready),
+        // West - to tile(1,0)
+        .data_in_w(tile_10_e_data),
+        .valid_in_w(tile_10_e_valid),
+        .ready_out_w(tile_11_w_ready),
+        .data_out_w(tile_11_w_data),
+        .valid_out_w(tile_11_w_valid),
+        .ready_in_w(tile_10_e_ready)
+    );
+    
+    // Tile (1,2) - Internal
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(2),
+        .Y_COORD(1)
+    ) u_tile_12 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_12),
+        .config_valid(config_valid),
+        // North - to tile(0,2)
+        .data_in_n(tile_02_s_data),
+        .valid_in_n(tile_02_s_valid),
+        .ready_out_n(tile_12_n_ready),
+        .data_out_n(tile_12_n_data),
+        .valid_out_n(tile_12_n_valid),
+        .ready_in_n(tile_02_s_ready),
+        // East - to tile(1,3)
+        .data_in_e(tile_13_w_data),
+        .valid_in_e(tile_13_w_valid),
+        .ready_out_e(tile_12_e_ready),
+        .data_out_e(tile_12_e_data),
+        .valid_out_e(tile_12_e_valid),
+        .ready_in_e(tile_13_w_ready),
+        // South - to tile(2,2)
+        .data_in_s(tile_22_n_data),
+        .valid_in_s(tile_22_n_valid),
+        .ready_out_s(tile_12_s_ready),
+        .data_out_s(tile_12_s_data),
+        .valid_out_s(tile_12_s_valid),
+        .ready_in_s(tile_22_n_ready),
+        // West - to tile(1,1)
+        .data_in_w(tile_11_e_data),
+        .valid_in_w(tile_11_e_valid),
+        .ready_out_w(tile_12_w_ready),
+        .data_out_w(tile_12_w_data),
+        .valid_out_w(tile_12_w_valid),
+        .ready_in_w(tile_11_e_ready)
+    );
+    
+    // Tile (1,3) - Right edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(3),
+        .Y_COORD(1)
+    ) u_tile_13 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_13),
+        .config_valid(config_valid),
+        // North - to tile(0,3)
+        .data_in_n(tile_03_s_data),
+        .valid_in_n(tile_03_s_valid),
+        .ready_out_n(tile_13_n_ready),
+        .data_out_n(tile_13_n_data),
+        .valid_out_n(tile_13_n_valid),
+        .ready_in_n(tile_03_s_ready),
+        // East - external edge
+        .data_in_e(edge_data_in_e1),
+        .valid_in_e(edge_valid_in_e1),
+        .ready_out_e(tile_13_e_ready),
+        .data_out_e(tile_13_e_data),
+        .valid_out_e(tile_13_e_valid),
+        .ready_in_e(1'b1),
+        // South - to tile(2,3)
+        .data_in_s(tile_23_n_data),
+        .valid_in_s(tile_23_n_valid),
+        .ready_out_s(tile_13_s_ready),
+        .data_out_s(tile_13_s_data),
+        .valid_out_s(tile_13_s_valid),
+        .ready_in_s(tile_23_n_ready),
+        // West - to tile(1,2)
+        .data_in_w(tile_12_e_data),
+        .valid_in_w(tile_12_e_valid),
+        .ready_out_w(tile_13_w_ready),
+        .data_out_w(tile_13_w_data),
+        .valid_out_w(tile_13_w_valid),
+        .ready_in_w(tile_12_e_ready)
+    );
 
-    assign h_link_data_left[0][COLS] = edge_data_in_e0;
-    assign h_link_valid_left[0][COLS] = edge_valid_in_e0;
-    assign h_link_data_left[1][COLS] = edge_data_in_e1;
-    assign h_link_valid_left[1][COLS] = edge_valid_in_e1;
-    assign h_link_data_left[2][COLS] = edge_data_in_e2;
-    assign h_link_valid_left[2][COLS] = edge_valid_in_e2;
-    assign h_link_data_left[3][COLS] = edge_data_in_e3;
-    assign h_link_valid_left[3][COLS] = edge_valid_in_e3;
+    // =========================================================================
+    // Tile Instantiations - Row 2
+    // =========================================================================
+    
+    // Tile (2,0) - Left edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(0),
+        .Y_COORD(2)
+    ) u_tile_20 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_20),
+        .config_valid(config_valid),
+        // North - to tile(1,0)
+        .data_in_n(tile_10_s_data),
+        .valid_in_n(tile_10_s_valid),
+        .ready_out_n(tile_20_n_ready),
+        .data_out_n(tile_20_n_data),
+        .valid_out_n(tile_20_n_valid),
+        .ready_in_n(tile_10_s_ready),
+        // East - to tile(2,1)
+        .data_in_e(tile_21_w_data),
+        .valid_in_e(tile_21_w_valid),
+        .ready_out_e(tile_20_e_ready),
+        .data_out_e(tile_20_e_data),
+        .valid_out_e(tile_20_e_valid),
+        .ready_in_e(tile_21_w_ready),
+        // South - to tile(3,0)
+        .data_in_s(tile_30_n_data),
+        .valid_in_s(tile_30_n_valid),
+        .ready_out_s(tile_20_s_ready),
+        .data_out_s(tile_20_s_data),
+        .valid_out_s(tile_20_s_valid),
+        .ready_in_s(tile_30_n_ready),
+        // West - external edge
+        .data_in_w(edge_data_in_w2),
+        .valid_in_w(edge_valid_in_w2),
+        .ready_out_w(tile_20_w_ready),
+        .data_out_w(tile_20_w_data),
+        .valid_out_w(tile_20_w_valid),
+        .ready_in_w(1'b1)
+    );
+    
+    // Tile (2,1) - Internal
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(1),
+        .Y_COORD(2)
+    ) u_tile_21 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_21),
+        .config_valid(config_valid),
+        // North - to tile(1,1)
+        .data_in_n(tile_11_s_data),
+        .valid_in_n(tile_11_s_valid),
+        .ready_out_n(tile_21_n_ready),
+        .data_out_n(tile_21_n_data),
+        .valid_out_n(tile_21_n_valid),
+        .ready_in_n(tile_11_s_ready),
+        // East - to tile(2,2)
+        .data_in_e(tile_22_w_data),
+        .valid_in_e(tile_22_w_valid),
+        .ready_out_e(tile_21_e_ready),
+        .data_out_e(tile_21_e_data),
+        .valid_out_e(tile_21_e_valid),
+        .ready_in_e(tile_22_w_ready),
+        // South - to tile(3,1)
+        .data_in_s(tile_31_n_data),
+        .valid_in_s(tile_31_n_valid),
+        .ready_out_s(tile_21_s_ready),
+        .data_out_s(tile_21_s_data),
+        .valid_out_s(tile_21_s_valid),
+        .ready_in_s(tile_31_n_ready),
+        // West - to tile(2,0)
+        .data_in_w(tile_20_e_data),
+        .valid_in_w(tile_20_e_valid),
+        .ready_out_w(tile_21_w_ready),
+        .data_out_w(tile_21_w_data),
+        .valid_out_w(tile_21_w_valid),
+        .ready_in_w(tile_20_e_ready)
+    );
+    
+    // Tile (2,2) - Internal
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(2),
+        .Y_COORD(2)
+    ) u_tile_22 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_22),
+        .config_valid(config_valid),
+        // North - to tile(1,2)
+        .data_in_n(tile_12_s_data),
+        .valid_in_n(tile_12_s_valid),
+        .ready_out_n(tile_22_n_ready),
+        .data_out_n(tile_22_n_data),
+        .valid_out_n(tile_22_n_valid),
+        .ready_in_n(tile_12_s_ready),
+        // East - to tile(2,3)
+        .data_in_e(tile_23_w_data),
+        .valid_in_e(tile_23_w_valid),
+        .ready_out_e(tile_22_e_ready),
+        .data_out_e(tile_22_e_data),
+        .valid_out_e(tile_22_e_valid),
+        .ready_in_e(tile_23_w_ready),
+        // South - to tile(3,2)
+        .data_in_s(tile_32_n_data),
+        .valid_in_s(tile_32_n_valid),
+        .ready_out_s(tile_22_s_ready),
+        .data_out_s(tile_22_s_data),
+        .valid_out_s(tile_22_s_valid),
+        .ready_in_s(tile_32_n_ready),
+        // West - to tile(2,1)
+        .data_in_w(tile_21_e_data),
+        .valid_in_w(tile_21_e_valid),
+        .ready_out_w(tile_22_w_ready),
+        .data_out_w(tile_22_w_data),
+        .valid_out_w(tile_22_w_valid),
+        .ready_in_w(tile_21_e_ready)
+    );
+    
+    // Tile (2,3) - Right edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(3),
+        .Y_COORD(2)
+    ) u_tile_23 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_23),
+        .config_valid(config_valid),
+        // North - to tile(1,3)
+        .data_in_n(tile_13_s_data),
+        .valid_in_n(tile_13_s_valid),
+        .ready_out_n(tile_23_n_ready),
+        .data_out_n(tile_23_n_data),
+        .valid_out_n(tile_23_n_valid),
+        .ready_in_n(tile_13_s_ready),
+        // East - external edge
+        .data_in_e(edge_data_in_e2),
+        .valid_in_e(edge_valid_in_e2),
+        .ready_out_e(tile_23_e_ready),
+        .data_out_e(tile_23_e_data),
+        .valid_out_e(tile_23_e_valid),
+        .ready_in_e(1'b1),
+        // South - to tile(3,3)
+        .data_in_s(tile_33_n_data),
+        .valid_in_s(tile_33_n_valid),
+        .ready_out_s(tile_23_s_ready),
+        .data_out_s(tile_23_s_data),
+        .valid_out_s(tile_23_s_valid),
+        .ready_in_s(tile_33_n_ready),
+        // West - to tile(2,2)
+        .data_in_w(tile_22_e_data),
+        .valid_in_w(tile_22_e_valid),
+        .ready_out_w(tile_23_w_ready),
+        .data_out_w(tile_23_w_data),
+        .valid_out_w(tile_23_w_valid),
+        .ready_in_w(tile_22_e_ready)
+    );
 
-    // -------------------------------------------------------------------------
-    // Ready tie-offs for boundary outputs (external always ready)
-    // -------------------------------------------------------------------------
-    genvar xi, yi;
-    generate
-        for (xi = 0; xi < COLS; xi++) begin : V_READY_BOUND
-            assign v_link_ready_down[ROWS][xi] = 1'b1; // South boundary
-            assign v_link_ready_up[0][xi] = 1'b1;      // North boundary
-        end
-        for (yi = 0; yi < ROWS; yi++) begin : H_READY_BOUND
-            assign h_link_ready_right[yi][COLS] = 1'b1; // East boundary
-            assign h_link_ready_left[yi][0] = 1'b1;     // West boundary
-        end
-    endgenerate
+    // =========================================================================
+    // Tile Instantiations - Row 3 (Bottom row)
+    // =========================================================================
+    
+    // Tile (3,0) - Bottom-left corner
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(0),
+        .Y_COORD(3)
+    ) u_tile_30 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_30),
+        .config_valid(config_valid),
+        // North - to tile(2,0)
+        .data_in_n(tile_20_s_data),
+        .valid_in_n(tile_20_s_valid),
+        .ready_out_n(tile_30_n_ready),
+        .data_out_n(tile_30_n_data),
+        .valid_out_n(tile_30_n_valid),
+        .ready_in_n(tile_20_s_ready),
+        // East - to tile(3,1)
+        .data_in_e(tile_31_w_data),
+        .valid_in_e(tile_31_w_valid),
+        .ready_out_e(tile_30_e_ready),
+        .data_out_e(tile_30_e_data),
+        .valid_out_e(tile_30_e_valid),
+        .ready_in_e(tile_31_w_ready),
+        // South - external edge
+        .data_in_s(edge_data_in_s0),
+        .valid_in_s(edge_valid_in_s0),
+        .ready_out_s(tile_30_s_ready),
+        .data_out_s(tile_30_s_data),
+        .valid_out_s(tile_30_s_valid),
+        .ready_in_s(1'b1),
+        // West - external edge
+        .data_in_w(edge_data_in_w3),
+        .valid_in_w(edge_valid_in_w3),
+        .ready_out_w(tile_30_w_ready),
+        .data_out_w(tile_30_w_data),
+        .valid_out_w(tile_30_w_valid),
+        .ready_in_w(1'b1)
+    );
+    
+    // Tile (3,1) - Bottom edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(1),
+        .Y_COORD(3)
+    ) u_tile_31 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_31),
+        .config_valid(config_valid),
+        // North - to tile(2,1)
+        .data_in_n(tile_21_s_data),
+        .valid_in_n(tile_21_s_valid),
+        .ready_out_n(tile_31_n_ready),
+        .data_out_n(tile_31_n_data),
+        .valid_out_n(tile_31_n_valid),
+        .ready_in_n(tile_21_s_ready),
+        // East - to tile(3,2)
+        .data_in_e(tile_32_w_data),
+        .valid_in_e(tile_32_w_valid),
+        .ready_out_e(tile_31_e_ready),
+        .data_out_e(tile_31_e_data),
+        .valid_out_e(tile_31_e_valid),
+        .ready_in_e(tile_32_w_ready),
+        // South - external edge
+        .data_in_s(edge_data_in_s1),
+        .valid_in_s(edge_valid_in_s1),
+        .ready_out_s(tile_31_s_ready),
+        .data_out_s(tile_31_s_data),
+        .valid_out_s(tile_31_s_valid),
+        .ready_in_s(1'b1),
+        // West - to tile(3,0)
+        .data_in_w(tile_30_e_data),
+        .valid_in_w(tile_30_e_valid),
+        .ready_out_w(tile_31_w_ready),
+        .data_out_w(tile_31_w_data),
+        .valid_out_w(tile_31_w_valid),
+        .ready_in_w(tile_30_e_ready)
+    );
+    
+    // Tile (3,2) - Bottom edge
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(2),
+        .Y_COORD(3)
+    ) u_tile_32 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_32),
+        .config_valid(config_valid),
+        // North - to tile(2,2)
+        .data_in_n(tile_22_s_data),
+        .valid_in_n(tile_22_s_valid),
+        .ready_out_n(tile_32_n_ready),
+        .data_out_n(tile_32_n_data),
+        .valid_out_n(tile_32_n_valid),
+        .ready_in_n(tile_22_s_ready),
+        // East - to tile(3,3)
+        .data_in_e(tile_33_w_data),
+        .valid_in_e(tile_33_w_valid),
+        .ready_out_e(tile_32_e_ready),
+        .data_out_e(tile_32_e_data),
+        .valid_out_e(tile_32_e_valid),
+        .ready_in_e(tile_33_w_ready),
+        // South - external edge
+        .data_in_s(edge_data_in_s2),
+        .valid_in_s(edge_valid_in_s2),
+        .ready_out_s(tile_32_s_ready),
+        .data_out_s(tile_32_s_data),
+        .valid_out_s(tile_32_s_valid),
+        .ready_in_s(1'b1),
+        // West - to tile(3,1)
+        .data_in_w(tile_31_e_data),
+        .valid_in_w(tile_31_e_valid),
+        .ready_out_w(tile_32_w_ready),
+        .data_out_w(tile_32_w_data),
+        .valid_out_w(tile_32_w_valid),
+        .ready_in_w(tile_31_e_ready)
+    );
+    
+    // Tile (3,3) - Bottom-right corner
+    cgra_tile #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .COORD_WIDTH(COORD_WIDTH),
+        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .SPM_DEPTH(SPM_DEPTH),
+        .RF_DEPTH(RF_DEPTH),
+        .X_COORD(3),
+        .Y_COORD(3)
+    ) u_tile_33 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .config_frame(config_frame_33),
+        .config_valid(config_valid),
+        // North - to tile(2,3)
+        .data_in_n(tile_23_s_data),
+        .valid_in_n(tile_23_s_valid),
+        .ready_out_n(tile_33_n_ready),
+        .data_out_n(tile_33_n_data),
+        .valid_out_n(tile_33_n_valid),
+        .ready_in_n(tile_23_s_ready),
+        // East - external edge
+        .data_in_e(edge_data_in_e3),
+        .valid_in_e(edge_valid_in_e3),
+        .ready_out_e(tile_33_e_ready),
+        .data_out_e(tile_33_e_data),
+        .valid_out_e(tile_33_e_valid),
+        .ready_in_e(1'b1),
+        // South - external edge
+        .data_in_s(edge_data_in_s3),
+        .valid_in_s(edge_valid_in_s3),
+        .ready_out_s(tile_33_s_ready),
+        .data_out_s(tile_33_s_data),
+        .valid_out_s(tile_33_s_valid),
+        .ready_in_s(1'b1),
+        // West - to tile(3,2)
+        .data_in_w(tile_32_e_data),
+        .valid_in_w(tile_32_e_valid),
+        .ready_out_w(tile_33_w_ready),
+        .data_out_w(tile_33_w_data),
+        .valid_out_w(tile_33_w_valid),
+        .ready_in_w(tile_32_e_ready)
+    );
 
-    // -------------------------------------------------------------------------
-    // Connect edge outputs from mesh links
-    // -------------------------------------------------------------------------
-    assign edge_data_out_n0 = v_link_data_up[0][0];
-    assign edge_valid_out_n0 = v_link_valid_up[0][0];
-    assign edge_data_out_n1 = v_link_data_up[0][1];
-    assign edge_valid_out_n1 = v_link_valid_up[0][1];
-    assign edge_data_out_n2 = v_link_data_up[0][2];
-    assign edge_valid_out_n2 = v_link_valid_up[0][2];
-    assign edge_data_out_n3 = v_link_data_up[0][3];
-    assign edge_valid_out_n3 = v_link_valid_up[0][3];
-
-    assign edge_data_out_s0 = v_link_data_down[ROWS][0];
-    assign edge_valid_out_s0 = v_link_valid_down[ROWS][0];
-    assign edge_data_out_s1 = v_link_data_down[ROWS][1];
-    assign edge_valid_out_s1 = v_link_valid_down[ROWS][1];
-    assign edge_data_out_s2 = v_link_data_down[ROWS][2];
-    assign edge_valid_out_s2 = v_link_valid_down[ROWS][2];
-    assign edge_data_out_s3 = v_link_data_down[ROWS][3];
-    assign edge_valid_out_s3 = v_link_valid_down[ROWS][3];
-
-    assign edge_data_out_e0 = h_link_data_right[0][COLS];
-    assign edge_valid_out_e0 = h_link_valid_right[0][COLS];
-    assign edge_data_out_e1 = h_link_data_right[1][COLS];
-    assign edge_valid_out_e1 = h_link_valid_right[1][COLS];
-    assign edge_data_out_e2 = h_link_data_right[2][COLS];
-    assign edge_valid_out_e2 = h_link_valid_right[2][COLS];
-    assign edge_data_out_e3 = h_link_data_right[3][COLS];
-    assign edge_valid_out_e3 = h_link_valid_right[3][COLS];
-
-    assign edge_data_out_w0 = h_link_data_left[0][0];
-    assign edge_valid_out_w0 = h_link_valid_left[0][0];
-    assign edge_data_out_w1 = h_link_data_left[1][0];
-    assign edge_valid_out_w1 = h_link_valid_left[1][0];
-    assign edge_data_out_w2 = h_link_data_left[2][0];
-    assign edge_valid_out_w2 = h_link_valid_left[2][0];
-    assign edge_data_out_w3 = h_link_data_left[3][0];
-    assign edge_valid_out_w3 = h_link_valid_left[3][0];
-
-    // -------------------------------------------------------------------------
-    // Tile generation
-    // -------------------------------------------------------------------------
-    genvar x, y;
-    generate
-        for (y = 0; y < ROWS; y++) begin : ROW
-            for (x = 0; x < COLS; x++) begin : COL
-                cgra_tile #(
-                    .DATA_WIDTH(DATA_WIDTH),
-                    .COORD_WIDTH(COORD_WIDTH),
-                    .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
-                    .ADDR_WIDTH(ADDR_WIDTH),
-                    .SPM_DEPTH(SPM_DEPTH),
-                    .RF_DEPTH(RF_DEPTH),
-                    .X_COORD(x),
-                    .Y_COORD(y)
-                ) u_tile (
-                    .clk(clk),
-                    .rst_n(rst_n),
-                    .config_frame(cfg_frames[y][x]),
-                    .config_valid(config_valid),
-
-                    .data_in_n(v_link_data_down[y][x]),
-                    .data_in_e(h_link_data_left[y][x+1]),
-                    .data_in_s(v_link_data_up[y+1][x]),
-                    .data_in_w(h_link_data_right[y][x]),
-                    .valid_in_n(v_link_valid_down[y][x]),
-                    .valid_in_e(h_link_valid_left[y][x+1]),
-                    .valid_in_s(v_link_valid_up[y+1][x]),
-                    .valid_in_w(h_link_valid_right[y][x]),
-                    .ready_out_n(v_link_ready_down[y][x]),
-                    .ready_out_e(h_link_ready_left[y][x+1]),
-                    .ready_out_s(v_link_ready_up[y+1][x]),
-                    .ready_out_w(h_link_ready_right[y][x]),
-
-                    .data_out_n(v_link_data_up[y][x]),
-                    .data_out_e(h_link_data_right[y][x+1]),
-                    .data_out_s(v_link_data_down[y+1][x]),
-                    .data_out_w(h_link_data_left[y][x]),
-                    .valid_out_n(v_link_valid_up[y][x]),
-                    .valid_out_e(h_link_valid_right[y][x+1]),
-                    .valid_out_s(v_link_valid_down[y+1][x]),
-                    .valid_out_w(h_link_valid_left[y][x]),
-                    .ready_in_n(v_link_ready_up[y][x]),
-                    .ready_in_e(h_link_ready_right[y][x+1]),
-                    .ready_in_s(v_link_ready_down[y+1][x]),
-                    .ready_in_w(h_link_ready_left[y][x])
-                );
-            end
-        end
-    endgenerate
+    // =========================================================================
+    // Edge Output Assignments
+    // =========================================================================
+    
+    // North edge outputs (from row 0 tiles going north)
+    assign edge_data_out_n0  = tile_00_n_data;
+    assign edge_valid_out_n0 = tile_00_n_valid;
+    assign edge_data_out_n1  = tile_01_n_data;
+    assign edge_valid_out_n1 = tile_01_n_valid;
+    assign edge_data_out_n2  = tile_02_n_data;
+    assign edge_valid_out_n2 = tile_02_n_valid;
+    assign edge_data_out_n3  = tile_03_n_data;
+    assign edge_valid_out_n3 = tile_03_n_valid;
+    
+    // South edge outputs (from row 3 tiles going south)
+    assign edge_data_out_s0  = tile_30_s_data;
+    assign edge_valid_out_s0 = tile_30_s_valid;
+    assign edge_data_out_s1  = tile_31_s_data;
+    assign edge_valid_out_s1 = tile_31_s_valid;
+    assign edge_data_out_s2  = tile_32_s_data;
+    assign edge_valid_out_s2 = tile_32_s_valid;
+    assign edge_data_out_s3  = tile_33_s_data;
+    assign edge_valid_out_s3 = tile_33_s_valid;
+    
+    // East edge outputs (from column 3 tiles going east)
+    assign edge_data_out_e0  = tile_03_e_data;
+    assign edge_valid_out_e0 = tile_03_e_valid;
+    assign edge_data_out_e1  = tile_13_e_data;
+    assign edge_valid_out_e1 = tile_13_e_valid;
+    assign edge_data_out_e2  = tile_23_e_data;
+    assign edge_valid_out_e2 = tile_23_e_valid;
+    assign edge_data_out_e3  = tile_33_e_data;
+    assign edge_valid_out_e3 = tile_33_e_valid;
+    
+    // West edge outputs (from column 0 tiles going west)
+    assign edge_data_out_w0  = tile_00_w_data;
+    assign edge_valid_out_w0 = tile_00_w_valid;
+    assign edge_data_out_w1  = tile_10_w_data;
+    assign edge_valid_out_w1 = tile_10_w_valid;
+    assign edge_data_out_w2  = tile_20_w_data;
+    assign edge_valid_out_w2 = tile_20_w_valid;
+    assign edge_data_out_w3  = tile_30_w_data;
+    assign edge_valid_out_w3 = tile_30_w_valid;
 
 endmodule
