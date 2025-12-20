@@ -48,7 +48,6 @@ RTL_SRCS := \
 	$(SRC_DIR)/cgra_tile_memory.sv \
 	$(SRC_DIR)/cgra_axi_csr.sv \
 	$(SRC_DIR)/cgra_control_unit.sv \
-	$(SRC_DIR)/cgra_config_loader.sv \
 	$(SRC_DIR)/cgra_dma_engine.sv \
 	$(SRC_DIR)/cgra_top.sv
 

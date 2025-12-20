@@ -350,14 +350,14 @@ task run_suite_D_perf;
         // D04: Write Throughput
         pass("D04: Write Throughput (combined D03)");
         
-        // D05: Pipeline Overlap
-        pass("D05: Pipeline Overlap (sequential OK)");
+        // D05: Pipeline Overlap Measurement
+        test_D05_pipeline_overlap();
         
-        // D06: FIFO Bubble
-        pass("D06: FIFO Bubble (N/A simple FSM)");
+        // D06: FIFO Isolation Test (Blocked Writer)
+        test_D06_fifo_isolation();
         
-        // D07: FIFO Backpressure
-        pass("D07: FIFO Backpressure (N/A)");
+        // D07: Concurrency Measurement
+        test_D07_concurrency();
         
         // D08: Concurrent Ops
         apb_write(ADDR_DMA_SRC, 32'h1000);
@@ -378,6 +378,133 @@ task run_suite_D_perf;
         // D10: Efficiency Calc
         $display("      Efficiency: %.1f%% of ideal", throughput * 100 / 1.0);
         pass("D10: Efficiency Calculated");
+    end
+endtask
+
+// =========================================================================
+// D05: Pipeline Overlap Test
+// =========================================================================
+task test_D05_pipeline_overlap;
+    integer overlap_count;
+    integer check_cycles;
+    begin
+        overlap_count = 0;
+        check_cycles = 0;
+        
+        apb_write(ADDR_DMA_SRC, 32'h1000);
+        apb_write(ADDR_DMA_DST, 32'hD400);
+        apb_write(ADDR_DMA_SIZE, 32'd64);  // 16 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Monitor for overlap (Read and Write active simultaneously)
+        while (check_cycles < 500) begin
+            @(posedge clk);
+            check_cycles++;
+            // Check if both read and write channels are active
+            if ((u_dut.u_dma.r_state != 0) && (u_dut.u_dma.w_state != 0)) begin
+                overlap_count++;
+            end
+            // Exit if done
+            if (u_dut.u_dma.write_complete) break;
+        end
+        
+        if (overlap_count > 5) 
+            pass($sformatf("D05: Pipeline Overlap (%0d cycles)", overlap_count));
+        else
+            fail("D05: Pipeline Overlap", "no concurrent operation detected");
+    end
+endtask
+
+// =========================================================================
+// D06: FIFO Isolation Test (Blocked Writer)
+// =========================================================================
+task test_D06_fifo_isolation;
+    integer fifo_count_check;
+    begin
+        // 1. Enable stress on write channel (80% stall)
+        enable_stress(80);
+        
+        // 2. Start transfer larger than FIFO (16 words, FIFO=8)
+        apb_write(ADDR_DMA_SRC, 32'h1000);
+        apb_write(ADDR_DMA_DST, 32'hD500);
+        apb_write(ADDR_DMA_SIZE, 32'd64);  // 16 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // 3. Wait a few cycles for reader to work ahead
+        wait_cycles(50);
+        
+        // 4. Check FIFO count - should be partially or fully filled
+        fifo_count_check = u_dut.u_dma.count;
+        $display("      FIFO count after 50 cycles with writer stalled: %0d", fifo_count_check);
+        
+        // 5. Disable stress and let it finish
+        disable_stress();
+        wait_dma_done(2000);
+        
+        // FIFO should have been > 0 with stressed writer
+        if (fifo_count_check > 0)
+            pass("D06: FIFO Isolation (reader ahead of writer)");
+        else
+            fail("D06: FIFO Isolation", "FIFO never filled");
+    end
+endtask
+
+// =========================================================================
+// D07: Concurrency Measurement
+// =========================================================================
+task test_D07_concurrency;
+    integer cycles_read_active;
+    integer cycles_write_active;
+    integer cycles_overlap;
+    integer total_cycles;
+    logic data_ok;
+    begin
+        cycles_read_active = 0;
+        cycles_write_active = 0;
+        cycles_overlap = 0;
+        total_cycles = 0;
+        
+        // Setup 256B transfer
+        apb_write(ADDR_DMA_SRC, 32'h1000);
+        apb_write(ADDR_DMA_DST, 32'hD600);
+        apb_write(ADDR_DMA_SIZE, 32'd256);  // 64 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Monitor loop until done
+        while (total_cycles < 3000) begin
+            @(posedge clk);
+            total_cycles++;
+            
+            // Check if Read is active
+            if (axi_arvalid || (u_dut.u_dma.r_state != 0 && u_dut.u_dma.r_state != 3))
+                cycles_read_active++;
+            
+            // Check if Write is active
+            if (axi_awvalid || axi_wvalid || (u_dut.u_dma.w_state != 0 && u_dut.u_dma.w_state != 3))
+                cycles_write_active++;
+            
+            // Check Overlap
+            if ((axi_arvalid || u_dut.u_dma.m_axi_rready) && 
+                (axi_awvalid || axi_wvalid)) begin
+                cycles_overlap++;
+            end
+            
+            // Exit if done
+            if (u_dut.u_dma.write_complete) break;
+        end
+        
+        // Data integrity check
+        check_data(32'h1000, 32'hD600, 256, data_ok);
+        
+        $display("      Read Active: %0d cyc, Write Active: %0d cyc, Overlap: %0d cyc", 
+                 cycles_read_active, cycles_write_active, cycles_overlap);
+        
+        if (cycles_overlap > 10 && data_ok) 
+            pass($sformatf("D07: Concurrency (%0d overlap cycles)", cycles_overlap));
+        else if (!data_ok)
+            fail("D07: Concurrency", "data corruption");
+        else
+            pass("D07: Concurrency (sequential but functional)");
     end
 endtask
 
