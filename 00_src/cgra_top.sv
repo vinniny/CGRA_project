@@ -64,7 +64,12 @@ module cgra_top #(
     // =========================================================================
     // Interrupt Output
     // =========================================================================
-    output logic                  irq
+    output logic                  irq,
+    
+    // =========================================================================
+    // Synthesis Keeper (Prevents optimizer from removing unused logic)
+    // =========================================================================
+    output logic                  synthesis_keep
 );
 
     // =========================================================================
@@ -116,6 +121,29 @@ module cgra_top #(
     logic [3:0]  dma_cfg_pe_sel;  // Which PE to configure (0-15)
     
     // =========================================================================
+    // FIX 2: Double-Pump Config Loader (32-bit DMA → 64-bit Config)
+    // =========================================================================
+    // Protocol: Write High Word (addr[2]=1) → Write Low Word (addr[2]=0) commits 64-bit
+    logic [31:0] config_high_reg;     // Holding register for upper 32 bits
+    logic [63:0] config_full_word;    // Combined 64-bit config
+    logic        config_commit_en;    // Triggers when low word written
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            config_high_reg <= 32'd0;
+        end else if (dma_cfg_we && dma_cfg_addr[2]) begin
+            // Writing to high word address (offset 4 within config slot)
+            config_high_reg <= dma_cfg_wdata;
+        end
+    end
+    
+    // Commit trigger: DMA writes to low word address (addr[2]=0)
+    assign config_commit_en = dma_cfg_we && !dma_cfg_addr[2];
+    
+    // Combined 64-bit config: {high_reg, current_low_word}
+    assign config_full_word = {config_high_reg, dma_cfg_wdata};
+    
+    // =========================================================================
     // Internal Wires: Control Unit → Flow Control
     // =========================================================================
     logic [3:0]  context_pc;
@@ -129,7 +157,7 @@ module cgra_top #(
     // =========================================================================
     // TEMPORARY: Placeholder assignment for config PE selection
     // =========================================================================
-    assign dma_cfg_pe_sel = dma_cfg_addr[7:4];  // PE select from config address bits
+    assign dma_cfg_pe_sel = dma_cfg_addr[11:8];  // PE select from higher bits (avoid overlap with slot)
         
     // =========================================================================
     // 1. APB CSR Module
@@ -264,16 +292,19 @@ module cgra_top #(
         .clk(clk),
         .rst_n(rst_n),
         
+        // FIX 3: Dynamic Memory Addressing (Streaming Mode)
+        // Each bank address = context_pc, enabling 16-word streaming per run
+        
         // Bank 0 (Row 0) - Read port to array
-        .bank0_addr(12'd0),          // TODO: Connect to Row 0 address
-        .bank0_read(1'b1),           // Always read enabled (per user correction)
-        .bank0_write(1'b0),          // Array doesn't write
+        .bank0_addr({8'd0, context_pc}), // FIX 3: Address = context_pc (0-15)
+        .bank0_read(1'b1),               // Always read enabled
+        .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
         .bank0_rdata(row_data[0]),
         .bank0_valid(row_valid[0]),
         
         // Bank 1 (Row 1) - Read port to array
-        .bank1_addr(12'd0),          // TODO: Connect to Row 1 address
+        .bank1_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
         .bank1_read(1'b1),
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
@@ -281,7 +312,7 @@ module cgra_top #(
         .bank1_valid(row_valid[1]),
         
         // Bank 2 (Row 2) - Read port to array
-        .bank2_addr(12'd0),          // TODO: Connect to Row 2 address
+        .bank2_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
         .bank2_read(1'b1),
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
@@ -289,7 +320,7 @@ module cgra_top #(
         .bank2_valid(row_valid[2]),
         
         // Bank 3 (Row 3) - Read port to array
-        .bank3_addr(12'd0),          // TODO: Connect to Row 3 address
+        .bank3_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
         .bank3_read(1'b1),
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),
@@ -309,9 +340,52 @@ module cgra_top #(
     // =========================================================================
     // 5. CGRA Array (4x4 PE Mesh)
     // =========================================================================
-    // Array done signal - for now, tie to 0 (array never signals done)
-    // TODO: Connect to actual array completion logic
-    assign array_done = 1'b0;
+    
+    // =========================================================================
+    // AUTO-STOP FEATURE: Programmable Cycle Counter
+    // =========================================================================
+    // The CPU can program a cycle limit. When the counter reaches 1, array_done
+    // is asserted to signal the Control Unit to stop execution automatically.
+    //
+    // Usage:
+    // 1. Write cycle count to cycle_limit register (via CSR or hardcode)
+    // 2. Start execution - counter decrements each cycle
+    // 3. When counter == 1, array_done pulses to trigger auto-stop
+    //
+    // For now, we use a simple approach: tie array_done to context_pc overflow
+    // This triggers auto-stop after 16 contexts (one complete sweep)
+    // More sophisticated: Use a dedicated CSR register for arbitrary counts
+    
+    // Simple Auto-Stop: Trigger after 16 context cycles (context_pc wraps)
+    // This is suitable for single-pass dataflow computations
+    logic [4:0] auto_stop_counter;
+    logic       auto_stop_armed;
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            auto_stop_counter <= 5'd0;
+            auto_stop_armed <= 1'b0;
+        end else if (cu_soft_reset) begin
+            // When CU starts (soft_reset clears then start), arm the counter
+            auto_stop_counter <= 5'd0;
+            auto_stop_armed <= 1'b1;
+        end else if (pe_enable && auto_stop_armed) begin
+            // Count while running
+            auto_stop_counter <= auto_stop_counter + 1'b1;
+        end
+    end
+    
+    // Trigger array_done after 16 cycles (configurable via parameter)
+    // This causes the CU to transition to FINISH state
+    assign array_done = auto_stop_armed && (auto_stop_counter == 5'd16);
+    
+    // =========================================================================
+    // Edge Output Wires for Synthesis Keeper
+    // =========================================================================
+    logic [DATA_WIDTH-1:0] edge_n0, edge_n1, edge_n2, edge_n3;
+    logic [DATA_WIDTH-1:0] edge_s0, edge_s1, edge_s2, edge_s3;
+    logic [DATA_WIDTH-1:0] edge_e0, edge_e1, edge_e2, edge_e3;
+    logic [DATA_WIDTH-1:0] edge_w0, edge_w1, edge_w2, edge_w3;
     
     cgra_array_4x4 #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -345,13 +419,13 @@ module cgra_top #(
         .config_frame_33(64'd0),
         .config_valid(1'b0),       // Use config RAM, not direct frame
         
-        // Multi-context interface - CONNECTED TO DMA CONFIG PATH
+        // Multi-context interface - FIX 2: Double-pump config path
         .context_pc(context_pc),
         .global_stall(global_stall),
-        .cfg_wr_addr(dma_cfg_addr[3:0]),         // Low 4 bits = slot address
-        .cfg_wr_data({32'd0, dma_cfg_wdata}),    // Zero-extend 32->64 bit
+        .cfg_wr_addr(dma_cfg_addr[6:3]),         // Config slot address (skip bit 2 used for hi/lo)
+        .cfg_wr_data(config_full_word),          // FIX 2: Full 64-bit config
         .cfg_wr_pe_sel(dma_cfg_pe_sel),          // From address decode
-        .cfg_wr_en(dma_cfg_we),                  // FROM DMA!
+        .cfg_wr_en(config_commit_en),            // FIX 2: Only commit on low word write
 
         
         // North edge inputs - tie off
@@ -394,42 +468,52 @@ module cgra_top #(
         .edge_valid_in_w2(row_valid[2]),
         .edge_valid_in_w3(row_valid[3]),
         
-        // Edge outputs - unused
-        .edge_data_out_n0(),
-        .edge_data_out_n1(),
-        .edge_data_out_n2(),
-        .edge_data_out_n3(),
+        // Edge outputs - connected for synthesis keepalive
+        .edge_data_out_n0(edge_n0),
+        .edge_data_out_n1(edge_n1),
+        .edge_data_out_n2(edge_n2),
+        .edge_data_out_n3(edge_n3),
         .edge_valid_out_n0(),
         .edge_valid_out_n1(),
         .edge_valid_out_n2(),
         .edge_valid_out_n3(),
         
-        .edge_data_out_s0(),
-        .edge_data_out_s1(),
-        .edge_data_out_s2(),
-        .edge_data_out_s3(),
+        .edge_data_out_s0(edge_s0),
+        .edge_data_out_s1(edge_s1),
+        .edge_data_out_s2(edge_s2),
+        .edge_data_out_s3(edge_s3),
         .edge_valid_out_s0(),
         .edge_valid_out_s1(),
         .edge_valid_out_s2(),
         .edge_valid_out_s3(),
         
-        .edge_data_out_e0(),
-        .edge_data_out_e1(),
-        .edge_data_out_e2(),
-        .edge_data_out_e3(),
+        .edge_data_out_e0(edge_e0),
+        .edge_data_out_e1(edge_e1),
+        .edge_data_out_e2(edge_e2),
+        .edge_data_out_e3(edge_e3),
         .edge_valid_out_e0(),
         .edge_valid_out_e1(),
         .edge_valid_out_e2(),
         .edge_valid_out_e3(),
         
-        .edge_data_out_w0(),
-        .edge_data_out_w1(),
-        .edge_data_out_w2(),
-        .edge_data_out_w3(),
+        .edge_data_out_w0(edge_w0),
+        .edge_data_out_w1(edge_w1),
+        .edge_data_out_w2(edge_w2),
+        .edge_data_out_w3(edge_w3),
         .edge_valid_out_w0(),
         .edge_valid_out_w1(),
         .edge_valid_out_w2(),
         .edge_valid_out_w3()
     );
+    
+    // =========================================================================
+    // Synthesis Keeper: OR-reduce all edge outputs to single bit
+    // =========================================================================
+    // This prevents the synthesizer from optimizing away the array due to
+    // unconnected outputs. Route this pin to a test pad or leave floating.
+    assign synthesis_keep = |edge_n0 | |edge_n1 | |edge_n2 | |edge_n3 |
+                            |edge_s0 | |edge_s1 | |edge_s2 | |edge_s3 |
+                            |edge_e0 | |edge_e1 | |edge_e2 | |edge_e3 |
+                            |edge_w0 | |edge_w1 | |edge_w2 | |edge_w3;
 
 endmodule

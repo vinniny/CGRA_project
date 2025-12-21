@@ -97,7 +97,8 @@ module tb_top;
         .m_axi_rdata(axi_rdata),
         .m_axi_rvalid(axi_rvalid),
         .m_axi_rready(axi_rready),
-        .irq(irq_done)
+        .irq(irq_done),
+        .synthesis_keep()  // Unconnected in simulation - prevents synthesis optimization
     );
 
     // =========================================================================
@@ -251,6 +252,15 @@ module tb_top;
         run_suite_H_negative();   // Negative Testing / Fault Injection (10 vectors)
         run_suite_I_compute();    // Compute Core Verification - Phase 2 (6 vectors)
         run_suite_J_computation(); // Computation Verification - Full Path (5 vectors)
+        run_suite_K_advanced();   // Advanced Compute & Stress (7 vectors)
+        run_suite_L_spatial();    // Spatial Pipeline (PE-to-PE) (2 vectors)
+        run_suite_M_isa_sweep();  // ISA Discovery Sweep (16 opcodes)
+        run_suite_N_signed_math();  // Signed Arithmetic & Shifts (3 vectors)
+        run_suite_O_parallel_stress(); // 16-Core Parallel Stress (4 vectors)
+        run_suite_P_comparator(); // Comparator Decoder (3 vectors)
+        run_suite_Q_random();     // Constrained Random Stress (20 vectors)
+        run_suite_R_boundary();   // Streaming Boundary Wrap (1 vector)
+        run_suite_S_reset();      // Reset Recovery (1 vector)
 
         // === FINAL REPORT ===
         $display("\n================================================================");

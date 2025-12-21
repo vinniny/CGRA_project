@@ -265,9 +265,10 @@ endtask
 task config_pe(input [3:0] pe_id, input [3:0] slot, input [31:0] opcode);
     logic [31:0] cfg_addr;
     begin
-        // Construct Address: Prefix (0x2) + PE_ID (Bits [7:4]) + Slot (Bits [3:0] * 4)
-        // Per cgra_top: dma_cfg_pe_sel = dma_cfg_addr[7:4]
-        cfg_addr = BASE_CONFIG | ({24'd0, pe_id} << 4) | ({28'd0, slot} << 0);
+        // Construct Address: Prefix (0x2) + PE_ID (Bits [11:8]) + Slot (Bits [6:3])
+        // UPDATED: Per cgra_top Fix: dma_cfg_pe_sel = dma_cfg_addr[11:8]
+        // cfg_wr_addr = dma_cfg_addr[6:3] (slot address, skip bit 2 for hi/lo)
+        cfg_addr = BASE_CONFIG | ({24'd0, pe_id} << 8) | ({28'd0, slot} << 3);
         
         // 1. Write Opcode to temp Ext RAM
         ram_write(32'h0000_1004, opcode);
@@ -284,15 +285,22 @@ endtask
 // -------------------------------------------------------------------------
 // TASK: Run CGRA for N Cycles
 // -------------------------------------------------------------------------
+// Resets context_pc to 0, runs for N cycles, then stops.
 task run_cgra(input integer cycles);
     begin
+        // 0. Soft Reset to clear context_pc back to 0
+        apb_write(32'h14, 32'd2); // Soft Reset (bit 1)
+        wait_cycles(1);
+        apb_write(32'h14, 32'd0); // Clear
+        wait_cycles(1);
+        
         // 1. Enable Control Unit (CU_CTRL = 0x14)
         apb_write(32'h14, 32'd1); // Start/Enable
         
-        // 2. Wait
+        // 2. Wait for execution cycles
         wait_cycles(cycles);
         
-        // 3. Stop
+        // 3. Stop (but DON'T reset - we want to read alu_result)
         apb_write(32'h14, 32'd0); 
     end
 endtask

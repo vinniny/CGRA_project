@@ -332,7 +332,7 @@ module cgra_pe #(
         if (!rst_n) begin
             accumulator <= '0;
             predicate_flag <= 1'b0;
-        end else if (config_valid && !stall) begin
+        end else if (!stall) begin  // Execute when not stalled (config_ram is always valid)
             unique case (op_code)
                 OP_NOP: begin
                     alu_result <= '0;

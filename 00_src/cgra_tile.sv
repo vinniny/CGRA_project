@@ -70,6 +70,11 @@ module cgra_tile #(
     // -------------------------------------------------------------------------
     // Router Instance
     // -------------------------------------------------------------------------
+    // FIX #4: Router outputs go to internal wires (unused for now)
+    // PE broadcast overrides tile output ports below
+    logic [DATA_WIDTH-1:0] router_out_n, router_out_e, router_out_s, router_out_w;
+    logic router_valid_n, router_valid_e, router_valid_s, router_valid_w;
+    
     cgra_router #(
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
@@ -83,29 +88,29 @@ module cgra_tile #(
         .data_in_n(data_in_n),
         .valid_in_n(valid_in_n),
         .ready_out_n(ready_out_n),
-        .data_out_n(data_out_n),
-        .valid_out_n(valid_out_n),
+        .data_out_n(router_out_n),       // FIX #4: to internal wire
+        .valid_out_n(router_valid_n),    // FIX #4: to internal wire
         .ready_in_n(ready_in_n),
 
         .data_in_e(data_in_e),
         .valid_in_e(valid_in_e),
         .ready_out_e(ready_out_e),
-        .data_out_e(data_out_e),
-        .valid_out_e(valid_out_e),
+        .data_out_e(router_out_e),       // FIX #4: to internal wire
+        .valid_out_e(router_valid_e),    // FIX #4: to internal wire
         .ready_in_e(ready_in_e),
 
         .data_in_s(data_in_s),
         .valid_in_s(valid_in_s),
         .ready_out_s(ready_out_s),
-        .data_out_s(data_out_s),
-        .valid_out_s(valid_out_s),
+        .data_out_s(router_out_s),       // FIX #4: to internal wire
+        .valid_out_s(router_valid_s),    // FIX #4: to internal wire
         .ready_in_s(ready_in_s),
 
         .data_in_w(data_in_w),
         .valid_in_w(valid_in_w),
         .ready_out_w(ready_out_w),
-        .data_out_w(data_out_w),
-        .valid_out_w(valid_out_w),
+        .data_out_w(router_out_w),       // FIX #4: to internal wire
+        .valid_out_w(router_valid_w),    // FIX #4: to internal wire
         .ready_in_w(ready_in_w),
 
         .data_in_local(pe_to_router_data),
@@ -116,9 +121,13 @@ module cgra_tile #(
         .ready_in_local(pe_to_router_ready)
     );
 
-    // -------------------------------------------------------------------------
     // PE Instance
     // -------------------------------------------------------------------------
+    
+    // FIX #4: Capture PE result for mesh broadcast
+    logic [DATA_WIDTH-1:0] pe_result;
+    logic                  pe_result_valid;
+    
     cgra_pe #(
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
@@ -143,20 +152,21 @@ module cgra_tile #(
         .cfg_wr_data(cfg_wr_data),
         .cfg_wr_en(cfg_wr_en),
 
-        .data_in_n(router_to_pe_data),
-        .data_in_e(router_to_pe_data),
-        .data_in_s(router_to_pe_data),
-        .data_in_w(router_to_pe_data),
-        .valid_in_n(router_to_pe_valid),
-        .valid_in_e(router_to_pe_valid),
-        .valid_in_s(router_to_pe_valid),
-        .valid_in_w(router_to_pe_valid),
+        .data_in_n(data_in_n),          // FIX 1: Direct from tile port (not router)
+        .data_in_e(data_in_e),          // FIX 1: Direct from tile port
+        .data_in_s(data_in_s),          // FIX 1: Direct from tile port  
+        .data_in_w(data_in_w),          // FIX 1: Direct from tile port (Tile Memory path!)
+        .valid_in_n(valid_in_n),        // FIX 1: Direct valid
+        .valid_in_e(valid_in_e),        // FIX 1: Direct valid
+        .valid_in_s(valid_in_s),        // FIX 1: Direct valid
+        .valid_in_w(valid_in_w),        // FIX 1: Direct valid (Tile Memory!)
 
-        .data_out_n(),
-        .data_out_e(),
-        .data_out_s(),
-        .data_out_w(),
-        .valid_out_n(),
+        // FIX #4: Capture PE directional outputs (all carry same result)
+        .data_out_n(pe_result),         // Capture result
+        .data_out_e(),                  // Same data, unused
+        .data_out_s(),                  // Same data, unused
+        .data_out_w(),                  // Same data, unused
+        .valid_out_n(pe_result_valid),  // Capture valid
         .valid_out_e(),
         .valid_out_s(),
         .valid_out_w(),
@@ -166,6 +176,19 @@ module cgra_tile #(
         .ready_in(router_to_pe_ready),
         .ready_out(pe_to_router_ready)
     );
+    
+    // =========================================================================
+    // FIX #4: BROADCAST PE RESULT TO ALL NEIGHBORS
+    // =========================================================================
+    // Override router outputs - PE result goes directly to all neighbors
+    assign data_out_n = pe_result;
+    assign data_out_e = pe_result;
+    assign data_out_s = pe_result;
+    assign data_out_w = pe_result;
+    
+    assign valid_out_n = pe_result_valid;
+    assign valid_out_e = pe_result_valid;
+    assign valid_out_s = pe_result_valid;
+    assign valid_out_w = pe_result_valid;
 
 endmodule
-

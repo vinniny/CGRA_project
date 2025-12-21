@@ -34,9 +34,9 @@ flowchart TB
         subgraph CTRL_PATH["Control Path (APB)"]
             direction LR
             
-            CSR["cgra_axi_csr<br/>───────────<br/>DMA_CTRL [0x00]<br/>DMA_STATUS [0x04]<br/>DMA_SRC [0x08]<br/>DMA_DST [0x0C]<br/>DMA_SIZE [0x10]<br/>CU_CTRL [0x20]<br/>CU_STATUS [0x24]"]:::control
+            CSR["cgra_axi_csr<br/>───────────<br/>DMA_CTRL [0x00]<br/>DMA_STATUS [0x04]<br/>DMA_SRC [0x08]<br/>DMA_DST [0x0C]<br/>DMA_SIZE [0x10]<br/>CU_CTRL [0x14]"]:::control
             
-            CU["cgra_control_unit<br/>─────────────<br/>FSM: IDLE → RUN<br/>→ DONE<br/>─────────────<br/>cycle_counter<br/>pe_reset_n"]:::control
+            CU["cgra_control_unit<br/>─────────────<br/>FSM: IDLE → RUN<br/>→ FINISH<br/>─────────────<br/>context_pc[3:0]<br/>auto_stop"]:::control
         end
         
         %% -----------------------------------------------------------------------
@@ -55,41 +55,52 @@ flowchart TB
         end
         
         %% -----------------------------------------------------------------------
+        %% Tile Memory (4-Bank Row Memory)
+        %% -----------------------------------------------------------------------
+        subgraph TILE_MEM["cgra_tile_memory (4 Banks)"]
+            direction LR
+            BANK0["Bank 0<br/>Row 0"]:::memory
+            BANK1["Bank 1<br/>Row 1"]:::memory
+            BANK2["Bank 2<br/>Row 2"]:::memory
+            BANK3["Bank 3<br/>Row 3"]:::memory
+        end
+        
+        %% -----------------------------------------------------------------------
         %% Compute Fabric (4x4 PE Array)
         %% -----------------------------------------------------------------------
-        subgraph FABRIC["cgra_array_4x4"]
+        subgraph FABRIC["cgra_array_4x4 (Mesh Broadcast)"]
             direction TB
             
-            subgraph R0["Row 0"]
+            subgraph R0["Row 0 ← Bank 0"]
                 direction LR
-                PE00["cgra_tile<br/>───────<br/>PE + Router<br/>SPM: 256×32"]:::compute
-                PE01["tile<br/>0,1"]:::compute
-                PE02["tile<br/>0,2"]:::compute
-                PE03["tile<br/>0,3"]:::compute
+                PE00["PE<br/>0,0"]:::compute
+                PE01["PE<br/>0,1"]:::compute
+                PE02["PE<br/>0,2"]:::compute
+                PE03["PE<br/>0,3"]:::compute
             end
             
-            subgraph R1["Row 1"]
+            subgraph R1["Row 1 ← Bank 1"]
                 direction LR
-                PE10["tile<br/>1,0"]:::compute
-                PE11["tile<br/>1,1"]:::compute
-                PE12["tile<br/>1,2"]:::compute
-                PE13["tile<br/>1,3"]:::compute
+                PE10["PE<br/>1,0"]:::compute
+                PE11["PE<br/>1,1"]:::compute
+                PE12["PE<br/>1,2"]:::compute
+                PE13["PE<br/>1,3"]:::compute
             end
             
-            subgraph R2["Row 2"]
+            subgraph R2["Row 2 ← Bank 2"]
                 direction LR
-                PE20["tile<br/>2,0"]:::compute
-                PE21["tile<br/>2,1"]:::compute
-                PE22["tile<br/>2,2"]:::compute
-                PE23["tile<br/>2,3"]:::compute
+                PE20["PE<br/>2,0"]:::compute
+                PE21["PE<br/>2,1"]:::compute
+                PE22["PE<br/>2,2"]:::compute
+                PE23["PE<br/>2,3"]:::compute
             end
             
-            subgraph R3["Row 3"]
+            subgraph R3["Row 3 ← Bank 3"]
                 direction LR
-                PE30["tile<br/>3,0"]:::compute
-                PE31["tile<br/>3,1"]:::compute
-                PE32["tile<br/>3,2"]:::compute
-                PE33["tile<br/>3,3"]:::compute
+                PE30["PE<br/>3,0"]:::compute
+                PE31["PE<br/>3,1"]:::compute
+                PE32["PE<br/>3,2"]:::compute
+                PE33["PE<br/>3,3"]:::compute
             end
         end
     end
@@ -109,46 +120,51 @@ flowchart TB
     CSR -->|"cfg_src/dst/size"| DMA_ENGINE
     CU -->|"busy, done"| CSR
     WRITE_ENG -->|"status"| CSR
-    CU -->|"pe_enable,<br/>pe_reset_n"| FABRIC
+    CU -->|"context_pc"| TILE_MEM
+    CU -->|"pe_enable"| FABRIC
+    
+    TILE_MEM -->|"row_data[0]"| R0
+    TILE_MEM -->|"row_data[1]"| R1
+    TILE_MEM -->|"row_data[2]"| R2
+    TILE_MEM -->|"row_data[3]"| R3
 
     %% ===========================================================================
-    %% Mesh Interconnect
+    %% Mesh Broadcast (PE outputs → Neighbor inputs)
     %% ===========================================================================
-    PE00 <--> PE01 <--> PE02 <--> PE03
-    PE10 <--> PE11 <--> PE12 <--> PE13
-    PE20 <--> PE21 <--> PE22 <--> PE23
-    PE30 <--> PE31 <--> PE32 <--> PE33
-    PE00 <--> PE10 <--> PE20 <--> PE30
-    PE01 <--> PE11 <--> PE21 <--> PE31
-    PE02 <--> PE12 <--> PE22 <--> PE32
-    PE03 <--> PE13 <--> PE23 <--> PE33
+    PE00 --> PE01 --> PE02 --> PE03
+    PE10 --> PE11 --> PE12 --> PE13
+    PE20 --> PE21 --> PE22 --> PE23
+    PE30 --> PE31 --> PE32 --> PE33
 ```
 
 ---
 
-## DMA Engine Detail
+## Data Flow Architecture
 
 ```mermaid
 flowchart LR
-    subgraph READ["Read Engine"]
-        R_IDLE["IDLE"] --> R_ADDR["ADDR"]
-        R_ADDR --> R_DATA["DATA"]
-        R_DATA --> R_ADDR
-        R_DATA --> R_DONE["DONE"]
+    subgraph INPUT["Data Input"]
+        DMA["DMA"]
+        TILEMEM["Tile Memory<br/>(4 Banks)"]
     end
     
-    FIFO["FIFO<br/>8-word"]
-    
-    subgraph WRITE["Write Engine"]
-        W_IDLE["IDLE"] --> W_WAIT["WAIT"]
-        W_WAIT --> W_ADDR["ADDR"]
-        W_ADDR --> W_DATA["DATA"]
-        W_DATA --> W_RESP["RESP"]
-        W_RESP --> W_WAIT
-        W_RESP --> W_DONE["DONE"]
+    subgraph COMPUTE["PE Array"]
+        COL0["Column 0<br/>(Memory Input)"]
+        COL1["Column 1"]
+        COL2["Column 2"]
+        COL3["Column 3"]
     end
     
-    R_DATA -->|"push"| FIFO -->|"pop"| W_DATA
+    subgraph OUTPUT["Synthesis Keeper"]
+        SYNTH["synthesis_keep<br/>(OR-reduce)"]
+    end
+    
+    DMA -->|"Config"| TILEMEM
+    TILEMEM -->|"West Edge"| COL0
+    COL0 -->|"PE Broadcast"| COL1
+    COL1 -->|"PE Broadcast"| COL2
+    COL2 -->|"PE Broadcast"| COL3
+    COL3 -->|"Edge Outputs"| SYNTH
 ```
 
 ---
@@ -160,39 +176,50 @@ flowchart TB
     subgraph TILE["cgra_tile"]
         subgraph PE["cgra_pe"]
             RF["RF: 16×32"]
-            ALU["ALU: 18 ops"]
-            ACC["ACC: 40-bit"]
+            ALU["ALU: 9 ops verified"]
             SPM["SPM: 256×32"]
+            CFG["Config RAM<br/>(16 contexts)"]
         end
-        ROUTER["cgra_router<br/>5-port XY"]
+        ROUTER["cgra_router<br/>5-port XY<br/>(outputs unused)"]
     end
     
-    RF --> ALU --> ACC
-    ALU <--> SPM
-    ALU --> ROUTER --> RF
+    CFG -->|"context_pc"| ALU
+    RF --> ALU
+    ALU --> SPM
+    ALU -->|"alu_result"| BROADCAST
     
-    N((N)) <--> ROUTER
-    E((E)) <--> ROUTER
-    S((S)) <--> ROUTER
-    W((W)) <--> ROUTER
+    BROADCAST["Broadcast<br/>to N/E/S/W"]
+    
+    W((W)) --> PE
+    BROADCAST --> N((N))
+    BROADCAST --> E((E))
+    BROADCAST --> S((S))
 ```
 
 ---
 
-## Note on cgra_tile_memory
+## Key Metrics (Verified)
 
-The file `cgra_tile_memory.sv` exists but is **NOT currently instantiated** in `cgra_top.sv`. 
-
-Each PE has its own **internal scratchpad** (256×32-bit) inside `cgra_pe.sv`. The tile_memory module was designed for a shared row memory architecture but hasn't been integrated yet.
+| Component | Spec | Verified |
+|-----------|------|----------|
+| PE Array | 4×4 = 16 tiles | ✅ Suite O |
+| SPM per PE | 256 × 32-bit | ✅ |
+| DMA FIFO | 8 × 32-bit | ✅ Suite B |
+| Tile Memory | 4 banks × 4KB | ✅ Suite J |
+| Test Suites | 19 (A-S) | ✅ |
+| Test Vectors | **126** | ✅ |
+| ISA Operations | 9 verified | ✅ Suite M |
+| Mesh Broadcast | PE → Neighbors | ✅ Suite L |
+| Auto-Stop | 16-cycle trigger | ✅ |
 
 ---
 
-## Key Metrics
+## Architecture Fixes Applied
 
-| Component | Spec |
-|-----------|------|
-| PE Array | 4×4 = 16 tiles |
-| SPM per PE | 256 × 32-bit |
-| DMA FIFO | 8 × 32-bit |
-| Throughput | 0.64 B/cycle |
-| Test Vectors | 90+ |
+| Fix | Issue | Solution |
+|-----|-------|----------|
+| #1 | PE N/E/S/W inputs same | Direct tile port wiring |
+| #2 | Config 32→64 bit loss | Double-pump loader |
+| #3 | Bank addr hardcoded | context_pc streaming |
+| #4 | PE outputs disconnected | Mesh broadcast |
+| #5 | pe_sel encoding overlap | Bits [11:8] not [7:4] |
