@@ -1,9 +1,20 @@
 // ==============================================================================
-// CGRA Tile (Router + PE)
+// CGRA Tile (Router + PE with Mesh Broadcast)
 // ==============================================================================
-// Wraps a router and a PE so all traffic flows through the NoC.
-// Router local port connects to the PE's local interface.
-
+// Wraps a router and a PE. PE results broadcast to all 4 neighbors.
+//
+// DATA FLOW:
+//   - Tile receives data_in_n/e/s/w from neighbors
+//   - PE computes alu_result from west input (or other source)
+//   - PE result broadcasts to ALL data_out_n/e/s/w ports
+//   - Router handles read-only signals (outputs unused, PE overrides)
+//
+// MESH BROADCAST (Fix #4):
+//   assign data_out_n = pe_result;  // Same result to all 4 directions
+//   assign data_out_e = pe_result;
+//   assign data_out_s = pe_result;
+//   assign data_out_w = pe_result;
+// ==============================================================================
 module cgra_tile #(
     parameter DATA_WIDTH   = 32,
     parameter COORD_WIDTH  = 4,

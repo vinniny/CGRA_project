@@ -119,19 +119,45 @@ make clean
 
 ---
 
-## ISA (Verified Operations)
+## ISA (Instruction Set Architecture)
 
-| Opcode | Operation | Description | Verified |
-|--------|-----------|-------------|----------|
+| Opcode | Name | Operation | Verified |
+|--------|------|-----------|----------|
 | 0 | NOP | No operation | ✅ |
-| 1 | ADD | A + B | ✅ Suite M, Q |
-| 2 | SUB | A - B | ✅ Suite M, N |
+| 1 | ADD | A + B (saturating) | ✅ Suite M, Q |
+| 2 | SUB | A - B (saturating) | ✅ Suite M, N |
 | 3 | MUL | A × B (32-bit) | ✅ Suite M |
+| 4 | MAC | Acc += A × B | |
 | 5 | AND | A & B | ✅ Suite K, M, Q |
 | 6 | OR | A \| B | ✅ Suite K, M, Q |
 | 7 | XOR | A ^ B | ✅ Suite K, M, Q |
-| 8 | SLL | A << B | ✅ Suite M |
-| 12 | SEQ | (A == B) ? 1 : 0 | ✅ Suite P |
+| 8 | SHL | A << B | ✅ Suite M |
+| 9 | SHR | A >> B | |
+| 10 | CMP_GT | (A > B) ? 1 : 0 | |
+| 11 | CMP_LT | (A < B) ? 1 : 0 | |
+| 12 | CMP_EQ | (A == B) ? 1 : 0 | ✅ Suite P |
+| 13 | LOAD_SPM | Load from scratchpad | |
+| 14 | STORE_SPM | Store to scratchpad | |
+| 15 | ACC_CLR | Clear accumulator | |
+| 16 | PASS0 | Pass operand 0 | |
+| 17 | PASS1 | Pass operand 1 | |
+| 18 | LIF | Leaky Integrate-Fire | |
+
+**9 operations verified, 10 implemented but not yet tested**
+
+---
+
+## Source Select (src0_sel, src1_sel)
+
+| Value | Source |
+|-------|--------|
+| 0 | Register File (RF) |
+| 1 | North neighbor |
+| 2 | East neighbor |
+| 3 | South neighbor |
+| 4 | West neighbor (Tile Memory) |
+| 5 | Scratchpad Memory |
+| 6 | Immediate value |
 
 ---
 
@@ -139,13 +165,15 @@ make clean
 
 | Bits | Field | Description |
 |------|-------|-------------|
-| [5:0] | opcode | ALU operation |
-| [9:6] | src0 | Source 0 (0-3: RF, 4: West, 5-7: N/E/S) |
-| [13:10] | src1 | Source 1 select |
-| [17:14] | dst | Destination register |
-| [21:18] | route_mask | Output direction (N/E/S/W/L) |
-| [31:22] | reserved | — |
-| [63:32] | imm | 32-bit immediate (optional) |
+| [5:0] | opcode | ALU operation (19 ops) |
+| [9:6] | src0_sel | Source 0 select |
+| [13:10] | src1_sel | Source 1 select |
+| [17:14] | dst_sel | Destination register |
+| [21:18] | route_mask | Output direction (N/E/S/W) |
+| [22] | pred_en | Predicate enable |
+| [23] | pred_inv | Predicate invert |
+| [39:24] | imm | 16-bit immediate |
+| [63:40] | extended | Routing header metadata |
 
 ---
 

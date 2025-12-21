@@ -1,21 +1,61 @@
 // ==============================================================================
 // CGRA Processing Element (PE)
 // ==============================================================================
-// Implements ALU/MAC, scratchpad, register file, bypass network, and predicate execution
-// Configuration frame format (64-bit):
-//   [5:0]   - op_code
-//   [9:6]   - src0 select
-//   [13:10] - src1 select
-//   [17:14] - dst select
-//   [21:18] - route mask (N/E/S/W/local)
-//   [22]    - pred_en
-//   [23]    - pred_inv
-//   [39:24] - imm (16-bit immediate)
-//   [63:40] - extended metadata (routing header fields, LSB-first)
-//             [2*COORD_WIDTH]                   - multicast
-//             [2*COORD_WIDTH-1:COORD_WIDTH]     - dest_y
-//             [COORD_WIDTH-1:0]                - dest_x
-//             [23:(2*COORD_WIDTH)+1]           - reserved
+// A configurable processing element supporting 19 ALU operations, 16-entry
+// register file, 256×32-bit scratchpad, and 16-context configuration RAM.
+//
+// ARCHITECTURE:
+//   - ALU/MAC
+//   - 16×32-bit Register File
+//   - 256×32-bit Scratchpad Memory (BRAM)
+//   - 40-bit Accumulator (for MAC operations)
+//   - 16-slot Configuration RAM (multi-context)
+//   - 4-direction mesh broadcast output
+//
+// ISA (Instruction Set):
+//   Op | Name       | Operation              | Verified
+//   ---|------------|------------------------|---------
+//   0  | NOP        | No operation           | ✓
+//   1  | ADD        | A + B (saturating)     | ✓
+//   2  | SUB        | A - B (saturating)     | ✓
+//   3  | MUL        | A × B (32-bit)         | ✓
+//   4  | MAC        | Acc += A × B           |
+//   5  | AND        | A & B                  | ✓
+//   6  | OR         | A | B                  | ✓
+//   7  | XOR        | A ^ B                  | ✓
+//   8  | SHL        | A << B                 | ✓
+//   9  | SHR        | A >> B                 |
+//  10  | CMP_GT     | (A > B) ? 1 : 0        |
+//  11  | CMP_LT     | (A < B) ? 1 : 0        |
+//  12  | CMP_EQ     | (A == B) ? 1 : 0       | ✓
+//  13  | LOAD_SPM   | Load from scratchpad   |
+//  14  | STORE_SPM  | Store to scratchpad    |
+//  15  | ACC_CLR    | Clear accumulator      |
+//  16  | PASS0      | Pass operand0          |
+//  17  | PASS1      | Pass operand1          |
+//  18  | LIF        | Leaky Integrate-Fire   |
+//
+// SOURCE SELECT (src0_sel, src1_sel):
+//   0 = Register File (rf_rdata)
+//   1 = North neighbor (data_in_n)
+//   2 = East neighbor (data_in_e)
+//   3 = South neighbor (data_in_s)
+//   4 = West neighbor (data_in_w)
+//   5 = Scratchpad (spm_rdata)
+//   6 = Immediate (from config frame)
+//
+// CONFIGURATION FRAME FORMAT (64-bit):
+//   [5:0]   - op_code (6 bits, 19 operations)
+//   [9:6]   - src0_sel (4 bits, source 0 select)
+//   [13:10] - src1_sel (4 bits, source 1 select)
+//   [17:14] - dst_sel (4 bits, destination register)
+//   [21:18] - route_mask (4 bits, N/E/S/W output enable)
+//   [22]    - pred_en (predicate enable)
+//   [23]    - pred_inv (predicate invert)
+//   [39:24] - imm (16-bit immediate value)
+//   [63:40] - extended (routing header metadata)
+//
+// ==============================================================================
 
 module cgra_pe #(
     parameter DATA_WIDTH  = 32,
