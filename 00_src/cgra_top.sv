@@ -343,15 +343,15 @@ module cgra_top #(
         .config_frame_31(64'd0),
         .config_frame_32(64'd0),
         .config_frame_33(64'd0),
-        .config_valid(1'b1),
+        .config_valid(1'b0),       // Use config RAM, not direct frame
         
-        // Multi-context interface
+        // Multi-context interface - CONNECTED TO DMA CONFIG PATH
         .context_pc(context_pc),
         .global_stall(global_stall),
-        .cfg_wr_addr(4'd0),        // TODO: Connect from DMA
-        .cfg_wr_data(64'd0),       // TODO: Connect from DMA
-        .cfg_wr_pe_sel(4'd0),      // TODO: Connect from DMA
-        .cfg_wr_en(1'b0),          // TODO: Connect from DMA
+        .cfg_wr_addr(dma_cfg_addr[3:0]),         // Low 4 bits = slot address
+        .cfg_wr_data({32'd0, dma_cfg_wdata}),    // Zero-extend 32->64 bit
+        .cfg_wr_pe_sel(dma_cfg_pe_sel),          // From address decode
+        .cfg_wr_en(dma_cfg_we),                  // FROM DMA!
 
         
         // North edge inputs - tie off
@@ -384,15 +384,15 @@ module cgra_top #(
         .edge_valid_in_e2(1'b0),
         .edge_valid_in_e3(1'b0),
         
-        // West edge inputs - tie off
-        .edge_data_in_w0(32'd0),
-        .edge_data_in_w1(32'd0),
-        .edge_data_in_w2(32'd0),
-        .edge_data_in_w3(32'd0),
-        .edge_valid_in_w0(1'b0),
-        .edge_valid_in_w1(1'b0),
-        .edge_valid_in_w2(1'b0),
-        .edge_valid_in_w3(1'b0),
+        // West edge inputs - FROM TILE MEMORY (The Data Pipeline!)
+        .edge_data_in_w0(row_data[0]),   // Bank 0 -> Row 0 PEs
+        .edge_data_in_w1(row_data[1]),   // Bank 1 -> Row 1 PEs
+        .edge_data_in_w2(row_data[2]),   // Bank 2 -> Row 2 PEs
+        .edge_data_in_w3(row_data[3]),   // Bank 3 -> Row 3 PEs
+        .edge_valid_in_w0(row_valid[0]),
+        .edge_valid_in_w1(row_valid[1]),
+        .edge_valid_in_w2(row_valid[2]),
+        .edge_valid_in_w3(row_valid[3]),
         
         // Edge outputs - unused
         .edge_data_out_n0(),

@@ -226,7 +226,7 @@ module tb_top;
     // 7. MAIN EXECUTION
     // =========================================================================
     initial begin
-        //$dumpfile("cgra_master_sim.vcd");
+        //$dumpfile("03_sim/cgra_debug.vcd");
         //$dumpvars(0, tb_top);
         
         // Initialize memory with test pattern
@@ -237,7 +237,7 @@ module tb_top;
         
         $display("\n");
         $display("================================================================");
-        $display("  CGRA MASTER VERIFICATION - 111+ VECTOR SUITE (with SVA)");
+        $display("  CGRA MASTER VERIFICATION - 101+ VECTOR SUITE (with SVA)");
         $display("================================================================");
 
         // === EXECUTE ALL SUITES ===
@@ -250,6 +250,7 @@ module tb_top;
         run_suite_G_crv();        // Constrained Random Verification (10000+ vectors)
         run_suite_H_negative();   // Negative Testing / Fault Injection (10 vectors)
         run_suite_I_compute();    // Compute Core Verification - Phase 2 (6 vectors)
+        run_suite_J_computation(); // Computation Verification - Full Path (5 vectors)
 
         // === FINAL REPORT ===
         $display("\n================================================================");

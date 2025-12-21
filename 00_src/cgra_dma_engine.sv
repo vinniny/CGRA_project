@@ -232,6 +232,7 @@ module cgra_dma_engine #(
     logic [31:0] write_words_remaining;
     logic        write_complete;
     logic [DATA_WIDTH-1:0] write_data_reg;  // Latched FIFO data
+    logic [31:0] local_write_addr;          // Address captured BEFORE increment for local writes
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -241,6 +242,7 @@ module cgra_dma_engine #(
             write_complete <= 1'b0;
             write_data_reg <= '0;
             local_write_en <= 1'b0;
+            local_write_addr <= '0;
             m_axi_awaddr <= '0;
             m_axi_awvalid <= 1'b0;
             m_axi_wdata <= '0;
@@ -291,6 +293,7 @@ module cgra_dma_engine #(
                         end
                     end else begin
                         // Local destination (tile/config) - single-cycle write
+                        local_write_addr <= write_addr;  // Capture CURRENT address BEFORE increment!
                         local_write_en <= 1'b1;
                         write_addr <= write_addr + BYTES_PER_WORD;
                         write_words_remaining <= write_words_remaining - 1'b1;
@@ -351,12 +354,13 @@ module cgra_dma_engine #(
     // Local Memory & Config Output Assignments
     // =========================================================================
     // Combinational driving based on local_write_en and destination type
-    assign tile_addr_o     = write_addr[11:0];        // 4KB wrapping per bank
-    assign tile_bank_sel_o = write_addr[13:12];       // Bank select from addr bits
+    // Use registered local_write_addr to avoid using post-increment address
+    assign tile_addr_o     = local_write_addr[11:0];   // 4KB wrapping per bank
+    assign tile_bank_sel_o = local_write_addr[13:12];  // Bank select from addr bits
     assign tile_wdata_o    = write_data_reg;
     assign tile_we_o       = local_write_en && dst_is_tile;
     
-    assign config_addr_o   = write_addr;
+    assign config_addr_o   = local_write_addr;
     assign config_wdata_o  = write_data_reg;
     assign config_we_o     = local_write_en && dst_is_config;
     
