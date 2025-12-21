@@ -5,7 +5,7 @@
 // Provides static config wires to DMA and Control Unit
 // ==============================================================================
 
-module cgra_axi_csr #(
+module cgra_apb_csr #(
     parameter ADDR_WIDTH = 32,
     parameter DATA_WIDTH = 32
 )(
