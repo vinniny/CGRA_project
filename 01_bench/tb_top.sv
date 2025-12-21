@@ -237,16 +237,17 @@ module tb_top;
         
         $display("\n");
         $display("================================================================");
-        $display("  CGRA MASTER VERIFICATION - 77+ VECTOR SUITE");
+        $display("  CGRA MASTER VERIFICATION - 95+ VECTOR SUITE (with CRV)");
         $display("================================================================");
 
         // === EXECUTE ALL SUITES ===
-        run_suite_A_regs();       // Register Logic & Config (16 vectors)
+        run_suite_A_regs();       // Register Logic & Config (14 vectors)
         run_suite_B_dma();        // DMA Datapath & Segmentation (16 vectors)
         run_suite_C_protocol();   // Protocol Compliance (15 vectors)
         run_suite_D_perf();       // Performance & Timing (10 vectors)
         run_suite_E_stress();     // Stress Testing (10 vectors)
         run_suite_F_system();     // System Integration (10 vectors)
+        run_suite_G_crv();        // Constrained Random Verification (20 vectors)
 
         // === FINAL REPORT ===
         $display("\n================================================================");

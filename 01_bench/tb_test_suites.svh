@@ -1,13 +1,14 @@
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Test Suite (75+ Vectors)
+// tb_test_suites.svh - Master Verification Test Suite (95+ Vectors)
 // ==============================================================================
 // Complete Pre-Silicon Verification covering:
-// - Suite A: Register Logic & Config (16 vectors)
+// - Suite A: Register Logic & APB Compliance (14 vectors)
 // - Suite B: DMA Datapath & Segmentation (16 vectors)
 // - Suite C: Protocol Compliance (15 vectors)
 // - Suite D: Performance & Timing (10 vectors)
 // - Suite E: Stress Testing (10 vectors)
 // - Suite F: System Integration (10 vectors)
+// - Suite G: Constrained Random Verification (20 vectors)
 // ==============================================================================
 
 // =========================================================================
@@ -23,6 +24,40 @@ localparam ADDR_CU_STATUS  = 32'h24;
 localparam ADDR_CU_CYCLES  = 32'h28;
 localparam ADDR_IRQ_STATUS = 32'h30;
 localparam ADDR_UNMAPPED   = 32'h100;
+
+// =========================================================================
+// CRV Helper Functions (iverilog-compatible randomization)
+// =========================================================================
+// Note: iverilog doesn't support SystemVerilog constraints, so we use
+// $urandom with manual range enforcement.
+
+function automatic [31:0] rand_src_addr;
+    rand_src_addr = 32'h1000 + (($urandom % (32'h6000 / 4)) * 4);
+endfunction
+
+function automatic [31:0] rand_dst_addr;
+    rand_dst_addr = 32'h8000 + (($urandom % (32'h7000 / 4)) * 4);
+endfunction
+
+function automatic [31:0] rand_size;
+    integer r;
+    begin
+        r = $urandom % 100;
+        if (r < 20)       rand_size = 4 + (($urandom % 4) * 4);      // Small: 4-16B
+        else if (r < 80)  rand_size = 20 + (($urandom % 124) * 4);   // Medium: 20-512B
+        else              rand_size = 516 + (($urandom % 128) * 4);  // Large: 516-1024B
+    end
+endfunction
+
+function automatic integer rand_stress;
+    integer r;
+    begin
+        r = $urandom % 100;
+        if (r < 70)       rand_stress = 0;           // 70% no stress
+        else if (r < 90)  rand_stress = 1 + ($urandom % 30);  // 20% light
+        else              rand_stress = 31 + ($urandom % 50); // 10% heavy
+    end
+endfunction
 
 // =========================================================================
 // SUITE A: REGISTER LOGIC & CONFIG (16 Vectors)
@@ -749,7 +784,88 @@ task run_suite_F_system;
 endtask
 
 // =========================================================================
+// SUITE G: CONSTRAINED RANDOM VERIFICATION (CRV)
+// =========================================================================
+task run_suite_G_crv;
+    logic data_ok;
+    integer iter, k;
+    reg [31:0] rand_data;
+    reg [31:0] src, dst, sz;
+    integer stress;
+    integer pass_count, fail_count;
+    
+    begin
+        $display("\n========================================================");
+        $display("   SUITE G: CONSTRAINED RANDOM VERIFICATION (CRV)");
+        $display("   [Strategy] Randomize Addr/Size + Random Stress + Scoreboard");
+        $display("========================================================");
+
+        // Reset state before CRV
+        rst_n = 0;
+        wait_cycles(5);
+        rst_n = 1;
+        wait_cycles(10);
+        init_memory();
+
+        pass_count = 0;
+        fail_count = 0;
+
+        // Run 20 Random Iterations (change to 100+ for overnight regressions)
+        for (iter = 1; iter <= 20; iter++) begin
+            
+            // 1. RANDOMIZE: Generate scenario using helper functions
+            src = rand_src_addr();
+            dst = rand_dst_addr();
+            sz = rand_size();
+            stress = rand_stress();
+
+            $display("[CRV #%0d] Src: 0x%h | Dst: 0x%h | Size: %0d | Stress: %0d%%", 
+                     iter, src, dst, sz, stress);
+
+            // 2. PREPARE: Fill Source Memory with Random Data
+            for (k = 0; k < sz; k = k + 4) begin
+                rand_data = $urandom;
+                ram_write(src + k, rand_data);
+                // Poison Destination to ensure we don't read old data
+                ram_write(dst + k, 32'hDEADDEAD);
+            end
+
+            // 3. CONFIGURE: Apply Stress
+            if (stress > 0) enable_stress(stress);
+            else disable_stress();
+
+            // 4. EXECUTE: Run DMA Transfer (large timeout for heavy stress)
+            dma_transfer(src, dst, sz, 10000);
+
+            // 5. CHECK: Verify Data Integrity
+            check_data(src, dst, sz, data_ok);
+            
+            if (data_ok) begin
+                pass_count++;
+                // Print pass for every 5th test to reduce clutter
+                if (iter % 5 == 0) 
+                    pass($sformatf("G01: CRV Batch %0d-%0d", iter-4, iter));
+            end else begin
+                fail_count++;
+                fail($sformatf("G01: CRV Iteration #%0d", iter), "Data Mismatch");
+                $display("      [DEBUG] Failed -> Src: 0x%h, Dst: 0x%h, Size: %0d", 
+                         src, dst, sz);
+            end
+        end
+        
+        disable_stress(); // Clean up
+        
+        // Final CRV Summary
+        $display("");
+        $display("[CRV SUMMARY] Passed: %0d / 20 | Failed: %0d", pass_count, fail_count);
+        if (fail_count == 0)
+            pass("G01: All 20 CRV iterations passed");
+        else
+            fail("G01: CRV Complete", $sformatf("%0d failures", fail_count));
+    end
+endtask
+
+// =========================================================================
 // WRAPPER TO RUN ALL SUITES
 // =========================================================================
-// Note: Suite ordering changed to match spec:
-// A=Regs, B=DMA, C=Protocol, D=Performance, E=Stress, F=System
+// Suite ordering: A=Regs, B=DMA, C=Protocol, D=Performance, E=Stress, F=System, G=CRV
