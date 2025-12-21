@@ -225,3 +225,74 @@ task disable_stress;
         stress_probability = 0;
     end
 endtask
+
+// =========================================================================
+// PHASE 2: NEW DRIVER TASKS FOR MULTI-CONTEXT ARCHITECTURE
+// =========================================================================
+
+// Base Addresses (Match your RTL Decoder)
+localparam BASE_AXI    = 32'h0000_0000;
+localparam BASE_TILE   = 32'h1000_0000;
+localparam BASE_CONFIG = 32'h2000_0000;
+
+// Note: ADDR_CU_CTRL is defined in tb_test_suites.svh (0x14)
+
+// -------------------------------------------------------------------------
+// TASK: Load Data into Tile Memory (The Fridge)
+// -------------------------------------------------------------------------
+task dma_load_tile_bank(input [1:0] bank, input [11:0] offset, input [31:0] value);
+    logic [31:0] tile_addr;
+    begin
+        // Construct Address: Prefix (0x1) + Bank (2 bits in [13:12]) + Offset
+        tile_addr = BASE_TILE | ({18'd0, bank, 12'd0}) | {20'd0, offset};
+        
+        // 1. Write Data to a temp location in External RAM (e.g., 0x0000_1000)
+        ram_write(32'h0000_1000, value);
+        
+        // 2. Trigger DMA: Ext RAM -> Tile Mem
+        // Using literal addresses (DMA_SRC=0x08, DMA_DST=0x0C, DMA_SIZE=0x10, DMA_CTRL=0x00)
+        apb_write(32'h08, 32'h0000_1000);  // Src = Ext RAM
+        apb_write(32'h0C, tile_addr);       // Dst = Tile Mem Bank X
+        apb_write(32'h10, 32'd4);           // Size = 1 Word
+        apb_write(32'h00, 32'd1);           // Ctrl = Start
+        wait_dma_done(100);
+    end
+endtask
+
+// -------------------------------------------------------------------------
+// TASK: Configure a Specific PE (The Recipe Book)
+// -------------------------------------------------------------------------
+task config_pe(input [3:0] pe_id, input [3:0] slot, input [31:0] opcode);
+    logic [31:0] cfg_addr;
+    begin
+        // Construct Address: Prefix (0x2) + PE_ID (Bits [7:4]) + Slot (Bits [3:0] * 4)
+        // Per cgra_top: dma_cfg_pe_sel = dma_cfg_addr[7:4]
+        cfg_addr = BASE_CONFIG | ({24'd0, pe_id} << 4) | ({28'd0, slot} << 0);
+        
+        // 1. Write Opcode to temp Ext RAM
+        ram_write(32'h0000_1004, opcode);
+        
+        // 2. Trigger DMA: Ext RAM -> Config Mem
+        apb_write(32'h08, 32'h0000_1004);  // Src
+        apb_write(32'h0C, cfg_addr);        // Dst = Config Mem
+        apb_write(32'h10, 32'd4);           // Size
+        apb_write(32'h00, 32'd1);           // Start
+        wait_dma_done(100);
+    end
+endtask
+
+// -------------------------------------------------------------------------
+// TASK: Run CGRA for N Cycles
+// -------------------------------------------------------------------------
+task run_cgra(input integer cycles);
+    begin
+        // 1. Enable Control Unit (CU_CTRL = 0x14)
+        apb_write(32'h14, 32'd1); // Start/Enable
+        
+        // 2. Wait
+        wait_cycles(cycles);
+        
+        // 3. Stop
+        apb_write(32'h14, 32'd0); 
+    end
+endtask

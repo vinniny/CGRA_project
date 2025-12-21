@@ -23,14 +23,25 @@ module cgra_pe #(
     parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH  = 8,
     parameter SPM_DEPTH   = 256,
-    parameter RF_DEPTH    = 16
+    parameter RF_DEPTH    = 16,
+    parameter CONTEXT_DEPTH = 16,  // Number of config slots (recipes)
+    parameter PC_WIDTH    = 4      // $clog2(CONTEXT_DEPTH)
 )(
     input  logic clk,
     input  logic rst_n,
     
-    // Configuration interface
+    // Configuration interface (static - for initial/single config)
     input  logic [63:0] config_frame,
     input  logic        config_valid,
+    
+    // Multi-context interface (for multi-cycle kernels)
+    input  logic [PC_WIDTH-1:0] context_pc,     // Which config slot to use
+    input  logic                global_stall,   // Freeze PE state
+    
+    // Config write interface (from DMA/TB)
+    input  logic [PC_WIDTH-1:0] cfg_wr_addr,    // Slot to write
+    input  logic [63:0]         cfg_wr_data,    // Config to store
+    input  logic                cfg_wr_en,      // Write enable
     
     // Routing inputs (from N/E/S/W neighbors)
     input  logic [DATA_WIDTH-1:0] data_in_n,
@@ -80,21 +91,44 @@ module cgra_pe #(
     localparam int HEADER_WIDTH  = DATA_WIDTH - PAYLOAD_WIDTH;
     localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
 
-    // Stall when router cannot accept output
-    logic stall;
-    assign stall = !ready_in;
-    assign ready_out = ready_in;
+    // =========================================================================
+    // Config RAM (The "Recipe Book" - 16 config slots)
+    // =========================================================================
+    logic [63:0] config_ram [0:CONTEXT_DEPTH-1];
+    logic [63:0] active_config;
     
+    // Config RAM write (from DMA/testbench)
+    always_ff @(posedge clk) begin
+        if (cfg_wr_en) begin
+            config_ram[cfg_wr_addr] <= cfg_wr_data;
+        end
+    end
+    
+    // Select active config: use config_ram[context_pc] if loaded, else use config_frame
+    // For backward compatibility: if context_pc is 0 and config_valid, use config_frame directly
+    assign active_config = (context_pc == 0 && config_valid) ? config_frame : config_ram[context_pc];
+
+    // =========================================================================
+    // Stall Logic
+    // =========================================================================
+    // Stall when router cannot accept output OR global stall is asserted
+    logic stall;
+    assign stall = !ready_in || global_stall;
+    assign ready_out = ready_in && !global_stall;
+    
+    // =========================================================================
+    // Configuration frame decoding (decodes active_config)
+    // =========================================================================
     always_comb begin
-        op_code    = config_frame[5:0];
-        src0_sel   = config_frame[9:6];
-        src1_sel   = config_frame[13:10];
-        dst_sel    = config_frame[17:14];
-        route_mask = config_frame[21:18];
-        pred_en    = config_frame[22];
-        pred_inv   = config_frame[23];
-        immediate  = config_frame[39:24];
-        extended   = config_frame[63:40];
+        op_code    = active_config[5:0];
+        src0_sel   = active_config[9:6];
+        src1_sel   = active_config[13:10];
+        dst_sel    = active_config[17:14];
+        route_mask = active_config[21:18];
+        pred_en    = active_config[22];
+        pred_inv   = active_config[23];
+        immediate  = active_config[39:24];
+        extended   = active_config[63:40];
         cfg_dest_x = extended[COORD_WIDTH-1:0];
         cfg_dest_y = extended[(2 * COORD_WIDTH)-1:COORD_WIDTH];
         cfg_multicast = extended[2 * COORD_WIDTH];

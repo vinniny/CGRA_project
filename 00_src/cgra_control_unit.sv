@@ -5,7 +5,10 @@
 // Receives start signal from CSR, controls array enable, reports status
 // ==============================================================================
 
-module cgra_control_unit (
+module cgra_control_unit #(
+    parameter CONTEXT_DEPTH = 16,
+    parameter PC_WIDTH      = 4
+)(
     input  logic        clk,
     input  logic        rst_n,
     
@@ -24,6 +27,13 @@ module cgra_control_unit (
     output logic        pe_enable,      // Enable PE array execution
     output logic        pe_reset_n,     // Array reset (active low)
     input  logic        array_done_i,   // Array signals completion
+    
+    // =========================================================================
+    // Multi-Context Flow Control
+    // =========================================================================
+    output logic [PC_WIDTH-1:0] context_pc_o,   // Current context slot (0-15)
+    output logic                global_stall_o, // Freeze PE array
+    input  logic                dma_busy_i,     // DMA is active
     
     // =========================================================================
     // Configuration
@@ -109,6 +119,33 @@ module cgra_control_unit (
             end
         end
     end
+    
+    // =========================================================================
+    // Context PC Counter (Multi-context scheduling)
+    // =========================================================================
+    logic [PC_WIDTH-1:0] pc_counter;
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            pc_counter <= '0;
+        end else if (soft_reset_i) begin
+            pc_counter <= '0;
+        end else if (pe_enable && !global_stall_o) begin
+            // Increment PC only when running and not stalled
+            if (pc_counter == (CONTEXT_DEPTH - 1))
+                pc_counter <= '0;  // Wrap around
+            else
+                pc_counter <= pc_counter + 1'b1;
+        end
+    end
+    
+    assign context_pc_o = pc_counter;
+    
+    // =========================================================================
+    // Global Stall Logic
+    // =========================================================================
+    // Stall the PE array when DMA is active (prevent data hazards during load)
+    assign global_stall_o = dma_busy_i;
     
     // =========================================================================
     // Output Assignments

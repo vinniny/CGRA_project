@@ -11,7 +11,9 @@ module cgra_array_4x4 #(
     parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH = 4,
     parameter SPM_DEPTH = 256,
-    parameter RF_DEPTH = 16
+    parameter RF_DEPTH = 16,
+    parameter CONTEXT_DEPTH = 16,
+    parameter PC_WIDTH = 4
 )(
     input  logic clk,
     input  logic rst_n,
@@ -34,6 +36,16 @@ module cgra_array_4x4 #(
     input  logic [63:0] config_frame_32,
     input  logic [63:0] config_frame_33,
     input  logic        config_valid,
+    
+    // Multi-context interface (broadcast to all PEs)
+    input  logic [PC_WIDTH-1:0] context_pc,
+    input  logic                global_stall,
+    
+    // Config write interface (for writing to specific PE's config RAM)
+    input  logic [PC_WIDTH-1:0] cfg_wr_addr,
+    input  logic [63:0]         cfg_wr_data,
+    input  logic [3:0]          cfg_wr_pe_sel,  // Which PE (0-15)
+    input  logic                cfg_wr_en,
 
     // Edge inputs (from external) - North
     input  logic [DATA_WIDTH-1:0] edge_data_in_n0,
@@ -219,6 +231,32 @@ module cgra_array_4x4 #(
     logic tile_03_e_ready, tile_13_e_ready, tile_23_e_ready, tile_33_e_ready;
 
     // =========================================================================
+    // Per-PE Config Write Enable Decode
+    // =========================================================================
+    // Decode cfg_wr_pe_sel to generate individual write enables per PE
+    logic cfg_wr_en_00, cfg_wr_en_01, cfg_wr_en_02, cfg_wr_en_03;
+    logic cfg_wr_en_10, cfg_wr_en_11, cfg_wr_en_12, cfg_wr_en_13;
+    logic cfg_wr_en_20, cfg_wr_en_21, cfg_wr_en_22, cfg_wr_en_23;
+    logic cfg_wr_en_30, cfg_wr_en_31, cfg_wr_en_32, cfg_wr_en_33;
+    
+    assign cfg_wr_en_00 = cfg_wr_en && (cfg_wr_pe_sel == 4'd0);
+    assign cfg_wr_en_01 = cfg_wr_en && (cfg_wr_pe_sel == 4'd1);
+    assign cfg_wr_en_02 = cfg_wr_en && (cfg_wr_pe_sel == 4'd2);
+    assign cfg_wr_en_03 = cfg_wr_en && (cfg_wr_pe_sel == 4'd3);
+    assign cfg_wr_en_10 = cfg_wr_en && (cfg_wr_pe_sel == 4'd4);
+    assign cfg_wr_en_11 = cfg_wr_en && (cfg_wr_pe_sel == 4'd5);
+    assign cfg_wr_en_12 = cfg_wr_en && (cfg_wr_pe_sel == 4'd6);
+    assign cfg_wr_en_13 = cfg_wr_en && (cfg_wr_pe_sel == 4'd7);
+    assign cfg_wr_en_20 = cfg_wr_en && (cfg_wr_pe_sel == 4'd8);
+    assign cfg_wr_en_21 = cfg_wr_en && (cfg_wr_pe_sel == 4'd9);
+    assign cfg_wr_en_22 = cfg_wr_en && (cfg_wr_pe_sel == 4'd10);
+    assign cfg_wr_en_23 = cfg_wr_en && (cfg_wr_pe_sel == 4'd11);
+    assign cfg_wr_en_30 = cfg_wr_en && (cfg_wr_pe_sel == 4'd12);
+    assign cfg_wr_en_31 = cfg_wr_en && (cfg_wr_pe_sel == 4'd13);
+    assign cfg_wr_en_32 = cfg_wr_en && (cfg_wr_pe_sel == 4'd14);
+    assign cfg_wr_en_33 = cfg_wr_en && (cfg_wr_pe_sel == 4'd15);
+
+    // =========================================================================
     // Tile Instantiations - Row 0
     // =========================================================================
     
@@ -231,12 +269,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(0),
-        .Y_COORD(0)
+        .Y_COORD(0),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_00 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_00),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_00),
         // North - external edge
         .data_in_n(edge_data_in_n0),
         .valid_in_n(edge_valid_in_n0),
@@ -276,12 +322,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(1),
-        .Y_COORD(0)
+        .Y_COORD(0),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_01 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_01),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_01),
         // North - external edge
         .data_in_n(edge_data_in_n1),
         .valid_in_n(edge_valid_in_n1),
@@ -321,12 +375,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(2),
-        .Y_COORD(0)
+        .Y_COORD(0),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_02 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_02),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_02),
         // North - external edge
         .data_in_n(edge_data_in_n2),
         .valid_in_n(edge_valid_in_n2),
@@ -366,12 +428,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(3),
-        .Y_COORD(0)
+        .Y_COORD(0),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_03 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_03),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_03),
         // North - external edge
         .data_in_n(edge_data_in_n3),
         .valid_in_n(edge_valid_in_n3),
@@ -415,12 +485,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(0),
-        .Y_COORD(1)
+        .Y_COORD(1),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_10 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_10),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_10),
         // North - to tile(0,0)
         .data_in_n(tile_00_s_data),
         .valid_in_n(tile_00_s_valid),
@@ -460,12 +538,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(1),
-        .Y_COORD(1)
+        .Y_COORD(1),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_11 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_11),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_11),
         // North - to tile(0,1)
         .data_in_n(tile_01_s_data),
         .valid_in_n(tile_01_s_valid),
@@ -505,12 +591,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(2),
-        .Y_COORD(1)
+        .Y_COORD(1),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_12 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_12),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_12),
         // North - to tile(0,2)
         .data_in_n(tile_02_s_data),
         .valid_in_n(tile_02_s_valid),
@@ -550,12 +644,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(3),
-        .Y_COORD(1)
+        .Y_COORD(1),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_13 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_13),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_13),
         // North - to tile(0,3)
         .data_in_n(tile_03_s_data),
         .valid_in_n(tile_03_s_valid),
@@ -599,12 +701,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(0),
-        .Y_COORD(2)
+        .Y_COORD(2),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_20 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_20),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_20),
         // North - to tile(1,0)
         .data_in_n(tile_10_s_data),
         .valid_in_n(tile_10_s_valid),
@@ -644,12 +754,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(1),
-        .Y_COORD(2)
+        .Y_COORD(2),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_21 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_21),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_21),
         // North - to tile(1,1)
         .data_in_n(tile_11_s_data),
         .valid_in_n(tile_11_s_valid),
@@ -689,12 +807,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(2),
-        .Y_COORD(2)
+        .Y_COORD(2),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_22 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_22),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_22),
         // North - to tile(1,2)
         .data_in_n(tile_12_s_data),
         .valid_in_n(tile_12_s_valid),
@@ -734,12 +860,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(3),
-        .Y_COORD(2)
+        .Y_COORD(2),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_23 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_23),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_23),
         // North - to tile(1,3)
         .data_in_n(tile_13_s_data),
         .valid_in_n(tile_13_s_valid),
@@ -783,12 +917,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(0),
-        .Y_COORD(3)
+        .Y_COORD(3),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_30 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_30),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_30),
         // North - to tile(2,0)
         .data_in_n(tile_20_s_data),
         .valid_in_n(tile_20_s_valid),
@@ -828,12 +970,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(1),
-        .Y_COORD(3)
+        .Y_COORD(3),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_31 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_31),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_31),
         // North - to tile(2,1)
         .data_in_n(tile_21_s_data),
         .valid_in_n(tile_21_s_valid),
@@ -873,12 +1023,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(2),
-        .Y_COORD(3)
+        .Y_COORD(3),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_32 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_32),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_32),
         // North - to tile(2,2)
         .data_in_n(tile_22_s_data),
         .valid_in_n(tile_22_s_valid),
@@ -918,12 +1076,20 @@ module cgra_array_4x4 #(
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
         .X_COORD(3),
-        .Y_COORD(3)
+        .Y_COORD(3),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_tile_33 (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame_33),
         .config_valid(config_valid),
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en_33),
         // North - to tile(2,3)
         .data_in_n(tile_23_s_data),
         .valid_in_n(tile_23_s_valid),

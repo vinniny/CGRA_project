@@ -12,12 +12,23 @@ module cgra_tile #(
     parameter SPM_DEPTH    = 256,
     parameter RF_DEPTH     = 16,
     parameter X_COORD      = 0,
-    parameter Y_COORD      = 0
+    parameter Y_COORD      = 0,
+    parameter CONTEXT_DEPTH = 16,
+    parameter PC_WIDTH     = 4
 )(
     input  logic                   clk,
     input  logic                   rst_n,
     input  logic [63:0]            config_frame,
     input  logic                   config_valid,
+
+    // Multi-context interface
+    input  logic [PC_WIDTH-1:0]    context_pc,
+    input  logic                   global_stall,
+    
+    // Config write interface (from DMA/TB)
+    input  logic [PC_WIDTH-1:0]    cfg_wr_addr,
+    input  logic [63:0]            cfg_wr_data,
+    input  logic                   cfg_wr_en,
 
     // Network Ports (N/S/E/W)
     input  logic [DATA_WIDTH-1:0]  data_in_n,
@@ -114,12 +125,23 @@ module cgra_tile #(
         .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .SPM_DEPTH(SPM_DEPTH),
-        .RF_DEPTH(RF_DEPTH)
+        .RF_DEPTH(RF_DEPTH),
+        .CONTEXT_DEPTH(CONTEXT_DEPTH),
+        .PC_WIDTH(PC_WIDTH)
     ) u_pe (
         .clk(clk),
         .rst_n(rst_n),
         .config_frame(config_frame),
         .config_valid(config_valid),
+        
+        // Multi-context
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        
+        // Config write
+        .cfg_wr_addr(cfg_wr_addr),
+        .cfg_wr_data(cfg_wr_data),
+        .cfg_wr_en(cfg_wr_en),
 
         .data_in_n(router_to_pe_data),
         .data_in_e(router_to_pe_data),
@@ -146,3 +168,4 @@ module cgra_tile #(
     );
 
 endmodule
+

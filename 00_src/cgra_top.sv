@@ -94,10 +94,43 @@ module cgra_top #(
     logic        array_done;
     
     // =========================================================================
+    // Internal Wires: DMA → Tile Memory (Data Fridge)
+    // =========================================================================
+    logic [11:0] dma_tile_addr;
+    logic [1:0]  dma_tile_bank_sel;
+    logic        dma_tile_we;
+    logic [31:0] dma_tile_wdata;
+    logic [31:0] dma_tile_rdata;
+    logic        dma_tile_valid;
+    
+    // Row data from tile memory → Array
+    logic [31:0] row_data [0:3];
+    logic        row_valid [0:3];
+    
+    // =========================================================================
+    // Internal Wires: DMA → Config Bus (Recipe Book)
+    // =========================================================================
+    logic [31:0] dma_cfg_addr;
+    logic        dma_cfg_we;
+    logic [31:0] dma_cfg_wdata;
+    logic [3:0]  dma_cfg_pe_sel;  // Which PE to configure (0-15)
+    
+    // =========================================================================
+    // Internal Wires: Control Unit → Flow Control
+    // =========================================================================
+    logic [3:0]  context_pc;
+    logic        global_stall;
+    
+    // =========================================================================
     // Internal Wires: Configuration (simplified for now)
     // =========================================================================
     logic [CONFIG_WIDTH-1:0] config_frames [0:15];  // 16 PE configs
-    
+
+    // =========================================================================
+    // TEMPORARY: Placeholder assignment for config PE selection
+    // =========================================================================
+    assign dma_cfg_pe_sel = dma_cfg_addr[7:4];  // PE select from config address bits
+        
     // =========================================================================
     // 1. APB CSR Module
     // =========================================================================
@@ -172,13 +205,27 @@ module cgra_top #(
         .m_axi_arready(m_axi_arready),
         .m_axi_rdata(m_axi_rdata),
         .m_axi_rvalid(m_axi_rvalid),
-        .m_axi_rready(m_axi_rready)
+        .m_axi_rready(m_axi_rready),
+        
+        // Local Memory Interface (To Tile Memory)
+        .tile_addr_o(dma_tile_addr),
+        .tile_bank_sel_o(dma_tile_bank_sel),
+        .tile_we_o(dma_tile_we),
+        .tile_wdata_o(dma_tile_wdata),
+        
+        // Config Interface (To PE Array)
+        .config_addr_o(dma_cfg_addr),
+        .config_we_o(dma_cfg_we),
+        .config_wdata_o(dma_cfg_wdata)
     );
     
     // =========================================================================
     // 3. Control Unit
     // =========================================================================
-    cgra_control_unit u_cu (
+    cgra_control_unit #(
+        .CONTEXT_DEPTH(16),
+        .PC_WIDTH(4)
+    ) u_cu (
         .clk(clk),
         .rst_n(rst_n),
         
@@ -194,12 +241,73 @@ module cgra_top #(
         .pe_reset_n(pe_reset_n),
         .array_done_i(array_done),
         
+        // Multi-Context Flow Control
+        .context_pc_o(context_pc),
+        .global_stall_o(global_stall),
+        .dma_busy_i(dma_busy),
+        
         // Configuration
         .max_cycles_i(32'd0)  // No timeout limit
     );
     
     // =========================================================================
-    // 4. CGRA Array (4x4 PE Mesh)
+    // 4. Tile Memory (The "Fridge" - Data Banks for PE Array)
+    // =========================================================================
+    // 4 banks × 1024 words = 16KB total
+    // DMA writes to ext_* port, Array reads from bank*_rdata
+    cgra_tile_memory #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .ADDR_WIDTH(12),
+        .BANK_DEPTH(1024),
+        .NUM_BANKS(4)
+    ) u_tile_mem (
+        .clk(clk),
+        .rst_n(rst_n),
+        
+        // Bank 0 (Row 0) - Read port to array
+        .bank0_addr(12'd0),          // TODO: Connect to Row 0 address
+        .bank0_read(1'b1),           // Always read enabled (per user correction)
+        .bank0_write(1'b0),          // Array doesn't write
+        .bank0_wdata(32'd0),
+        .bank0_rdata(row_data[0]),
+        .bank0_valid(row_valid[0]),
+        
+        // Bank 1 (Row 1) - Read port to array
+        .bank1_addr(12'd0),          // TODO: Connect to Row 1 address
+        .bank1_read(1'b1),
+        .bank1_write(1'b0),
+        .bank1_wdata(32'd0),
+        .bank1_rdata(row_data[1]),
+        .bank1_valid(row_valid[1]),
+        
+        // Bank 2 (Row 2) - Read port to array
+        .bank2_addr(12'd0),          // TODO: Connect to Row 2 address
+        .bank2_read(1'b1),
+        .bank2_write(1'b0),
+        .bank2_wdata(32'd0),
+        .bank2_rdata(row_data[2]),
+        .bank2_valid(row_valid[2]),
+        
+        // Bank 3 (Row 3) - Read port to array
+        .bank3_addr(12'd0),          // TODO: Connect to Row 3 address
+        .bank3_read(1'b1),
+        .bank3_write(1'b0),
+        .bank3_wdata(32'd0),
+        .bank3_rdata(row_data[3]),
+        .bank3_valid(row_valid[3]),
+        
+        // External/DMA port - Write access
+        .ext_addr(dma_tile_addr),
+        .ext_bank_sel(dma_tile_bank_sel),
+        .ext_read(1'b0),             // DMA write only for now
+        .ext_write(dma_tile_we),
+        .ext_wdata(dma_tile_wdata),
+        .ext_rdata(dma_tile_rdata),
+        .ext_valid(dma_tile_valid)
+    );
+    
+    // =========================================================================
+    // 5. CGRA Array (4x4 PE Mesh)
     // =========================================================================
     // Array done signal - for now, tie to 0 (array never signals done)
     // TODO: Connect to actual array completion logic
@@ -211,7 +319,9 @@ module cgra_top #(
         .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
         .ADDR_WIDTH(4),
         .SPM_DEPTH(SPM_DEPTH),
-        .RF_DEPTH(RF_DEPTH)
+        .RF_DEPTH(RF_DEPTH),
+        .CONTEXT_DEPTH(16),
+        .PC_WIDTH(4)
     ) u_array (
         .clk(clk),
         .rst_n(rst_n & pe_reset_n),  // Combined reset
@@ -234,6 +344,15 @@ module cgra_top #(
         .config_frame_32(64'd0),
         .config_frame_33(64'd0),
         .config_valid(1'b1),
+        
+        // Multi-context interface
+        .context_pc(context_pc),
+        .global_stall(global_stall),
+        .cfg_wr_addr(4'd0),        // TODO: Connect from DMA
+        .cfg_wr_data(64'd0),       // TODO: Connect from DMA
+        .cfg_wr_pe_sel(4'd0),      // TODO: Connect from DMA
+        .cfg_wr_en(1'b0),          // TODO: Connect from DMA
+
         
         // North edge inputs - tie off
         .edge_data_in_n0(32'd0),

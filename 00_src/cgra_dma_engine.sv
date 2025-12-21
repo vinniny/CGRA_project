@@ -44,7 +44,22 @@ module cgra_dma_engine #(
     input  logic                  m_axi_arready,
     input  logic [DATA_WIDTH-1:0] m_axi_rdata,
     input  logic                  m_axi_rvalid,
-    output logic                  m_axi_rready
+    output logic                  m_axi_rready,
+    
+    // =========================================================================
+    // Local Memory Interface (To Tile Memory)
+    // =========================================================================
+    output logic [11:0]           tile_addr_o,
+    output logic [1:0]            tile_bank_sel_o,
+    output logic                  tile_we_o,
+    output logic [31:0]           tile_wdata_o,
+    
+    // =========================================================================
+    // Config Interface (To PE Array)
+    // =========================================================================
+    output logic [31:0]           config_addr_o,
+    output logic                  config_we_o,
+    output logic [31:0]           config_wdata_o
 );
 
     localparam BYTES_PER_WORD = DATA_WIDTH / 8;
@@ -59,8 +74,25 @@ module cgra_dma_engine #(
     
     wire fifo_full  = (count == FIFO_DEPTH);
     wire fifo_empty = (count == 0);
-    wire fifo_push  = (m_axi_rvalid && m_axi_rready && !fifo_full);
-    wire fifo_pop   = (m_axi_wvalid && m_axi_wready && !fifo_empty);
+    
+    // =========================================================================
+    // Address Decoding (0x0=External AXI, 0x1=Tile Memory, 0x2=Config)
+    // =========================================================================
+    // Use cfg_dst for destination type (base address determines routing)
+    wire dst_is_axi    = (cfg_dst[31:28] == 4'h0);
+    wire dst_is_tile   = (cfg_dst[31:28] == 4'h1);
+    wire dst_is_config = (cfg_dst[31:28] == 4'h2);
+    
+    // Local write trigger (for tile/config - single cycle writes)
+    logic local_write_en;
+    
+    // FIFO pop conditions:
+    // - AXI: pop when wvalid && wready (in W_DATA state)  
+    // - Local: pop when local_write_en (single cycle in W_WAIT) - ONLY for non-AXI destinations
+    wire fifo_pop_axi   = (m_axi_wvalid && m_axi_wready && !fifo_empty);
+    wire fifo_pop_local = (local_write_en && !dst_is_axi && !fifo_empty);  // Extra gate
+    wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
+    wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full);
     
     // FIFO data output (registered read)
     logic [DATA_WIDTH-1:0] fifo_rdata;
@@ -208,6 +240,7 @@ module cgra_dma_engine #(
             write_words_remaining <= '0;
             write_complete <= 1'b0;
             write_data_reg <= '0;
+            local_write_en <= 1'b0;
             m_axi_awaddr <= '0;
             m_axi_awvalid <= 1'b0;
             m_axi_wdata <= '0;
@@ -218,6 +251,7 @@ module cgra_dma_engine #(
             case (w_state)
                 W_IDLE: begin
                     write_complete <= 1'b0;
+                    local_write_en <= 1'b0;  // Clear local write
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
@@ -230,9 +264,14 @@ module cgra_dma_engine #(
                 
                 W_WAIT: begin
                     // Wait for FIFO to have data
+                    local_write_en <= 1'b0;  // Default off
+                    
                     if (!fifo_empty && write_words_remaining > 0) begin
                         // Latch data from FIFO
                         write_data_reg <= fifo_rdata;
+                        
+                        // For AXI destinations, go through normal handshake
+                        // For local destinations, we'll handle in W_ADDR
                         w_state <= W_ADDR;
                     end else if (write_words_remaining == 0 && read_complete) begin
                         write_complete <= 1'b1;
@@ -241,13 +280,27 @@ module cgra_dma_engine #(
                 end
                 
                 W_ADDR: begin
-                    // AW phase - address
-                    m_axi_awaddr <= write_addr;
-                    m_axi_awvalid <= 1'b1;
-                    
-                    if (m_axi_awvalid && m_axi_awready) begin
-                        m_axi_awvalid <= 1'b0;
-                        w_state <= W_DATA;
+                    if (dst_is_axi) begin
+                        // AW phase - address for AXI
+                        m_axi_awaddr <= write_addr;
+                        m_axi_awvalid <= 1'b1;
+                        
+                        if (m_axi_awvalid && m_axi_awready) begin
+                            m_axi_awvalid <= 1'b0;
+                            w_state <= W_DATA;
+                        end
+                    end else begin
+                        // Local destination (tile/config) - single-cycle write
+                        local_write_en <= 1'b1;
+                        write_addr <= write_addr + BYTES_PER_WORD;
+                        write_words_remaining <= write_words_remaining - 1'b1;
+                        
+                        if (write_words_remaining == 1) begin
+                            write_complete <= 1'b1;
+                            w_state <= W_DONE;
+                        end else begin
+                            w_state <= W_WAIT;
+                        end
                     end
                 end
                 
@@ -295,6 +348,19 @@ module cgra_dma_engine #(
     end
     
     // =========================================================================
+    // Local Memory & Config Output Assignments
+    // =========================================================================
+    // Combinational driving based on local_write_en and destination type
+    assign tile_addr_o     = write_addr[11:0];        // 4KB wrapping per bank
+    assign tile_bank_sel_o = write_addr[13:12];       // Bank select from addr bits
+    assign tile_wdata_o    = write_data_reg;
+    assign tile_we_o       = local_write_en && dst_is_tile;
+    
+    assign config_addr_o   = write_addr;
+    assign config_wdata_o  = write_data_reg;
+    assign config_we_o     = local_write_en && dst_is_config;
+    
+    // =========================================================================
     // 4. Status and IRQ Generation
     // =========================================================================
     logic transfer_active;
@@ -321,5 +387,59 @@ module cgra_dma_engine #(
             end
         end
     end
+
+    // =========================================================================
+    // 5. WHITE-BOX ASSERTIONS (iverilog-compatible procedural checks)
+    // =========================================================================
+    // These checks catch internal bugs that external protocol monitors miss.
+    // synthesis translate_off
+    
+    // Deadlock detection counter
+    integer busy_cycle_count;
+    
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            busy_cycle_count <= 0;
+        end else begin
+            // Track how long busy has been asserted
+            if (status_busy) begin
+                busy_cycle_count <= busy_cycle_count + 1;
+                if (busy_cycle_count > 100000) begin
+                    $error("[DMA ASSERT] FSM Deadlock - busy stuck for 100000+ cycles!");
+                end
+            end else begin
+                busy_cycle_count <= 0;
+            end
+            
+            // Check 1: FIFO Overflow Protection
+            if (m_axi_rvalid && m_axi_rready && fifo_full) begin
+                $error("[DMA ASSERT] CRITICAL: FIFO Overflow - push when full!");
+            end
+            
+            // Check 2: FIFO Underflow Protection 
+            if (m_axi_wvalid && m_axi_wready && fifo_empty) begin
+                $error("[DMA ASSERT] CRITICAL: FIFO Underflow - pop when empty!");
+            end
+            
+            // Check 3: FIFO Count Sanity
+            if (count > FIFO_DEPTH) begin
+                $error("[DMA ASSERT] FIFO count exceeded depth: %0d > %0d", count, FIFO_DEPTH);
+            end
+            
+            // Check 4: Read FSM State Valid
+            if (r_state != R_IDLE && r_state != R_ADDR && 
+                r_state != R_DATA && r_state != R_DONE) begin
+                $error("[DMA ASSERT] Read FSM in invalid state: %0d", r_state);
+            end
+            
+            // Check 5: Write FSM State Valid
+            if (w_state != W_IDLE && w_state != W_WAIT && w_state != W_ADDR && 
+                w_state != W_DATA && w_state != W_RESP && w_state != W_DONE) begin
+                $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
+            end
+        end
+    end
+    
+    // synthesis translate_on
 
 endmodule
