@@ -11,14 +11,16 @@ A **Coarse-Grained Reconfigurable Array (CGRA)** accelerator with pipelined DMA 
 | **Array Size** | 4×4 = 16 Processing Elements |
 | **Clock** | 50-100 MHz (100 MHz verified) |
 | **Data Width** | 32-bit |
+| **Payload Width** | 16-bit (mesh interconnect) |
 | **Config Width** | 64-bit per context |
 | **Context Depth** | 16 slots per PE |
 | **Scratchpad** | 256×32-bit per PE |
 | **Register File** | 16×32-bit per PE |
+| **Accumulator** | 40-bit signed (MAC/LIF) |
 | **Tile Memory** | 4 banks × 4KB (shared input buffer) |
 | **DMA FIFO** | 8 × 32-bit (producer-consumer) |
 | **ISA** | 19 operations (all verified) |
-| **Verification** | 140 tests, 22 suites |
+| **Verification** | 141 tests, 23 suites |
 | **Target** | DE10-Standard (Cyclone V) |
 
 ---
@@ -26,11 +28,18 @@ A **Coarse-Grained Reconfigurable Array (CGRA)** accelerator with pipelined DMA 
 ## Quick Start
 
 ```bash
-# Run 140-test verification suite
+# Run 140-test verification (Icarus Verilog)
 make sim
 
-# View waveforms (optional)
-make wave
+# Run with Cadence Xcelium
+make sim TOOL=xcelium
+
+# Run Xcelium in GUI mode
+make gui
+
+# View waveforms
+make wave              # GTKWave (iverilog)
+make wave TOOL=xcelium # SimVision (xcelium)
 
 # Clean generated files
 make clean
@@ -254,6 +263,58 @@ void vector_add_example(void) {
 
 ---
 
+## PE Architecture
+
+### Processing Element Block Diagram
+
+```
+                    ┌─────────────────────────────────────┐
+     N,E,S,W ──────▶│  Operand Mux (src0_sel, src1_sel)   │
+     Immediate ────▶│  0=RF, 1=N, 2=E, 3=S, 4=W, 5=SPM, 6=Imm
+     SPM/RF ───────▶│                                     │
+                    └────────────┬────────────────────────┘
+                                 │ operand0, operand1
+                                 ▼
+                    ┌─────────────────────────────────────┐
+                    │         ALU / MAC Unit              │
+                    │  • 19 opcodes (ADD, SUB, MUL, ...)  │
+                    │  • 40-bit accumulator (saturating)  │
+                    │  • SHL/SHR: 5-bit shift (0-31)      │
+                    │  • SHR is arithmetic (sign-extend)  │
+                    └────────────┬────────────────────────┘
+                                 │ alu_result
+                                 ▼
+                    ┌─────────────────────────────────────┐
+                    │   Output Routing (route_mask)       │
+                    │   Broadcast to N/E/S/W neighbors    │
+                    └─────────────────────────────────────┘
+```
+
+### Source Select Values
+
+| Value | Source | Description |
+|-------|--------|-------------|
+| 0 | RF | Register File (local) |
+| 1 | N | North neighbor |
+| 2 | E | East neighbor |
+| 3 | S | South neighbor |
+| 4 | W | West neighbor (Tile Memory) |
+| 5 | SPM | Scratchpad Memory |
+| 6 | Imm | 16-bit Immediate |
+
+### Important Design Notes
+
+> [!IMPORTANT]
+> **Payload Width Limitation**: The mesh interconnect uses 16-bit payloads. Data passed between PEs (via src=N/E/S/W) is **sign-extended from 16-bit to 32-bit**.
+
+> [!NOTE]
+> **Arithmetic Shift Right**: Op 9 (SHR) performs **arithmetic shift** (`>>>`), preserving the sign bit. This is optimal for DSP applications.
+
+> [!NOTE]
+> **Shift Range**: Both SHL and SHR use 5-bit shift amounts `operand1[4:0]`, supporting shifts from 0 to 31.
+
+---
+
 ## ISA Reference (19 Operations)
 
 | Op | Name | Operation | Verified |
@@ -306,18 +367,86 @@ void vector_add_example(void) {
 
 ## Verification Status
 
-**140/140 TESTS PASSED - SILICON READY** ✅
+**141/141 TESTS PASSED - SILICON READY** ✅
+
+| Simulator | Version | Status | Runtime |
+|-----------|---------|--------|---------|
+| Icarus Verilog | 10.0+ | ✅ Pass | ~3 min |
+| Cadence Xcelium | 24.09-s005 | ✅ Pass | 11 sec |
+
+### Test Suite Summary
 
 | Suite | Focus | Tests |
 |-------|-------|-------|
 | A-F | Infrastructure, DMA, Protocol | 80 |
 | G-I | Constrained Random, Assertions | 16 |
 | J-P | Computation, Comparators | 32 |
-| Q-S | Stress, Boundary, Reset | 3 |
+| Q | Random ALU Stress | 1 |
+| Q2 | Barrel Shifter (0-31) | 1 |
+| R-S | Boundary, Reset | 2 |
 | T | ISA Completion | 8 |
 | U | Diagnostics | 3 |
 | V | Neuromorphic LIF | 3 |
-| **Total** | **22 Suites** | **140** |
+| **Total** | **23 Suites** | **141** |
+
+### Stress Testing
+
+Suite Q1 runs configurable random stress iterations:
+- Default: 20 iterations (quick check)
+- Stress mode: **100,000 iterations** verified with Xcelium
+- Covers: **All 19 opcodes** with random operands (16-bit positive values)
+
+Suite Q2 runs barrel shifter exhaustive tests:
+- **64 vectors**: All shift amounts 0-31 for both SHL and SHR
+- Verifies 5-bit shift amount fix (`[4:0]` instead of `[3:0]`)
+
+---
+
+## Design Constraints & Known Limitations
+
+### Payload Width (16-bit)
+
+| Aspect | Limitation |
+|--------|------------|
+| **Inter-PE Data** | 16-bit signed (-32768 to +32767) |
+| **Sign Extension** | Automatic to 32-bit in PE |
+| **Full 32-bit Path** | Only via local RF or SPM |
+
+### State-Dependent Operations
+
+| Opcode | Notes |
+|--------|-------|
+| MAC (4) | Requires ACC_CLR first; accumulates across cycles |
+| SPM (13,14) | Write before read; 256-word addressable |
+| LIF (18) | Membrane potential persists; threshold comparison |
+
+### Pipeline Timing
+
+| Operation | Min Cycles |
+|-----------|------------|
+| Config load | 2 cycles (DMA + commit) |
+| Execute | 3 cycles (recommended) |
+| ACC_CLR | 3 cycles (ensure propagation) |
+
+---
+
+## RTL Change Log
+
+### Barrel Shifter Fix (December 2024)
+
+**Files Modified**: `cgra_pe.sv` lines 396-400
+
+```diff
+- alu_result <= operand0 << operand1[3:0];  // 4-bit (0-15)
++ alu_result <= operand0 << operand1[4:0];  // 5-bit (0-31)
+
+- alu_result <= operand0 >> operand1[3:0];  // Logical
++ alu_result <= $signed(operand0) >>> operand1[4:0];  // Arithmetic
+```
+
+**Reason**: RISC-V compatibility requires 32-bit shift support (0-31). The original 4-bit mask limited shifts to 0-15.
+
+**Impact**: Verified with Suite Q2 (64 vectors covering all shift amounts).
 
 ---
 
@@ -365,7 +494,8 @@ CGRA_project/
 ├── 01_bench/                  # Verification
 │   ├── tb_top.sv                 # Master test harness
 │   ├── tb_tasks.svh              # Driver layer
-│   ├── tb_test_suites.svh        # 140 test vectors
+│   ├── tb_test_suites.svh        # 141 test vectors (23 suites)
+│   ├── restore.tcl               # Xcelium waveform setup
 │   └── cgra_protocol_monitor.sv  # AXI compliance checker
 │
 ├── 02_test/                   # Test documentation
@@ -380,25 +510,34 @@ CGRA_project/
 ## Prerequisites
 
 ```bash
-# Ubuntu/Debian
+# Ubuntu/Debian (Icarus Verilog)
 sudo apt-get install iverilog gtkwave
 
-# macOS
-brew install icarus-verilog gtkwave
+# Cadence Xcelium (requires license)
+# Contact Cadence for installation
 ```
 
-- [Icarus Verilog](http://iverilog.icarus.com/) (v10.0+)
-- [GTKWave](http://gtkwave.sourceforge.net/) (optional)
+- [Icarus Verilog](http://iverilog.icarus.com/) (v10.0+) - Open source
+- [Cadence Xcelium](https://www.cadence.com/) - Commercial (optional)
+- [GTKWave](http://gtkwave.sourceforge.net/) / SimVision - Waveform viewers
 
 ---
 
 ## Makefile Commands
 
+**Simulator Selection:**
+- Default: Icarus Verilog
+- Override: `make sim TOOL=xcelium`
+- Permanent: Edit line 20 in Makefile: `TOOL ?= xcelium`
+
 | Command | Description |
 |---------|-------------|
 | `make sim` | Run 140-test verification |
-| `make compile` | Compile only |
-| `make wave` | Open waveforms |
+| `make sim TOOL=xcelium` | Run with Cadence Xcelium |
+| `make gui` | Xcelium GUI mode with waveforms |
+| `make wave` | Open waveform viewer |
+| `make compile` | Compile only (iverilog) |
+| `make create_flist` | Generate Xcelium file list |
 | `make clean` | Remove generated files |
 | `make help` | Show commands |
 

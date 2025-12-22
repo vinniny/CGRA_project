@@ -394,10 +394,10 @@ module cgra_pe #(
                     alu_result <= operand0 ^ operand1;
                 end
                 OP_SHL: begin
-                    alu_result <= operand0 << operand1[3:0];
+                    alu_result <= operand0 << operand1[4:0];  // 5-bit shift (0-31)
                 end
                 OP_SHR: begin
-                    alu_result <= operand0 >> operand1[3:0];
+                    alu_result <= $signed(operand0) >>> operand1[4:0];  // Arithmetic shift right
                 end
                 OP_CMP_GT: begin
                     predicate_flag <= (operand0 > operand1);

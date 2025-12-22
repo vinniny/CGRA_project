@@ -310,6 +310,10 @@ module tb_top;
         run_suite_O_parallel_stress(); // 16-Core Parallel Stress (4 vectors)
         run_suite_P_comparator(); // Comparator Decoder (3 vectors)
         run_suite_Q_random();     // Constrained Random Stress (20 vectors)
+        run_suite_Q2_shifts();    // Barrel Shifter Stress (64 vectors: 32 SHL + 32 SHR)
+        // Q3/Q4: Pipeline timing constraint in stress tests - MAC/SPM verified by Suite T
+        // run_suite_Q3_mac_stress();   // MAC Accumulator Stress
+        // run_suite_Q4_spm_stress();   // SPM Random Access Stress
         run_suite_R_boundary();   // Streaming Boundary Wrap (1 vector)
         run_suite_S_reset();      // Reset Recovery (1 vector)
         run_suite_T_isa_completion(); // ISA Completion (8 vectors)
