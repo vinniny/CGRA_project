@@ -539,9 +539,9 @@ module cgra_top #(
     // =========================================================================
     // This prevents the synthesizer from optimizing away the array due to
     // unconnected outputs. Route this pin to a test pad or leave floating.
-    assign synthesis_keep = |edge_n0 | |edge_n1 | |edge_n2 | |edge_n3 |
-                            |edge_s0 | |edge_s1 | |edge_s2 | |edge_s3 |
-                            |edge_e0 | |edge_e1 | |edge_e2 | |edge_e3 |
-                            |edge_w0 | |edge_w1 | |edge_w2 | |edge_w3;
+    assign synthesis_keep = (|edge_n0) | (|edge_n1) | (|edge_n2) | (|edge_n3) |
+                            (|edge_s0) | (|edge_s1) | (|edge_s2) | (|edge_s3) |
+                            (|edge_e0) | (|edge_e1) | (|edge_e2) | (|edge_e3) |
+                            (|edge_w0) | (|edge_w1) | (|edge_w2) | (|edge_w3);
 
 endmodule

@@ -2,34 +2,36 @@
 # CGRA Project Makefile
 # ==============================================================================
 # Usage:
-#   make sim                      - Run master verification (80 tests)
-#   make compile                  - Compile testbench only
-#   make wave                     - Open waveform in GTKWave
-#   make clean                    - Remove all generated files
-#   make help                     - Show available commands
+#   make sim          - Run 140-test verification
+#   make wave         - Open waveform viewer
+#   make gui          - Run in GUI mode (Xcelium only)
+#   make clean        - Remove generated files
+#   make help         - Show available commands
 #
-# Example:
-#   make sim
-#   make wave
+# Tool Selection:
+#   Edit TOOL variable below, or override on command line:
+#   make sim TOOL=xcelium
 # ==============================================================================
 
+# ==============================================================================
+# TOOL SELECTION - Change this to switch simulators
+# ==============================================================================
+# Options: iverilog, xcelium
+TOOL ?= iverilog
+
+# ==============================================================================
 # Directories
+# ==============================================================================
 SRC_DIR  := 00_src
 BSG_DIR  := 00_src/bsg_mem
 TB_DIR   := 01_bench
 SIM_DIR  := 03_sim
 
-# Output files
-VVP_FILE := $(SIM_DIR)/tb_top.vvp
-VCD_FILE := $(SIM_DIR)/cgra_master_sim.vcd
+# ==============================================================================
+# Source Files
+# ==============================================================================
 
-# Compiler and flags
-IVERILOG := iverilog
-VVP      := vvp
-GTKWAVE  := gtkwave
-VFLAGS   := -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR)
-
-# BSG Library files (must be compiled FIRST for macro definitions)
+# BSG Library files (must be compiled FIRST)
 BSG_SRCS := \
 	$(BSG_DIR)/bsg_defines.sv \
 	$(BSG_DIR)/bsg_dff.sv \
@@ -38,7 +40,7 @@ BSG_SRCS := \
 	$(BSG_DIR)/bsg_mem_1r1w_sync.sv \
 	$(BSG_DIR)/cgra_config_mem_bsg.sv
 
-# RTL Source files (order matters for dependencies)
+# RTL Source files
 RTL_SRCS := \
 	$(SRC_DIR)/axi_ram.sv \
 	$(SRC_DIR)/cgra_pe.sv \
@@ -56,73 +58,139 @@ TB_SRCS := \
 	$(TB_DIR)/cgra_protocol_monitor.sv \
 	$(TB_DIR)/tb_top.sv
 
-# All sources in correct compilation order
+# All sources
 ALL_SRCS := $(BSG_SRCS) $(RTL_SRCS) $(TB_SRCS)
+
+# ==============================================================================
+# Tool-Specific Variables
+# ==============================================================================
+VVP_FILE := $(SIM_DIR)/tb_top.vvp
+VCD_FILE := $(SIM_DIR)/cgra_master_sim.vcd
+SHM_FILE := $(SIM_DIR)/waves.shm
 
 # ==============================================================================
 # Targets
 # ==============================================================================
 
-.PHONY: all compile sim wave clean help
+.PHONY: all sim compile wave gui clean clean-all help create_flist
 
-# Default target
 all: sim
 
-# Compile testbench
-compile: $(VVP_FILE)
+# ------------------------------------------------------------------------------
+# Main simulation target - switches based on TOOL
+# ------------------------------------------------------------------------------
+sim:
+ifeq ($(TOOL),iverilog)
+	@$(MAKE) _sim_iverilog
+else ifeq ($(TOOL),xcelium)
+	@$(MAKE) _sim_xcelium
+else
+	@echo "ERROR: Unknown TOOL=$(TOOL). Use 'iverilog' or 'xcelium'"
+	@exit 1
+endif
 
-$(VVP_FILE): $(ALL_SRCS) $(TB_DIR)/tb_tasks.svh $(TB_DIR)/tb_test_suites.svh
+# ------------------------------------------------------------------------------
+# Waveform viewer - switches based on TOOL
+# ------------------------------------------------------------------------------
+wave:
+ifeq ($(TOOL),iverilog)
+	@gtkwave $(VCD_FILE) &
+else ifeq ($(TOOL),xcelium)
+	@simvision $(SHM_FILE) &
+endif
+
+# ------------------------------------------------------------------------------
+# GUI mode (Xcelium only) - uses restore.tcl for waveform setup
+# ------------------------------------------------------------------------------
+gui: create_flist
+	@mkdir -p $(SIM_DIR)
+	@cd $(SIM_DIR) && xrun -gui -access +rwc -f flist -input ../$(TB_DIR)/restore.tcl
+
+# ------------------------------------------------------------------------------
+# Icarus Verilog Implementation
+# ------------------------------------------------------------------------------
+_sim_iverilog: _compile_iverilog
 	@echo "============================================"
-	@echo "Compiling CGRA Master Testbench (80 tests)"
+	@echo "Running 140-Vector Verification (iverilog)"
+	@echo "============================================"
+	@cd $(SIM_DIR) && vvp ../$(VVP_FILE)
+	@echo ""
+	@echo "Waveform: $(VCD_FILE)"
+	@echo "View with: make wave"
+
+_compile_iverilog:
+	@echo "============================================"
+	@echo "Compiling with Icarus Verilog"
 	@echo "============================================"
 	@mkdir -p $(SIM_DIR)
-	$(IVERILOG) $(VFLAGS) -o $(VVP_FILE) $(ALL_SRCS)
-	@echo "Output: $(VVP_FILE)"
+	@iverilog -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -o $(VVP_FILE) $(ALL_SRCS)
 
-# Run simulation
-sim: compile
+# ------------------------------------------------------------------------------
+# Cadence Xcelium Implementation
+# ------------------------------------------------------------------------------
+_sim_xcelium: create_flist
 	@echo "============================================"
-	@echo "Running 80-Vector Master Verification"
+	@echo "Running 140-Vector Verification (Xcelium)"
 	@echo "============================================"
-	cd $(SIM_DIR) && $(VVP) ../$(VVP_FILE)
-	@if [ -f $(VCD_FILE) ]; then \
-		echo ""; \
-		echo "Waveform: $(VCD_FILE)"; \
-		echo "View with: make wave"; \
-	fi
+	@mkdir -p $(SIM_DIR)
+	@cd $(SIM_DIR) && xrun -access +rwc -f flist
 
-# Open waveform viewer
-wave: $(VCD_FILE)
-	@echo "Opening waveform: $(VCD_FILE)"
-	$(GTKWAVE) $(VCD_FILE) &
+# Generate file list for Xcelium (paths relative to SIM_DIR)
+create_flist:
+	@echo "-> Creating flist"
+	@rm -f flist
+	@echo "-sv" >> flist
+	@echo "-timescale 1ns/1ps" >> flist
+	@echo "-64bit" >> flist
+	@echo "" >> flist
+	@echo "# BSG MEMORY LIBRARY" >> flist
+	@for f in $(BSG_SRCS); do echo ../$$f >> flist; done
+	@echo "" >> flist
+	@echo "# RTL SOURCE FILES" >> flist
+	@for f in $(RTL_SRCS); do echo ../$$f >> flist; done
+	@echo "" >> flist
+	@echo "# TESTBENCH FILES" >> flist
+	@echo "../$(TB_DIR)/cgra_protocol_monitor.sv" >> flist
+	@echo "../$(TB_DIR)/tb_top.sv" >> flist
+	@echo "" >> flist
+	@echo "# INCLUDE DIRECTORIES" >> flist
+	@echo "-incdir ../$(SRC_DIR)" >> flist
+	@echo "-incdir ../$(BSG_DIR)" >> flist
+	@echo "-incdir ../$(TB_DIR)" >> flist
+	@mv flist $(SIM_DIR)/flist
 
-$(VCD_FILE): sim
-
-# Clean generated files
+# ------------------------------------------------------------------------------
+# Clean
+# ------------------------------------------------------------------------------
 clean:
-	@echo "Cleaning simulation files..."
-	rm -f $(SIM_DIR)/*.vvp $(SIM_DIR)/*.vcd $(SIM_DIR)/*.log
-	rm -f *.vcd
-	@echo "Done."
+	@echo "-> CLEAN"
+	@rm -rf $(SIM_DIR)/*.vvp $(SIM_DIR)/*.vcd $(SIM_DIR)/*.log
+	@rm -rf xcelium.d *.shm *.log *.key *.history xrun.* *.diag
+	@rm -rf flist INCA_libs *.vcd $(SIM_DIR)/*.shm
 
+clean-all: clean
+	@rm -rf $(SIM_DIR)
+
+# ------------------------------------------------------------------------------
 # Help
+# ------------------------------------------------------------------------------
 help:
 	@echo ""
-	@echo "CGRA Master Verification Makefile"
-	@echo "=================================="
+	@echo "CGRA Verification Makefile"
+	@echo "=========================="
+	@echo ""
+	@echo "Current TOOL = $(TOOL)"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make sim     - Compile and run 80-test verification suite"
-	@echo "  make compile - Compile testbench only"
-	@echo "  make wave    - Open waveform in GTKWave"  
-	@echo "  make clean   - Remove generated files"
-	@echo "  make help    - Show this help"
+	@echo "  make sim          - Run 140-test verification"
+	@echo "  make wave         - Open waveform viewer"
+	@echo "  make gui          - Run in GUI mode (Xcelium)"
+	@echo "  make clean        - Remove generated files"
+	@echo "  make help         - Show this help"
 	@echo ""
-	@echo "Test Coverage (80 vectors):"
-	@echo "  Suite A: Register Logic & Config (19 tests)"
-	@echo "  Suite B: DMA Datapath (16 tests)"
-	@echo "  Suite C: Protocol Compliance (15 tests)"
-	@echo "  Suite D: Performance & Timing (10 tests)"
-	@echo "  Suite E: Stress Testing (10 tests)"
-	@echo "  Suite F: System Integration (10 tests)"
+	@echo "Switch simulator:"
+	@echo "  make sim TOOL=iverilog   - Use Icarus Verilog"
+	@echo "  make sim TOOL=xcelium    - Use Cadence Xcelium"
+	@echo ""
+	@echo "Or edit line 20:  TOOL ?= xcelium"
 	@echo ""

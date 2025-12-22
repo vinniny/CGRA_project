@@ -1814,16 +1814,21 @@ task run_suite_Q_random;
     logic [15:0] op_a_16;  // 16-bit value for payload compatibility
     logic [5:0] opcode;
     integer pass_cnt;
+    
+    // Number of random iterations (change this for stress testing)
+    localparam NUM_RANDOM = 20;
+    
     begin
         $display("\n   SUITE Q: RANDOMIZED ALU STRESS");
         $display("=================================");
         $display("[INFO] Using 16-bit values (PE PAYLOAD_WIDTH=16)");
+        $display("[INFO] Running %0d random iterations", NUM_RANDOM);
         
         seed = 42;  // Reproducible random seed
         pass_cnt = 0;
         
-        // Run 20 Random Iterations
-        for (i = 0; i < 20; i++) begin
+        // Run Random Iterations
+        for (i = 0; i < NUM_RANDOM; i++) begin
             
             // 1. Generate pseudo-random 16-bit POSITIVE value (avoid sign extension issues)
             seed = seed * 1103515245 + 12345;
@@ -1878,10 +1883,10 @@ task run_suite_Q_random;
             end
         end
         
-        if (pass_cnt == 20)
-            pass("Q01: 20/20 Random Vectors Passed");
+        if (pass_cnt == NUM_RANDOM)
+            pass($sformatf("Q01: %0d/%0d Random Vectors Passed", pass_cnt, NUM_RANDOM));
         else
-            $display("[INFO] Q: %0d/20 passed", pass_cnt);
+            $display("[INFO] Q: %0d/%0d passed", pass_cnt, NUM_RANDOM);
             
         $display("\n[SUITE Q COMPLETE] Randomized ALU stress finished.\n");
     end
