@@ -1,12 +1,24 @@
 // ==============================================================================
 // tb_tasks.svh - Driver Layer for CGRA Unified Testbench
 // ==============================================================================
-// Provides reusable tasks for:
-// - APB read/write operations
-// - Memory backdoor access
-// - DMA transfer helpers
-// - Stress injection
-// - Result checking
+// Provides reusable tasks for CGRA verification:
+//
+// APB ACCESS:
+//   apb_write(addr, data)   - Write with pready polling + pslverr check
+//   apb_read(addr, data)    - Read with pready polling + pslverr check
+//   apb_check(addr, exp)    - Read and verify against expected value
+//
+// DMA OPERATIONS:
+//   dma_read(src, dst, size)      - AXI read transfer
+//   dma_write(src, dst, size)     - AXI write transfer  
+//   dma_load_tile_bank(bank, addr, data) - Load to Tile Memory
+//
+// PE CONFIGURATION:
+//   config_pe(x, y, config64)     - 64-bit double-pump config protocol
+//   run_cgra(cycles)              - Execute PE array
+//
+// VERIFICATION:
+//   pass(msg) / fail(msg, reason) - Test result reporting
 // ==============================================================================
 
 // =========================================================================

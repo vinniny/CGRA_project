@@ -1,8 +1,19 @@
 // ==============================================================================
 // CGRA Control Unit - Array Conductor
 // ==============================================================================
-// Simple FSM to enable the PE array and count execution cycles
-// Receives start signal from CSR, controls array enable, reports status
+// 3-state FSM (IDLE → RUN → FINISH) to control PE array execution.
+//
+// FEATURES:
+//   - Start/Stop control via CSR
+//   - Programmable timeout (max_cycles from CSR 0x2C)
+//   - Context PC counter (0-15, wraps)
+//   - Global stall when DMA is busy
+//   - Cycle counter for performance monitoring
+//
+// FSM STATES:
+//   IDLE   → RUN    : On start_i assertion
+//   RUN    → FINISH : On array_done, timeout, or soft_reset
+//   FINISH → IDLE   : After 1-cycle done pulse
 // ==============================================================================
 
 module cgra_control_unit #(

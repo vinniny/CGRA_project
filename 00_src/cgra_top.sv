@@ -1,20 +1,22 @@
 // ==============================================================================
 // CGRA Top-Level Integration
 // ==============================================================================
-// A 4x4 Coarse-Grained Reconfigurable Array accelerator with:
+// A 4x4 Coarse-Grained Reconfigurable Array accelerator with APB control,
+// AXI4-Lite DMA master, and neuromorphic (LIF) support.
 //
 // COMPONENTS:
-//   - APB CSR Interface (cgra_axi_csr)
+//   - APB CSR Interface (cgra_axi_csr) - 11 registers
 //   - Pipelined DMA Engine (cgra_dma_engine) with 8-word FIFO
-//   - Control Unit (cgra_control_unit) with 3-state FSM
-//   - 4-Bank Tile Memory (cgra_tile_memory) with context_pc streaming
+//   - Control Unit (cgra_control_unit) with 3-state FSM + auto-stop
+//   - 4-Bank Tile Memory (cgra_tile_memory) with context_pc streaming  
 //   - 4x4 PE Array (cgra_array_4x4) with mesh broadcast
 //
 // FEATURES:
-//   - Auto-Stop: Triggers after 16 context cycles
+//   - Auto-Stop: Programmable timeout via 0x2C register
 //   - Synthesis Keeper: OR-reduce of all edge outputs
 //   - Double-Pump Config: 32→64 bit configuration loader
 //   - Mesh Broadcast: PE outputs → all 4 neighbors
+//   - 19-Op ISA: Includes LIF neuron for neuromorphic computing
 //
 // APB REGISTER MAP:
 //   0x00  DMA_CTRL    [0] Start (auto-clear)
@@ -22,9 +24,14 @@
 //   0x08  DMA_SRC     Source address
 //   0x0C  DMA_DST     Destination address
 //   0x10  DMA_SIZE    Transfer size (bytes)
-//   0x14  CU_CTRL     [0] Start, [1] Soft Reset
+//   0x20  CU_CTRL     [0] Start, [1] Soft Reset
+//   0x24  CU_STATUS   [0] Busy, [1] Done
+//   0x28  CU_CYCLES   Cycle counter (read-only)
+//   0x2C  CU_TIMEOUT  Max cycles (0 = no limit)
+//   0x30  IRQ_STATUS  [0] DMA Done, [1] CU Done
+//   0x34  IRQ_MASK    IRQ enable mask
 //
-// VERIFICATION: 126/126 tests pass (19 suites, Silicon Ready)
+// VERIFICATION: 140/140 tests pass (22 suites, Silicon Ready)
 // ==============================================================================
 
 module cgra_top #(

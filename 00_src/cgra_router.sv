@@ -1,8 +1,17 @@
 // ==============================================================================
-// CGRA ROUTER (FIXED FLOW CONTROL)
+// CGRA Router - 5-Port XY Routing with Flow Control
 // ==============================================================================
-// 1. Explicit Handshake Logic to prevent "Stuck Valid" / Looping
-// 2. Correct parameter propagation for X/Y Coordinates
+// Dimension-ordered (XY) router with 5 ports: N, E, S, W, Local.
+//
+// FEATURES:
+//   - In-band destination header: [31:28]=DX, [27:24]=DY
+//   - XY routing: X first (E/W), then Y (N/S)
+//   - Single-cycle input buffers per port
+//   - Priority arbitration (Local > W > S > E > N)
+//   - Backpressure via ready/valid handshake
+//
+// NOTE: In mesh broadcast mode (cgra_tile), router outputs are overridden
+// by PE result broadcast. Router handles incoming data only.
 // ==============================================================================
 
 module cgra_router #(

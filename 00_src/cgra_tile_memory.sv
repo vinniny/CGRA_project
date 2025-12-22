@@ -1,12 +1,21 @@
 // ==============================================================================
 // CGRA Tile Memory - Row-Banked Memory Architecture
 // ==============================================================================
-// Provides banked memory organization for 4×4 PE array
-// Features:
-// - 4 independent banks (one per PE row)
-// - Parallel access to different rows
-// - Configurable depth per bank
-// - Support for both PE local access and DMA transfers
+// Provides banked memory for 4×4 PE array input data streaming.
+//
+// ARCHITECTURE:
+//   - 4 independent banks (one per PE row)
+//   - 1024 words × 32-bit per bank = 16KB total
+//   - Context PC streaming: bank_addr = context_pc (0-15)
+//   - DMA write via external port (ext_addr, ext_bank_sel)
+//
+// DATA FLOW:
+//   DMA → Tile Memory (bank 0-3) → West edge of PE array
+//   Bank 0 → Row 0 (PE00, PE01, PE02, PE03)
+//   Bank 1 → Row 1 (PE10, PE11, PE12, PE13)
+//   Bank 2 → Row 2 (PE20, PE21, PE22, PE23)
+//   Bank 3 → Row 3 (PE30, PE31, PE32, PE33)
+// ==============================================================================
 
 module cgra_tile_memory #(
     parameter DATA_WIDTH = 32,

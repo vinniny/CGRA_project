@@ -1,11 +1,21 @@
 // ==============================================================================
-// CGRA DMA Engine - Pipelined Producer-Consumer Architecture (Robust)
+// CGRA DMA Engine - Pipelined Producer-Consumer Architecture
 // ==============================================================================
-// Features:
-// - Decoupled Read (Producer) and Write (Consumer) engines
-// - 8-word FIFO buffer for pipeline decoupling
-// - Robust state machines with proper handshake handling
-// - Flow control via FIFO full/empty signals
+// AXI4-Lite master for data/config transfers between external RAM and CGRA.
+//
+// ARCHITECTURE:
+//   - Read Engine (Producer): Fetches data from AXI, pushes to FIFO
+//   - 8-Word FIFO: Decouples read/write timing
+//   - Write Engine (Consumer): Pops FIFO, writes to destination
+//
+// DESTINATION ROUTING (by address prefix):
+//   0x1XXX_XXXX → Tile Memory (4 banks × 4KB)
+//   0x2XXX_XXXX → Config RAM (16 PEs × 16 slots × 64-bit)
+//   Other       → AXI External Memory
+//
+// DOUBLE-PUMP CONFIG PROTOCOL:
+//   1. Write high word to (addr | 0x4) - latches in config_high_reg
+//   2. Write low word to (addr) - commits full 64-bit to PE config RAM
 // ==============================================================================
 
 module cgra_dma_engine #(

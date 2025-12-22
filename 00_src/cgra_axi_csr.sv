@@ -1,8 +1,21 @@
 // ==============================================================================
 // CGRA APB CSR - Centralized Configuration and Status Registers
 // ==============================================================================
-// APB Slave interface for CPU configuration
-// Provides static config wires to DMA and Control Unit
+// APB Slave interface (zero wait states) for CPU configuration.
+// Provides config wires to DMA Engine and Control Unit.
+//
+// REGISTER MAP (11 registers):
+//   0x00  DMA_CTRL    RW  [0] Start (auto-clear)
+//   0x04  DMA_STATUS  RO  [0] Busy, [1] Done (sticky)
+//   0x08  DMA_SRC     RW  Source address
+//   0x0C  DMA_DST     RW  Destination address
+//   0x10  DMA_SIZE    RW  Transfer size (bytes)
+//   0x20  CU_CTRL     RW  [0] Start, [1] Soft Reset
+//   0x24  CU_STATUS   RO  [0] Busy, [1] Done (sticky)
+//   0x28  CU_CYCLES   RO  Cycle counter
+//   0x2C  CU_TIMEOUT  RW  Max cycles (0 = no limit)  [NEW]
+//   0x30  IRQ_STATUS  RO  [0] DMA Done, [1] CU Done
+//   0x34  IRQ_MASK    RW  IRQ enable mask
 // ==============================================================================
 
 module cgra_apb_csr #(

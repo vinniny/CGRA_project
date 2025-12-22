@@ -1,9 +1,16 @@
 // ==============================================================================
-// CGRA 4x4 Array (Router-Connected Tiles)
+// CGRA 4x4 Array - Mesh Broadcast Topology
 // ==============================================================================
-// Instantiates 16 tiles in a 4x4 mesh topology. Each tile wraps a router and PE.
-// Edge interfaces expose data/valid only; edge ready signals are tied high.
-// NOTE: This version uses explicit instantiation (no generate/genvar/for loops)
+// 16 tiles in 4x4 mesh. Each tile wraps PE + Router.
+// PE outputs broadcast to all 4 neighbors (mesh broadcast architecture).
+//
+// FEATURES:
+//   - 16 Processing Elements with local config RAM
+//   - Mesh broadcast: PE result → all 4 neighbors
+//   - Edge inputs: West = Tile Memory banks, others = tie-off
+//   - Edge outputs: synthesis_keep prevents optimization
+//   - Multi-context: 16 config slots per PE (context_pc)
+// ==============================================================================
 
 module cgra_array_4x4 #(
     parameter DATA_WIDTH = 32,
