@@ -83,7 +83,7 @@ module cgra_dma_engine #(
     logic [FIFO_ADDR_BITS:0] count;  // Extra bit for full detection
     
     wire fifo_full  = (count == FIFO_DEPTH);
-    wire fifo_empty = (count == 0);
+    wire fifo_empty = (count == '0);
     
     // =========================================================================
     // Address Decoding (0x0=External AXI, 0x1=Tile Memory, 0x2=Config)
@@ -171,7 +171,7 @@ module cgra_dma_engine #(
                     read_complete <= 1'b0;
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
-                    if (cfg_start && cfg_size > 0 && !status_busy) begin
+                    if (cfg_start && cfg_size != '0 && !status_busy) begin
                         read_addr <= cfg_src;
                         read_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
                         r_state <= R_ADDR;
@@ -180,7 +180,7 @@ module cgra_dma_engine #(
                 
                 R_ADDR: begin
                     // Only issue read if FIFO has space
-                    if (!fifo_full && read_words_remaining > 0) begin
+                    if (!fifo_full && read_words_remaining != '0) begin
                         m_axi_araddr <= read_addr;
                         m_axi_arvalid <= 1'b1;
                     end else begin
@@ -201,7 +201,7 @@ module cgra_dma_engine #(
                         read_addr <= read_addr + BYTES_PER_WORD;
                         read_words_remaining <= read_words_remaining - 1'b1;
                         
-                        if (read_words_remaining == 1) begin
+                        if (read_words_remaining == 32'd1) begin
                             read_complete <= 1'b1;
                             r_state <= R_DONE;
                         end else begin
@@ -267,7 +267,7 @@ module cgra_dma_engine #(
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
-                    if (cfg_start && cfg_size > 0 && !status_busy) begin
+                    if (cfg_start && cfg_size != '0 && !status_busy) begin
                         write_addr <= cfg_dst;
                         write_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
                         w_state <= W_WAIT;
@@ -278,14 +278,14 @@ module cgra_dma_engine #(
                     // Wait for FIFO to have data
                     local_write_en <= 1'b0;  // Default off
                     
-                    if (!fifo_empty && write_words_remaining > 0) begin
+                    if (!fifo_empty && write_words_remaining != '0) begin
                         // Latch data from FIFO
                         write_data_reg <= fifo_rdata;
                         
                         // For AXI destinations, go through normal handshake
                         // For local destinations, we'll handle in W_ADDR
                         w_state <= W_ADDR;
-                    end else if (write_words_remaining == 0 && read_complete) begin
+                    end else if (write_words_remaining == '0 && read_complete) begin
                         write_complete <= 1'b1;
                         w_state <= W_DONE;
                     end
@@ -308,7 +308,7 @@ module cgra_dma_engine #(
                         write_addr <= write_addr + BYTES_PER_WORD;
                         write_words_remaining <= write_words_remaining - 1'b1;
                         
-                        if (write_words_remaining == 1) begin
+                        if (write_words_remaining == 32'd1) begin
                             write_complete <= 1'b1;
                             w_state <= W_DONE;
                         end else begin
@@ -336,7 +336,7 @@ module cgra_dma_engine #(
                         write_addr <= write_addr + BYTES_PER_WORD;
                         write_words_remaining <= write_words_remaining - 1'b1;
                         
-                        if (write_words_remaining == 1) begin
+                        if (write_words_remaining == 32'd1) begin
                             write_complete <= 1'b1;
                             w_state <= W_DONE;
                         end else begin
@@ -390,7 +390,7 @@ module cgra_dma_engine #(
             status_done <= 1'b0;
             irq_done <= 1'b0;
             
-            if (cfg_start && cfg_size > 0 && !status_busy) begin
+            if (cfg_start && cfg_size != '0 && !status_busy) begin
                 transfer_active <= 1'b1;
                 status_busy <= 1'b1;
             end else if (transfer_active && write_complete) begin

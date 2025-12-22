@@ -138,7 +138,7 @@ module cgra_pe #(
     
     // Select active config: use config_ram[context_pc] if loaded, else use config_frame
     // For backward compatibility: if context_pc is 0 and config_valid, use config_frame directly
-    assign active_config = (context_pc == 0 && config_valid) ? config_frame : config_ram[context_pc];
+    assign active_config = (context_pc == '0 && config_valid) ? config_frame : config_ram[context_pc];
 
     // =========================================================================
     // Stall Logic

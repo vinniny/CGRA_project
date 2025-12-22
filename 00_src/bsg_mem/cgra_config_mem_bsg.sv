@@ -68,11 +68,12 @@ module cgra_config_mem_bsg #(
     // ------------------------------------------------
     // bsg_mem_1r1w_sync is a synchronous RAM with 1-cycle read latency.
     // So, if Read Enable (ren) is high at T0, Valid Data is ready at T1.
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) 
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
             cfg_valid <= 1'b0;
-        else 
-            cfg_valid <= cfg_ren; 
+        end else begin
+            cfg_valid <= cfg_ren;
+        end
     end
 
 endmodule
