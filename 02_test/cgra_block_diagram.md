@@ -1,6 +1,6 @@
 # CGRA SoC Block Diagram
 
-> Updated: December 2024 | 140/140 Tests Passed | Silicon Ready
+> Updated: December 2024 | 141/141 Tests Passed | Silicon Ready
 
 ---
 
@@ -170,7 +170,7 @@ flowchart TB
         
         subgraph ALU["ALU/MAC"]
             direction LR
-            OPS["ADD SUB MUL MAC<br/>AND OR XOR<br/>SHL SHR<br/>CMP_GT CMP_LT CMP_EQ<br/>LOAD/STORE SPM<br/>ACC_CLR PASS0 PASS1<br/>LIF (neuromorphic)"]
+            OPS["ADD SUB MUL MAC<br/>AND OR XOR<br/>SHL SHR (0-31) ✨<br/>CMP_GT CMP_LT CMP_EQ<br/>LOAD/STORE SPM<br/>ACC_CLR PASS0 PASS1<br/>LIF (neuromorphic)"]
             ACC["Accumulator<br/>40-bit"]
         end
         
@@ -239,9 +239,10 @@ flowchart LR
 | Register File | 16 × 32-bit | ✅ |
 | DMA FIFO | 8 × 32-bit | ✅ Suite B |
 | Tile Memory | 4 banks × 4KB = 16KB | ✅ Suite J |
-| Test Suites | **22** (A-V) | ✅ |
-| Test Vectors | **140** | ✅ |
+| Test Suites | **23** (A-V, Q1-Q2) | ✅ |
+| Test Vectors | **141** | ✅ |
 | ISA Operations | **19 verified** | ✅ Suite T,U,V |
+| Barrel Shifter | 5-bit (0-31) | ✅ Suite Q2 ✨ |
 | Mesh Broadcast | PE → 4 neighbors | ✅ Suite L |
 | Auto-Stop | Programmable timeout | ✅ CSR 0x2C |
 | Neuromorphic | LIF neuron | ✅ Suite V |
@@ -278,8 +279,8 @@ flowchart LR
 | 5 | AND | A & B | K, M |
 | 6 | OR | A \| B | K, M |
 | 7 | XOR | A ^ B | K, M |
-| 8 | SHL | A << B | U |
-| 9 | SHR | A >> B | T, U |
+| 8 | SHL | A << B[4:0] | Q2 ✨ |
+| 9 | SHR | A >>> B[4:0] (arith) | Q2 ✨ |
 | 10 | CMP_GT | (A > B) ? 1 : 0 | T |
 | 11 | CMP_LT | (A < B) ? 1 : 0 | T, U |
 | 12 | CMP_EQ | (A == B) ? 1 : 0 | P |
@@ -302,3 +303,4 @@ flowchart LR
 | #4 | PE outputs disconnected | Mesh broadcast |
 | #5 | PE_SEL encoding overlap | Bits [11:8] decode |
 | #6 | Auto-stop fixed at 16 | **Programmable timeout** ✨ |
+| #7 | Shift mask [3:0] | **5-bit [4:0] + arithmetic SHR** ✨ |
