@@ -10,7 +10,7 @@
 // ==============================================================================
 
 // =========================================================================
-// APB WRITE TASK
+// APB WRITE TASK (with pready polling and error checking)
 // =========================================================================
 task apb_write(input [31:0] addr, input [31:0] data);
     begin
@@ -20,10 +20,19 @@ task apb_write(input [31:0] addr, input [31:0] data);
         pwrite <= 1;
         psel <= 1;
         penable <= 0;
+        
         @(posedge clk);
         penable <= 1;
+        
+        // Wait for PREADY
         @(posedge clk);
         while (!pready) @(posedge clk);
+        
+        // Check for errors
+        if (pslverr === 1'b1) begin
+            $display("[APB ERROR] Write to 0x%08h failed (PSLVERR)", addr);
+        end
+        
         psel <= 0;
         penable <= 0;
         pwrite <= 0;
@@ -31,7 +40,7 @@ task apb_write(input [31:0] addr, input [31:0] data);
 endtask
 
 // =========================================================================
-// APB READ TASK
+// APB READ TASK (with pready polling and error checking)
 // =========================================================================
 task apb_read(input [31:0] addr, output [31:0] data);
     begin
@@ -40,11 +49,22 @@ task apb_read(input [31:0] addr, output [31:0] data);
         pwrite <= 0;
         psel <= 1;
         penable <= 0;
+        
         @(posedge clk);
         penable <= 1;
+        
+        // Wait for PREADY
         @(posedge clk);
         while (!pready) @(posedge clk);
+        
+        // Check for errors
+        if (pslverr === 1'b1) begin
+            $display("[APB ERROR] Read from 0x%08h failed (PSLVERR)", addr);
+        end
+        
+        // Sample data at end of ready cycle
         data = prdata;
+        
         psel <= 0;
         penable <= 0;
     end
@@ -260,24 +280,43 @@ task dma_load_tile_bank(input [1:0] bank, input [11:0] offset, input [31:0] valu
 endtask
 
 // -------------------------------------------------------------------------
-// TASK: Configure a Specific PE (The Recipe Book)
+// TASK: Configure a Specific PE (64-bit Double-Pump Protocol)
 // -------------------------------------------------------------------------
-task config_pe(input [3:0] pe_id, input [3:0] slot, input [31:0] opcode);
-    logic [31:0] cfg_addr;
+// Implements the double-pump protocol for 64-bit configuration:
+// 1. Write high word (bits [63:32]) to addr | 0x4 -> latched in config_high_reg
+// 2. Write low word (bits [31:0]) to addr -> commits full 64-bit to config RAM
+//
+// Config frame format:
+//   [5:0]   opcode      [9:6]  src0_sel    [13:10] src1_sel
+//   [17:14] dst_sel     [21:18] route_mask [22] pred_en
+//   [23]    pred_inv    [39:24] imm (16-bit)  [63:40] extended
+task config_pe(input [3:0] pe_id, input [3:0] slot, input [63:0] config_data);
+    logic [31:0] cfg_addr_base;
+    logic [31:0] data_high;
+    logic [31:0] data_low;
     begin
-        // Construct Address: Prefix (0x2) + PE_ID (Bits [11:8]) + Slot (Bits [6:3])
-        // UPDATED: Per cgra_top Fix: dma_cfg_pe_sel = dma_cfg_addr[11:8]
-        // cfg_wr_addr = dma_cfg_addr[6:3] (slot address, skip bit 2 for hi/lo)
-        cfg_addr = BASE_CONFIG | ({24'd0, pe_id} << 8) | ({28'd0, slot} << 3);
+        // Construct Base Address: Prefix (0x2) + PE_ID (Bits [11:8]) + Slot (Bits [6:3])
+        // Address bit 2 selects hi/lo word for double-pump
+        cfg_addr_base = BASE_CONFIG | ({24'd0, pe_id} << 8) | ({28'd0, slot} << 3);
         
-        // 1. Write Opcode to temp Ext RAM
-        ram_write(32'h0000_1004, opcode);
+        // Split 64-bit config into two 32-bit words
+        data_low  = config_data[31:0];
+        data_high = config_data[63:32];
         
-        // 2. Trigger DMA: Ext RAM -> Config Mem
-        apb_write(32'h08, 32'h0000_1004);  // Src
-        apb_write(32'h0C, cfg_addr);        // Dst = Config Mem
-        apb_write(32'h10, 32'd4);           // Size
-        apb_write(32'h00, 32'd1);           // Start
+        // STEP 1: Write HIGH word to addr | 0x4 (latches into config_high_reg)
+        ram_write(32'h0000_1004, data_high);
+        apb_write(32'h08, 32'h0000_1004);              // DMA Src
+        apb_write(32'h0C, cfg_addr_base | 32'h4);     // DMA Dst (bit 2 = 1 for high)
+        apb_write(32'h10, 32'd4);                      // Size
+        apb_write(32'h00, 32'd1);                      // Start
+        wait_dma_done(100);
+        
+        // STEP 2: Write LOW word to addr (commits {high_reg, low} as 64-bit)
+        ram_write(32'h0000_1004, data_low);
+        apb_write(32'h08, 32'h0000_1004);              // DMA Src
+        apb_write(32'h0C, cfg_addr_base);              // DMA Dst (bit 2 = 0 for low)
+        apb_write(32'h10, 32'd4);                      // Size
+        apb_write(32'h00, 32'd1);                      // Start
         wait_dma_done(100);
     end
 endtask

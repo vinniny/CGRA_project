@@ -106,6 +106,7 @@ module cgra_top #(
     // =========================================================================
     logic        cu_start;
     logic        cu_soft_reset;
+    logic [31:0] cu_max_cycles;  // Programmable timeout (CSR @ 0x2C)
     logic        cu_busy;
     logic        cu_done;
     logic [31:0] cu_cycles;
@@ -209,6 +210,7 @@ module cgra_top #(
         // Control Unit Config Wires
         .cu_start(cu_start),
         .cu_soft_reset(cu_soft_reset),
+        .cu_max_cycles(cu_max_cycles),  // Programmable timeout
         .cu_busy_i(cu_busy),
         .cu_done_i(cu_done),
         .cu_cycles_i(cu_cycles),
@@ -294,7 +296,7 @@ module cgra_top #(
         .dma_busy_i(dma_busy),
         
         // Configuration
-        .max_cycles_i(32'd0)  // No timeout limit
+        .max_cycles_i(cu_max_cycles)  // Programmable timeout from CSR @ 0x2C
     );
     
     // =========================================================================

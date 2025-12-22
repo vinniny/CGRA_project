@@ -39,6 +39,7 @@ module cgra_apb_csr #(
     // =========================================================================
     output logic                  cu_start,       // Auto-clearing pulse
     output logic                  cu_soft_reset,
+    output logic [31:0]           cu_max_cycles,  // Programmable timeout limit
     input  logic                  cu_busy_i,
     input  logic                  cu_done_i,
     input  logic [31:0]           cu_cycles_i,
@@ -63,6 +64,7 @@ module cgra_apb_csr #(
     localparam ADDR_CU_CTRL    = 8'h20;  // RW: [0] Start, [1] Soft Reset
     localparam ADDR_CU_STATUS  = 8'h24;  // RO: [0] Busy, [1] Done
     localparam ADDR_CU_CYCLES  = 8'h28;  // RO: Cycle counter
+    localparam ADDR_CU_TIMEOUT = 8'h2C;  // RW: Max cycles (0 = no limit)
     
     // IRQ Region
     localparam ADDR_IRQ_STATUS = 8'h30;  // RO: [0] DMA Done, [1] CU Done
@@ -77,6 +79,7 @@ module cgra_apb_csr #(
     logic [31:0] reg_dma_size;
     
     logic [31:0] reg_cu_ctrl;
+    logic [31:0] reg_cu_timeout;  // Programmable timeout limit
     
     logic [31:0] reg_irq_mask;
     
@@ -137,6 +140,7 @@ module cgra_apb_csr #(
             reg_dma_dst  <= 32'd0;
             reg_dma_size <= 32'd0;
             reg_cu_ctrl  <= 32'd0;
+            reg_cu_timeout <= 32'd0;  // Default: no timeout
             reg_irq_mask <= 32'd0;
         end else begin
             // APB Write Phase
@@ -147,6 +151,7 @@ module cgra_apb_csr #(
                     ADDR_DMA_DST:    reg_dma_dst  <= pwdata;
                     ADDR_DMA_SIZE:   reg_dma_size <= pwdata;
                     ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
+                    ADDR_CU_TIMEOUT: reg_cu_timeout <= pwdata;
                     ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
@@ -172,6 +177,7 @@ module cgra_apb_csr #(
             ADDR_CU_CTRL:    prdata = reg_cu_ctrl;
             ADDR_CU_STATUS:  prdata = reg_cu_status;
             ADDR_CU_CYCLES:  prdata = cu_cycles_i;
+            ADDR_CU_TIMEOUT: prdata = reg_cu_timeout;
             ADDR_IRQ_STATUS: prdata = reg_irq_status;
             ADDR_IRQ_MASK:   prdata = reg_irq_mask;
             default:         prdata = 32'hDEAD_BEEF;  // Undefined address
@@ -188,6 +194,7 @@ module cgra_apb_csr #(
     
     assign cu_start = reg_cu_ctrl[0];
     assign cu_soft_reset = reg_cu_ctrl[1];
+    assign cu_max_cycles = reg_cu_timeout;  // Programmable timeout
     
     // =========================================================================
     // IRQ Generation

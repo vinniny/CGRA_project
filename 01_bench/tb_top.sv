@@ -178,28 +178,78 @@ module tb_top;
         end
     end
     
-    // Write Channel with stress support
+    // =============================================================================
+    // FIXED AXI WRITE SLAVE (Supports separate AW/W phases)
+    // =============================================================================
     reg axi_awready_reg, axi_wready_reg;
+    reg [31:0] axi_waddr_latch;
+    reg        axi_waddr_received;
+    
     assign axi_awready = axi_awready_reg;
     assign axi_wready = axi_wready_reg;
     assign axi_bvalid = axi_bvalid_reg;
     
+    // 1. Write Address Channel (AW) - Latch address when received
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             axi_awready_reg <= 1'b1;
-            axi_wready_reg <= 1'b1;
+            axi_waddr_received <= 1'b0;
+            axi_waddr_latch <= 32'd0;
         end else begin
+            // Stress support: randomly deassert ready
             if (stress_enable && $urandom_range(0,100) < stress_probability) begin
                 axi_awready_reg <= 1'b0;
-                axi_wready_reg <= 1'b0;
             end else begin
                 axi_awready_reg <= 1'b1;
+            end
+            
+            // Latch address when AW handshake completes
+            if (axi_awvalid && axi_awready_reg) begin
+                axi_waddr_latch <= axi_awaddr;
+                axi_waddr_received <= 1'b1;
+            end
+            
+            // Clear flag when write data is also done
+            if (axi_wvalid && axi_wready_reg && axi_waddr_received) begin
+                axi_waddr_received <= 1'b0;
+            end
+        end
+    end
+    
+    // 2. Write Data Channel (W) - Use latched address for memory writes
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            axi_wready_reg <= 1'b1;
+        end else begin
+            // Stress support
+            if (stress_enable && $urandom_range(0,100) < stress_probability) begin
+                axi_wready_reg <= 1'b0;
+            end else begin
                 axi_wready_reg <= 1'b1;
             end
         end
     end
     
-    // B channel response
+    // Memory write with proper address source selection
+    always @(posedge clk) begin
+        if (axi_wvalid && axi_wready_reg) begin
+            // CRITICAL FIX: Use latched address, or wire if AW arrives same cycle
+            reg [31:0] target_addr;
+            if (axi_awvalid && axi_awready_reg) begin
+                target_addr = axi_awaddr;  // Same cycle: use wire directly
+            end else begin
+                target_addr = axi_waddr_latch;  // Different cycle: use latched value
+            end
+            
+            // Byte-enable writes (strobe support)
+            if (axi_wstrb[0]) mem[target_addr[16:0] + 0] <= axi_wdata[7:0];
+            if (axi_wstrb[1]) mem[target_addr[16:0] + 1] <= axi_wdata[15:8];
+            if (axi_wstrb[2]) mem[target_addr[16:0] + 2] <= axi_wdata[23:16];
+            if (axi_wstrb[3]) mem[target_addr[16:0] + 3] <= axi_wdata[31:24];
+        end
+    end
+    
+    // 3. Write Response (B) Channel
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             axi_bvalid_reg <= 1'b0;
@@ -209,16 +259,6 @@ module tb_top;
             end else if (axi_bvalid_reg && axi_bready) begin
                 axi_bvalid_reg <= 1'b0;
             end
-        end
-    end
-    
-    // Memory write
-    always @(posedge clk) begin
-        if (axi_wvalid && axi_wready_reg) begin
-            if (axi_wstrb[0]) mem[axi_awaddr[16:0] + 0] <= axi_wdata[7:0];
-            if (axi_wstrb[1]) mem[axi_awaddr[16:0] + 1] <= axi_wdata[15:8];
-            if (axi_wstrb[2]) mem[axi_awaddr[16:0] + 2] <= axi_wdata[23:16];
-            if (axi_wstrb[3]) mem[axi_awaddr[16:0] + 3] <= axi_wdata[31:24];
         end
     end
 
@@ -267,6 +307,8 @@ module tb_top;
         run_suite_R_boundary();   // Streaming Boundary Wrap (1 vector)
         run_suite_S_reset();      // Reset Recovery (1 vector)
         run_suite_T_isa_completion(); // ISA Completion (8 vectors)
+        run_suite_U_diagnostics();    // Diagnostics & Characterization (3 vectors)
+        run_suite_V_neuromorphic();   // Neuromorphic LIF (3 vectors)
 
         // === FINAL REPORT ===
         $display("\n================================================================");
