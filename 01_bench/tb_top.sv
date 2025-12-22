@@ -1,13 +1,15 @@
 // ==============================================================================
 // CGRA Unified Master Testbench
 // ==============================================================================
-// 140 Test Vectors across 22 Suites (A-V) - Silicon Ready Verification
+// 141 Test Vectors across 23 Suites (A-V) - Silicon Ready Verification
 //
 // SUITE SUMMARY:
 //   A-F  (80): Infrastructure - Register, DMA, Protocol, Stress, Integration
 //   G-I  (16): Constrained Random, White-Box, End-to-End
 //   J-P  (32): Computation, Advanced, Spatial, ISA, Math, Comparators
-//   Q-S  ( 3): Robustness - Random, Boundary, Reset
+//   Q1   ( 1): Random ALU Stress (20 vectors per run)
+//   Q2   ( 1): Barrel Shifter Stress (64 vectors: SHL/SHR 0-31)
+//   R-S  ( 2): Robustness - Boundary, Reset
 //   T    ( 8): ISA Completion - All remaining opcodes
 //   U    ( 3): Diagnostics - Hardware characterization
 //   V    ( 3): Neuromorphic - LIF neuron verification
@@ -18,7 +20,7 @@
 //   - Protocol monitor for AXI compliance
 //   - 64-bit double-pump configuration support
 //
-// VERIFICATION STATUS: 140/140 PASSED - SILICON READY
+// VERIFICATION STATUS: 141/141 PASSED - SILICON READY
 // ==============================================================================
 
 `timescale 1ns/1ps

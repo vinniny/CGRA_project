@@ -46,7 +46,7 @@
 //   [9:6]   src0_sel   [17:14] dst_sel    [23]    pred_inv   [63:40] extended
 //   [21:18] route_mask (N/E/S/W output enable)
 //
-// VERIFICATION: All 19 operations tested in 140/140 test vectors
+// VERIFICATION: All 19 operations tested in 141/141 test vectors
 // ==============================================================================
 
 module cgra_pe #(

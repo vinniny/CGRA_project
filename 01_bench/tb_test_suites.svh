@@ -1,17 +1,19 @@
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Suite (140 Vectors, 22 Suites)
+// tb_test_suites.svh - Master Verification Suite (141 Vectors, 23 Suites)
 // ==============================================================================
 // Complete Pre-Silicon Verification:
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
 //   Suites G-I  (16): Advanced (Random, White-Box, End-to-End)
 //   Suites J-P  (32): Computation (ISA, Spatial, Math, Comparators)
-//   Suites Q-S  ( 3): Robustness (Random, Boundary, Reset)
+//   Suite Q1    ( 1): Random ALU Stress (20 vectors, all 19 opcodes)
+//   Suite Q2    ( 1): Barrel Shifter (64 vectors: SHL/SHR 0-31)
+//   Suites R-S  ( 2): Robustness (Boundary, Reset)
 //   Suite T     ( 8): ISA Completion (all remaining opcodes)
 //   Suite U     ( 3): Diagnostics (hardware characterization)
 //   Suite V     ( 3): Neuromorphic (LIF neuron verification)
 //
 // ISA COVERAGE: 19/19 operations verified
-// VERIFICATION STATUS: 140/140 PASSED - SILICON READY
+// VERIFICATION STATUS: 141/141 PASSED - SILICON READY
 // ==============================================================================
 
 // =========================================================================

@@ -28,7 +28,7 @@ A **Coarse-Grained Reconfigurable Array (CGRA)** accelerator with pipelined DMA 
 ## Quick Start
 
 ```bash
-# Run 140-test verification (Icarus Verilog)
+# Run 141-test verification (Icarus Verilog)
 make sim
 
 # Run with Cadence Xcelium
@@ -532,7 +532,7 @@ sudo apt-get install iverilog gtkwave
 
 | Command | Description |
 |---------|-------------|
-| `make sim` | Run 140-test verification |
+| `make sim` | Run 141-test verification |
 | `make sim TOOL=xcelium` | Run with Cadence Xcelium |
 | `make gui` | Xcelium GUI mode with waveforms |
 | `make wave` | Open waveform viewer |
