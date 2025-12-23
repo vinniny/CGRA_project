@@ -501,6 +501,40 @@ static inline uint32_t cgra_get_cycles(void) {
 
 ---
 
+## Roadmap
+
+### Current Capabilities
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Predicated Execution | ✅ Implemented | `pred_en`, `pred_inv` in config frame |
+| Memory Banking | ✅ Implemented | 4 banks × 1024 words (bank per row) |
+| Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
+| Self-Checking TB | ✅ Implemented | 141 tests with golden comparisons |
+| BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
+
+### Future Enhancements
+
+| Enhancement | Priority | Effort | Description |
+|-------------|----------|--------|-------------|
+| **Parameterized Array** | High | Medium | Convert to `generate` blocks with `ROWS`/`COLS` parameters for 2×2, 8×8, N×M exploration |
+| **Double-Buffer Config** | High | Medium | Ping-pong config memory for zero-latency kernel switching |
+| **2D Strided DMA** | High | High | Add `STRIDE` register for efficient matrix/image sub-block access |
+| **Python Config Generator** | Medium | Low | Script to generate 64-bit config frames from assembly-like syntax |
+| **Floating-Point PE** | Low | High | Optional FPU datapath for scientific computing |
+
+### Software Toolchain
+
+A complete CGRA deployment requires:
+
+1. **Compiler**: Map Data Flow Graphs (DFG) to PE configuration
+2. **Assembler**: Convert assembly → binary config files
+3. **Runtime**: C/C++ API for kernel loading and execution
+
+Reference implementations: [Morpher](https://github.com/ecolab-nus/morpher), [OpenCGRA](https://github.com/pnnl/OpenCGRA)
+
+---
+
 ## License
 
 Copyright © 2024. All rights reserved.
