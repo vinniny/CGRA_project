@@ -44,9 +44,12 @@ module cgra_config_mem_bsg #(
     // ------------------------------------------------
     // Instantiate BaseJump STL Memory
     // ------------------------------------------------
+    // read_write_same_addr_p=1: Allows read and write to same address
+    // (write data is forwarded to read port on same cycle)
     bsg_mem_1r1w_sync #(
         .width_p(DATA_WIDTH),
-        .els_p(DEPTH)
+        .els_p(DEPTH),
+        .read_write_same_addr_p(1)  // Enable write-through to prevent X on hazard
     ) mem_inst (
         .clk_i   (clk),
         .reset_i (~rst_n),        // BSG uses active-high reset

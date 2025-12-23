@@ -75,8 +75,7 @@ module cgra_pe #(
     input  logic [63:0]         cfg_wr_data,    // Config to store
     input  logic                cfg_wr_en,      // Write enable
     
-    // Routing inputs (from N/E/S/W neighbors)
-    // Note: Only lower PAYLOAD_WIDTH bits used (sign-extended); upper bits unused (ASSIGN-10)
+    // Routing inputs (from N/E/S/W neighbors) - Full 32-bit data path
     input  logic [DATA_WIDTH-1:0] data_in_n,
     input  logic [DATA_WIDTH-1:0] data_in_e,
     input  logic [DATA_WIDTH-1:0] data_in_s,
@@ -129,11 +128,11 @@ module cgra_pe #(
     // =========================================================================
     // Uses cgra_config_mem_bsg wrapper around bsg_mem_1r1w_sync for ASIC synthesis
     // Note: BSG memory has 1-cycle read latency, rd_valid indicates data ready
+    // FIX: read_write_same_addr_p=1 prevents X on simultaneous read/write
     
     logic [63:0] config_ram_data;
     logic [63:0] active_config;
-    // Note: rd_valid not used as PE reads continuously; leave unconnected
-    logic        config_ram_valid_unused;  // Suppress ASSIGN-6 lint
+    logic        config_ram_valid;  // Not used but must be connected
     
     cgra_config_mem_bsg #(
         .DATA_WIDTH(64),
@@ -150,7 +149,7 @@ module cgra_pe #(
         .rd_addr (context_pc),
         .rd_en   (1'b1),              // Always read (PE needs config every cycle)
         .rd_data (config_ram_data),
-        .rd_valid(config_ram_valid_unused)
+        .rd_valid(config_ram_valid)   // 1-cycle delayed valid
     );
     
     // Select active config: use config_frame for slot 0 with config_valid, else use RAM
@@ -246,47 +245,42 @@ module cgra_pe #(
     // =========================================================================
     logic [DATA_WIDTH-1:0] operand0;
     logic [DATA_WIDTH-1:0] operand1;
-    logic [PAYLOAD_WIDTH-1:0] payload_n;
-    logic [PAYLOAD_WIDTH-1:0] payload_e;
-    logic [PAYLOAD_WIDTH-1:0] payload_s;
-    logic [PAYLOAD_WIDTH-1:0] payload_w;
-    logic [DATA_WIDTH-1:0] data_in_n_payload;
-    logic [DATA_WIDTH-1:0] data_in_e_payload;
-    logic [DATA_WIDTH-1:0] data_in_s_payload;
-    logic [DATA_WIDTH-1:0] data_in_w_payload;
+    
+    // =========================================================================
+    // FULL 32-BIT DATA PATH (FIX: Removed 16-bit payload bottleneck)
+    // =========================================================================
+    // Previously extracted only PAYLOAD_WIDTH (16) bits and sign-extended.
+    // Now using full DATA_WIDTH (32) for proper data flow between PEs.
+    logic [DATA_WIDTH-1:0] data_in_n_full;
+    logic [DATA_WIDTH-1:0] data_in_e_full;
+    logic [DATA_WIDTH-1:0] data_in_s_full;
+    logic [DATA_WIDTH-1:0] data_in_w_full;
 
-    always_comb begin
-        payload_n = data_in_n[PAYLOAD_WIDTH-1:0];
-        payload_e = data_in_e[PAYLOAD_WIDTH-1:0];
-        payload_s = data_in_s[PAYLOAD_WIDTH-1:0];
-        payload_w = data_in_w[PAYLOAD_WIDTH-1:0];
-
-        data_in_n_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_n[PAYLOAD_WIDTH-1]}}, payload_n};
-        data_in_e_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_e[PAYLOAD_WIDTH-1]}}, payload_e};
-        data_in_s_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_s[PAYLOAD_WIDTH-1]}}, payload_s};
-        data_in_w_payload = {{(DATA_WIDTH-PAYLOAD_WIDTH){payload_w[PAYLOAD_WIDTH-1]}}, payload_w};
-    end
+    assign data_in_n_full = data_in_n;  // Full 32-bit passthrough
+    assign data_in_e_full = data_in_e;
+    assign data_in_s_full = data_in_s;
+    assign data_in_w_full = data_in_w;
     
     always_comb begin
-        // src0 selection
+        // src0 selection (now uses full 32-bit data)
         unique case (src0_sel)
             4'd0:    operand0 = rf_rdata0;
-            4'd1:    operand0 = data_in_n_payload;
-            4'd2:    operand0 = data_in_e_payload;
-            4'd3:    operand0 = data_in_s_payload;
-            4'd4:    operand0 = data_in_w_payload;
+            4'd1:    operand0 = data_in_n_full;   // Full 32-bit from North
+            4'd2:    operand0 = data_in_e_full;   // Full 32-bit from East
+            4'd3:    operand0 = data_in_s_full;   // Full 32-bit from South
+            4'd4:    operand0 = data_in_w_full;   // Full 32-bit from West
             4'd5:    operand0 = spm_rdata;
             4'd6:    operand0 = immediate;
             default: operand0 = '0;
         endcase
         
-        // src1 selection
+        // src1 selection (now uses full 32-bit data)
         unique case (src1_sel)
             4'd0:    operand1 = rf_rdata1;
-            4'd1:    operand1 = data_in_n_payload;
-            4'd2:    operand1 = data_in_e_payload;
-            4'd3:    operand1 = data_in_s_payload;
-            4'd4:    operand1 = data_in_w_payload;
+            4'd1:    operand1 = data_in_n_full;   // Full 32-bit from North
+            4'd2:    operand1 = data_in_e_full;   // Full 32-bit from East
+            4'd3:    operand1 = data_in_s_full;   // Full 32-bit from South
+            4'd4:    operand1 = data_in_w_full;   // Full 32-bit from West
             4'd5:    operand1 = spm_rdata;
             4'd6:    operand1 = immediate;
             default: operand1 = '0;

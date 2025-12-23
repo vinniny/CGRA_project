@@ -1808,7 +1808,7 @@ endtask
 // SUITE Q: CONSTRAINED RANDOM STRESS (The "Monkey" Test)
 // =============================================================================
 // Goal: Test random A op B values against behavioral model
-// NOTE: PE uses PAYLOAD_WIDTH=16, so we test with 16-bit positive values
+// NOTE: PE now uses full 32-bit data path (16-bit payload limitation removed)
 task run_suite_Q_random;
     integer i, seed;
     logic [31:0] op_a, hw_res, model_res;
@@ -1823,7 +1823,7 @@ task run_suite_Q_random;
     begin
         $display("\n   SUITE Q1: RANDOMIZED ALU STRESS");
         $display("=================================");
-        $display("[INFO] Using 16-bit values (PE PAYLOAD_WIDTH=16)");
+        $display("[INFO] Using 16-bit positive values for quick tests");
         $display("[INFO] Running %0d random iterations", NUM_RANDOM);
         
         seed = 42;  // Reproducible random seed
@@ -1950,10 +1950,10 @@ task run_suite_Q2_shifts;
         end
         
         // Test SHR (Arithmetic) with all 32 shift amounts (0-31)
-        // Using 16-bit negative test pattern that fits PAYLOAD_WIDTH
+        // Using full 32-bit negative test pattern (FIX: removed 16-bit payload assumption)
         for (i = 0; i < 32; i++) begin
-            val = 32'h8001;      // 16-bit pattern: MSB set + LSB (signed: -32767)
-            val_signed = {{16{val[15]}}, val[15:0]};  // Sign-extend 16-bit to 32-bit
+            val = 32'hFFFF8001;  // Full 32-bit negative value (signed: -32767)
+            val_signed = val;    // Already 32-bit, no sign-extension needed
             shamt = i[4:0];
             opcode = 6'd9;       // SHR (Arithmetic)
             gold = val_signed >>> shamt;  // Arithmetic right shift
