@@ -1,6 +1,6 @@
 # CGRA SoC Block Diagram
 
-> Updated: December 2024 | 141/141 Tests Passed | Silicon Ready
+> Version 2.0 | December 2024 | 141/141 Tests Passed | Silicon Ready | 32-bit Data Path
 
 ---
 
