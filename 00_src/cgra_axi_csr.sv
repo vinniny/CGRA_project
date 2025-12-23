@@ -31,7 +31,7 @@ module cgra_apb_csr #(
     input  logic                  psel,
     input  logic                  penable,
     input  logic                  pwrite,
-    input  logic [ADDR_WIDTH-1:0] paddr,
+    input  logic [ADDR_WIDTH-1:0] paddr,        // Only [7:0] used for register decode (ASSIGN-10)
     input  logic [DATA_WIDTH-1:0] pwdata,
     output logic [DATA_WIDTH-1:0] prdata,
     output logic                  pready,

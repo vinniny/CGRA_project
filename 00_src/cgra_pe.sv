@@ -8,7 +8,7 @@
 //   - ALU/MAC with 40-bit accumulator
 //   - 16×32-bit Register File
 //   - 256×32-bit Scratchpad Memory (BRAM)
-//   - 16-slot Configuration RAM (multi-context)
+//   - 16-slot Configuration RAM (BSG memory wrapper)
 //   - 4-direction mesh broadcast output
 //   - LIF neuron for neuromorphic computing
 //
@@ -76,11 +76,12 @@ module cgra_pe #(
     input  logic                cfg_wr_en,      // Write enable
     
     // Routing inputs (from N/E/S/W neighbors)
+    // Note: Only lower PAYLOAD_WIDTH bits used (sign-extended); upper bits unused (ASSIGN-10)
     input  logic [DATA_WIDTH-1:0] data_in_n,
     input  logic [DATA_WIDTH-1:0] data_in_e,
     input  logic [DATA_WIDTH-1:0] data_in_s,
     input  logic [DATA_WIDTH-1:0] data_in_w,
-    input  logic                  valid_in_n,
+    input  logic                  valid_in_n,  // Unused: mesh always broadcasts (ASSIGN-10)
     input  logic                  valid_in_e,
     input  logic                  valid_in_s,
     input  logic                  valid_in_w,
@@ -124,21 +125,37 @@ module cgra_pe #(
     localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
 
     // =========================================================================
-    // Config RAM (The "Recipe Book" - 16 config slots)
+    // Config RAM (The "Recipe Book" - 16 config slots using BSG Memory)
     // =========================================================================
-    logic [63:0] config_ram [0:CONTEXT_DEPTH-1];
+    // Uses cgra_config_mem_bsg wrapper around bsg_mem_1r1w_sync for ASIC synthesis
+    // Note: BSG memory has 1-cycle read latency, rd_valid indicates data ready
+    
+    logic [63:0] config_ram_data;
     logic [63:0] active_config;
+    // Note: rd_valid not used as PE reads continuously; leave unconnected
+    logic        config_ram_valid_unused;  // Suppress ASSIGN-6 lint
     
-    // Config RAM write (from DMA/testbench)
-    always_ff @(posedge clk) begin
-        if (cfg_wr_en) begin
-            config_ram[cfg_wr_addr] <= cfg_wr_data;
-        end
-    end
+    cgra_config_mem_bsg #(
+        .DATA_WIDTH(64),
+        .DEPTH     (CONTEXT_DEPTH),
+        .ADDR_WIDTH(PC_WIDTH)
+    ) u_config_mem (
+        .clk     (clk),
+        .rst_n   (rst_n),
+        // Write port (from DMA/testbench)
+        .wr_addr (cfg_wr_addr),
+        .wr_data (cfg_wr_data),
+        .wr_en   (cfg_wr_en),
+        // Read port (indexed by context_pc)
+        .rd_addr (context_pc),
+        .rd_en   (1'b1),              // Always read (PE needs config every cycle)
+        .rd_data (config_ram_data),
+        .rd_valid(config_ram_valid_unused)
+    );
     
-    // Select active config: use config_ram[context_pc] if loaded, else use config_frame
-    // For backward compatibility: if context_pc is 0 and config_valid, use config_frame directly
-    assign active_config = (context_pc == '0 && config_valid) ? config_frame : config_ram[context_pc];
+    // Select active config: use config_frame for slot 0 with config_valid, else use RAM
+    // For backward compatibility: direct config_frame input bypasses RAM for slot 0
+    assign active_config = (context_pc == '0 && config_valid) ? config_frame : config_ram_data;
 
     // =========================================================================
     // Stall Logic

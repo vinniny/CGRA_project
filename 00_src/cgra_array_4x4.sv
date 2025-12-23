@@ -231,7 +231,8 @@ module cgra_array_4x4 #(
     logic [DATA_WIDTH-1:0] tile_03_e_data, tile_13_e_data, tile_23_e_data, tile_33_e_data;
     logic tile_03_e_valid, tile_13_e_valid, tile_23_e_valid, tile_33_e_valid;
     
-    // Edge ready signals (directly from tiles for boundary)
+    // Edge ready signals (outputs from boundary tiles - intentionally unused, ASSIGN-6)
+    // These are required by tile interface but have no external connection at array boundary
     logic tile_00_n_ready, tile_01_n_ready, tile_02_n_ready, tile_03_n_ready;
     logic tile_30_s_ready, tile_31_s_ready, tile_32_s_ready, tile_33_s_ready;
     logic tile_00_w_ready, tile_10_w_ready, tile_20_w_ready, tile_30_w_ready;

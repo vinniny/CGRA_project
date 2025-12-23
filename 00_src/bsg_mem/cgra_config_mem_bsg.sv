@@ -1,78 +1,75 @@
 `timescale 1ns/1ps
 
-// Ensure definitions are loaded. 
-// Ideally, compile bsg_defines.sv BEFORE this file, but this include is a safety net.
+// ==============================================================================
+// cgra_config_mem_bsg.sv - PE Configuration RAM using BSG Memory
+// ==============================================================================
+// Wraps bsg_mem_1r1w_sync to provide:
+//   - Write port: for DMA/testbench to load configuration
+//   - Read port: for PE to fetch active config by context_pc
+// 
+// Integration: Instantiated inside cgra_pe.sv to replace simple logic array
+// Memory: 16 slots × 64-bit = 128 bytes per PE (16KB total for 4x4 array)
+//
+// TIMING:
+//   - Write: Synchronous, 1-cycle latency
+//   - Read: Synchronous, 1-cycle latency (rd_valid delayed from rd_en)
+// ==============================================================================
+
 `include "bsg_defines.sv"
 
 module cgra_config_mem_bsg #(
     parameter DATA_WIDTH = 64,
-    parameter ADDR_WIDTH = 32, // Byte Address Width (e.g. 32-bit address space)
-    parameter DEPTH      = 1024
+    parameter DEPTH      = 16,     // Number of config slots (context depth)
+    parameter ADDR_WIDTH = 4       // $clog2(DEPTH)
 )(
-    input  wire                  clk,
-    input  wire                  rst_n,
+    input  wire                   clk,
+    input  wire                   rst_n,
 
     // --------------------------------------------------------
-    // Port A: Read Interface (Connect to CGRA DUT)
+    // Write Port (from DMA/Testbench)
     // --------------------------------------------------------
-    input  wire [ADDR_WIDTH-1:0] cfg_addr,
-    input  wire                  cfg_ren,
-    output wire [DATA_WIDTH-1:0] cfg_rdata,
-    output reg                   cfg_valid,
+    input  wire [ADDR_WIDTH-1:0]  wr_addr,    // Config slot to write
+    input  wire [DATA_WIDTH-1:0]  wr_data,    // 64-bit config frame
+    input  wire                   wr_en,      // Write enable
 
     // --------------------------------------------------------
-    // Port B: Write Interface (Connect to Testbench)
+    // Read Port (from PE - indexed by context_pc)
     // --------------------------------------------------------
-    input  wire                  tb_we,
-    input  wire [ADDR_WIDTH-1:0] tb_waddr,
-    input  wire [DATA_WIDTH-1:0] tb_wdata
+    input  wire [ADDR_WIDTH-1:0]  rd_addr,    // context_pc
+    input  wire                   rd_en,      // Read enable
+    output wire [DATA_WIDTH-1:0]  rd_data,    // Config data out
+    output logic                  rd_valid    // Data valid (1-cycle delayed)
 );
-
-    // ------------------------------------------------
-    // Address Calculation
-    // ------------------------------------------------
-    // Convert Byte Address (0, 8, 16...) to Word Index (0, 1, 2...)
-    // for 64-bit words (8 bytes), we shift right by 3 bits.
-    localparam IDX_WIDTH = $clog2(DEPTH);
-    
-    wire [IDX_WIDTH-1:0] read_idx;
-    wire [IDX_WIDTH-1:0] write_idx;
-
-    assign read_idx  = cfg_addr[2 + IDX_WIDTH : 3]; 
-    assign write_idx = tb_waddr[2 + IDX_WIDTH : 3];
 
     // ------------------------------------------------
     // Instantiate BaseJump STL Memory
     // ------------------------------------------------
-    // Note: BSG modules use specific suffixes like _i and _o
     bsg_mem_1r1w_sync #(
         .width_p(DATA_WIDTH),
         .els_p(DEPTH)
     ) mem_inst (
-        .clk_i(clk),
-        .reset_i(~rst_n), // BSG usually expects Active High reset
+        .clk_i   (clk),
+        .reset_i (~rst_n),        // BSG uses active-high reset
         
-        // Read Port (CGRA)
-        .r_v_i(cfg_ren),
-        .r_addr_i(read_idx),
-        .r_data_o(cfg_rdata),
+        // Read Port
+        .r_v_i   (rd_en),
+        .r_addr_i(rd_addr),
+        .r_data_o(rd_data),
         
-        // Write Port (Testbench)
-        .w_v_i(tb_we),
-        .w_addr_i(write_idx),
-        .w_data_i(tb_wdata)
+        // Write Port
+        .w_v_i   (wr_en),
+        .w_addr_i(wr_addr),
+        .w_data_i(wr_data)
     );
 
     // ------------------------------------------------
-    // Generate Valid Signal
+    // Read Valid Signal (1-cycle latency)
     // ------------------------------------------------
-    // bsg_mem_1r1w_sync is a synchronous RAM with 1-cycle read latency.
-    // So, if Read Enable (ren) is high at T0, Valid Data is ready at T1.
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            cfg_valid <= 1'b0;
+            rd_valid <= 1'b0;
         end else begin
-            cfg_valid <= cfg_ren;
+            rd_valid <= rd_en;
         end
     end
 

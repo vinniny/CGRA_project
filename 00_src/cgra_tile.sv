@@ -81,10 +81,12 @@ module cgra_tile #(
     // -------------------------------------------------------------------------
     // Router Instance
     // -------------------------------------------------------------------------
-    // FIX #4: Router outputs go to internal wires (unused for now)
-    // PE broadcast overrides tile output ports below
-    logic [DATA_WIDTH-1:0] router_out_n, router_out_e, router_out_s, router_out_w;
-    logic router_valid_n, router_valid_e, router_valid_s, router_valid_w;
+    // Router outputs are not used - PE broadcast overrides tile outputs (ASSIGN-6)
+    // These signals exist because the router module requires them connected
+    logic [DATA_WIDTH-1:0] router_out_n_unused, router_out_e_unused;
+    logic [DATA_WIDTH-1:0] router_out_s_unused, router_out_w_unused;
+    logic router_valid_n_unused, router_valid_e_unused;
+    logic router_valid_s_unused, router_valid_w_unused;
     
     cgra_router #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -99,29 +101,29 @@ module cgra_tile #(
         .data_in_n(data_in_n),
         .valid_in_n(valid_in_n),
         .ready_out_n(ready_out_n),
-        .data_out_n(router_out_n),       // FIX #4: to internal wire
-        .valid_out_n(router_valid_n),    // FIX #4: to internal wire
+        .data_out_n(router_out_n_unused),     // Unused: PE broadcast overrides
+        .valid_out_n(router_valid_n_unused),   // Unused: PE broadcast overrides
         .ready_in_n(ready_in_n),
 
         .data_in_e(data_in_e),
         .valid_in_e(valid_in_e),
         .ready_out_e(ready_out_e),
-        .data_out_e(router_out_e),       // FIX #4: to internal wire
-        .valid_out_e(router_valid_e),    // FIX #4: to internal wire
+        .data_out_e(router_out_e_unused),     // Unused: PE broadcast overrides
+        .valid_out_e(router_valid_e_unused),   // Unused: PE broadcast overrides
         .ready_in_e(ready_in_e),
 
         .data_in_s(data_in_s),
         .valid_in_s(valid_in_s),
         .ready_out_s(ready_out_s),
-        .data_out_s(router_out_s),       // FIX #4: to internal wire
-        .valid_out_s(router_valid_s),    // FIX #4: to internal wire
+        .data_out_s(router_out_s_unused),     // Unused: PE broadcast overrides
+        .valid_out_s(router_valid_s_unused),   // Unused: PE broadcast overrides
         .ready_in_s(ready_in_s),
 
         .data_in_w(data_in_w),
         .valid_in_w(valid_in_w),
         .ready_out_w(ready_out_w),
-        .data_out_w(router_out_w),       // FIX #4: to internal wire
-        .valid_out_w(router_valid_w),    // FIX #4: to internal wire
+        .data_out_w(router_out_w_unused),     // Unused: PE broadcast overrides
+        .valid_out_w(router_valid_w_unused),   // Unused: PE broadcast overrides
         .ready_in_w(ready_in_w),
 
         .data_in_local(pe_to_router_data),

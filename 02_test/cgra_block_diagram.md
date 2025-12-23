@@ -170,7 +170,7 @@ flowchart TB
         
         subgraph ALU["ALU/MAC"]
             direction LR
-            OPS["ADD SUB MUL MAC<br/>AND OR XOR<br/>SHL SHR (0-31) ✨<br/>CMP_GT CMP_LT CMP_EQ<br/>LOAD/STORE SPM<br/>ACC_CLR PASS0 PASS1<br/>LIF (neuromorphic)"]
+            OPS["ADD SUB MUL MAC<br/>AND OR XOR<br/>SHL SHR (0-31)<br/>CMP_GT CMP_LT CMP_EQ<br/>LOAD/STORE SPM<br/>ACC_CLR PASS0 PASS1<br/>LIF (neuromorphic)"]
             ACC["Accumulator<br/>40-bit"]
         end
         
