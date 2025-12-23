@@ -501,18 +501,6 @@ static inline uint32_t cgra_get_cycles(void) {
 
 ---
 
-## Revision History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 2.0.0 | Dec 2024 | 32-bit data path fix, BSG memory integration |
-| 1.5.0 | Dec 2024 | Barrel shifter fix (0-31 range) |
-| 1.4.0 | Dec 2024 | 141 tests, Q2 suite added |
-| 1.3.0 | Dec 2024 | Programmable timeout register |
-| 1.0.0 | Nov 2024 | Initial release |
-
----
-
 ## License
 
 Copyright © 2024. All rights reserved.
