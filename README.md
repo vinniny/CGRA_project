@@ -4,7 +4,7 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.0.0 | December 2024*
+*Version 2.1.0 | December 2024*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
 [![Tests](https://img.shields.io/badge/Tests-141%2F141-brightgreen)]()
