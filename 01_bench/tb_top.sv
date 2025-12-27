@@ -296,6 +296,9 @@ module tb_top;
                 target_addr = axi_waddr_latch;  // Different cycle: use latched value
             end
             
+            // Debug display removed - uncomment for debugging:
+            // $display("[TB_WR] Addr=%h Data=%h Strobe=%b", target_addr, axi_wdata, axi_wstrb);
+            
             // Byte-enable writes (strobe support)
             if (axi_wstrb[0]) mem[target_addr[16:0] + 0] <= axi_wdata[7:0];
             if (axi_wstrb[1]) mem[target_addr[16:0] + 1] <= axi_wdata[15:8];
@@ -371,6 +374,8 @@ module tb_top;
         run_suite_W_dma_hang();       // DMA Hang Diagnosis (5 vectors)
         run_suite_X_advanced();       // Advanced Diagnostics (4 vectors)
         run_suite_Y_irq();            // IRQ Verification (6 vectors)
+        run_suite_Z_burst_regression(); // Burst Mode Regression (6 vectors)
+        run_suite_AA_robustness();    // Metastability & Robustness (3 vectors)
 
         // === FINAL REPORT ===
         $display("\n================================================================");

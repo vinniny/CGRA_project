@@ -3124,7 +3124,384 @@ task run_suite_Y_irq;
 endtask
 
 // =========================================================================
+// SUITE Z: BURST MODE REGRESSION (6 Vectors)
+// =========================================================================
+// Goal: Verify that the "Bugs of the Past" (H06, X01, W01) are dead.
+// These tests specifically target the burst mode edge cases that were
+// discovered during the AXI4 Full upgrade.
+//
+// Test Cases:
+//   Z01: Min Transfer 1 Byte (H06 regression) - Round-up to 1 word
+//   Z02: Min Transfer 3 Bytes - Edge case for round-up
+//   Z03: 4KB Boundary Split (X01 regression) - Burst must split at boundary
+//   Z04: 4KB Exact Alignment - Start exactly on 4KB boundary
+//   Z05: Tile Memory Sustained (W01 regression) - FIFO empty mid-transfer
+//   Z06: Max Burst (16 words) + Boundary - Combined stress
+
+task run_suite_Z_burst_regression;
+    logic [31:0] rdata, dma_status;
+    logic data_ok;
+    integer timeout_cnt;
+    integer i;  // Loop variable for Icarus compatibility
+    
+    begin
+        $display("\n   SUITE Z: BURST MODE REGRESSION (Bugs of the Past)");
+        $display("   Target: H06 (Min Transfer), X01 (4KB Boundary), W01 (Tile Timeout)\n");
+        
+        // =====================================================================
+        // Z01: Min Transfer 1 Byte (H06 Regression)
+        // =====================================================================
+        // Bug: (cfg_size >> 2) = 0 for 1-byte transfer, causing no data copy
+        // Fix: (cfg_size + 3) / 4 = 1 word
+        $display("[Z01] Testing 1-byte min transfer (H06 fix)...");
+        ram_write(32'h1200, 32'hDEADBEEF);  // Source data
+        
+        apb_write(ADDR_DMA_SRC, 32'h1200);
+        apb_write(ADDR_DMA_DST, 32'h6000);
+        apb_write(ADDR_DMA_SIZE, 32'd1);  // 1 byte only
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        wait_dma_done(500);
+        
+        // Verify at least the first byte was copied
+        rdata = ram_read(32'h6000);
+        if (rdata[7:0] == 8'hEF) begin
+            pass("Z01: 1-Byte Min Transfer OK");
+        end else begin
+            fail("Z01: 1-Byte Min Transfer", $sformatf("Expected byte 0xEF, got 0x%02h", rdata[7:0]));
+        end
+        
+        // =====================================================================
+        // Z02: Min Transfer 3 Bytes (Round-up Edge Case)
+        // =====================================================================
+        // Verify 3 bytes correctly rounds up to 1 word transfer
+        $display("[Z02] Testing 3-byte transfer (round-up edge case)...");
+        ram_write(32'h1300, 32'hCAFE1234);
+        
+        apb_write(ADDR_DMA_SRC, 32'h1300);
+        apb_write(ADDR_DMA_DST, 32'h6100);
+        apb_write(ADDR_DMA_SIZE, 32'd3);  // 3 bytes
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        wait_dma_done(500);
+        
+        rdata = ram_read(32'h6100);
+        // Check first 3 bytes (last byte may or may not be written)
+        if (rdata[23:0] == 24'hFE1234) begin
+            pass("Z02: 3-Byte Round-up OK");
+        end else begin
+            fail("Z02: 3-Byte Round-up", $sformatf("Expected 0xFE1234, got 0x%06h", rdata[23:0]));
+        end
+        
+        // =====================================================================
+        // Z03: 4KB Boundary Split (X01 Regression)
+        // =====================================================================
+        // Bug: Burst crossing 4KB boundary causes AXI hang/DECERR
+        // Fix: Clamp burst to words_to_boundary
+        // Setup: Start at 0x0FF0 (16 bytes before boundary), transfer 32 bytes
+        // Expected: Burst 1 = 4 words (0xFF0-0xFFC), Burst 2 = 4 words (0x1000-0x100C)
+        $display("[Z03] Testing 4KB boundary crossing (X01 fix)...");
+        
+        // Write source data across boundary
+        ram_write(32'h0FF0, 32'h11111111);
+        ram_write(32'h0FF4, 32'h22222222);
+        ram_write(32'h0FF8, 32'h33333333);
+        ram_write(32'h0FFC, 32'h44444444);
+        ram_write(32'h1000, 32'h55555555);
+        ram_write(32'h1004, 32'h66666666);
+        ram_write(32'h1008, 32'h77777777);
+        ram_write(32'h100C, 32'h88888888);
+        
+        apb_write(ADDR_DMA_SRC, 32'h0FF0);
+        apb_write(ADDR_DMA_DST, 32'h7000);
+        apb_write(ADDR_DMA_SIZE, 32'd32);  // 32 bytes = 8 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        wait_dma_done(1000);
+        
+        // Verify all 8 words transferred correctly
+        data_ok = 1;
+        if (ram_read(32'h7000) != 32'h11111111) data_ok = 0;
+        if (ram_read(32'h7004) != 32'h22222222) data_ok = 0;
+        if (ram_read(32'h7008) != 32'h33333333) data_ok = 0;
+        if (ram_read(32'h700C) != 32'h44444444) data_ok = 0;
+        if (ram_read(32'h7010) != 32'h55555555) data_ok = 0;
+        if (ram_read(32'h7014) != 32'h66666666) data_ok = 0;
+        if (ram_read(32'h7018) != 32'h77777777) data_ok = 0;
+        if (ram_read(32'h701C) != 32'h88888888) data_ok = 0;
+        
+        if (data_ok) begin
+            pass("Z03: 4KB Boundary Split OK");
+        end else begin
+            fail("Z03: 4KB Boundary Split", "Data mismatch across boundary");
+        end
+        
+        // =====================================================================
+        // Z04: 4KB Exact Alignment (Edge Case)
+        // =====================================================================
+        // Start exactly on 4KB boundary - should use full burst length
+        $display("[Z04] Testing 4KB exact alignment...");
+        
+        ram_write(32'h1000, 32'hAAAAAAAA);
+        ram_write(32'h1004, 32'hBBBBBBBB);
+        ram_write(32'h1008, 32'hCCCCCCCC);
+        ram_write(32'h100C, 32'hDDDDDDDD);
+        
+        apb_write(ADDR_DMA_SRC, 32'h1000);  // Exactly on 4KB boundary
+        apb_write(ADDR_DMA_DST, 32'h8000);
+        apb_write(ADDR_DMA_SIZE, 32'd16);  // 4 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        wait_dma_done(500);
+        
+        data_ok = 1;
+        if (ram_read(32'h8000) != 32'hAAAAAAAA) data_ok = 0;
+        if (ram_read(32'h8004) != 32'hBBBBBBBB) data_ok = 0;
+        if (ram_read(32'h8008) != 32'hCCCCCCCC) data_ok = 0;
+        if (ram_read(32'h800C) != 32'hDDDDDDDD) data_ok = 0;
+        
+        if (data_ok) begin
+            pass("Z04: 4KB Exact Alignment OK");
+        end else begin
+            fail("Z04: 4KB Exact Alignment", "Data mismatch");
+        end
+        
+        // =====================================================================
+        // Z05: Tile Memory Sustained Transfer (W01 Regression)
+        // =====================================================================
+        // Bug: Write FSM quits when FIFO becomes empty mid-transfer
+        // Fix: Wait for write_words_remaining == 0, not fifo_empty
+        $display("[Z05] Testing tile memory sustained transfer (W01 fix)...");
+        
+        // Initialize source data for tile transfer
+        ram_write(32'h2000, 32'hF0000001);
+        ram_write(32'h2004, 32'hF0000002);
+        ram_write(32'h2008, 32'hF0000003);
+        ram_write(32'h200C, 32'hF0000004);
+        
+        apb_write(ADDR_DMA_SRC, 32'h2000);
+        apb_write(ADDR_DMA_DST, 32'h1000_0000);  // Tile memory (local path)
+        apb_write(ADDR_DMA_SIZE, 32'd16);  // 4 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Wait with generous timeout for tile memory path
+        timeout_cnt = 0;
+        do begin
+            #100;
+            apb_read(ADDR_DMA_STATUS, dma_status);
+            timeout_cnt = timeout_cnt + 1;
+        end while ((dma_status & 32'h1) && timeout_cnt < 500);
+        
+        if (timeout_cnt >= 500) begin
+            fail("Z05: Tile Memory Sustained", "DMA timeout - W01 bug may still exist");
+        end else begin
+            pass("Z05: Tile Memory Sustained OK");
+        end
+        
+        // =====================================================================
+        // Z06: Max Burst + Boundary Combined Stress
+        // =====================================================================
+        // Test 64 bytes (16 words = FIFO depth) starting near boundary
+        // This exercises max burst clamping AND boundary protection together
+        $display("[Z06] Testing max burst + boundary combined stress...");
+        
+        // Source: 16 words starting at 0x0FC0 (crossing 0x1000 boundary)
+        for (i = 0; i < 16; i = i + 1) begin
+            ram_write(32'h0FC0 + i*4, 32'h10000000 + i);
+        end
+        
+        apb_write(ADDR_DMA_SRC, 32'h0FC0);  // 64 bytes before boundary
+        apb_write(ADDR_DMA_DST, 32'h9000);
+        apb_write(ADDR_DMA_SIZE, 32'd64);  // 64 bytes = 16 words (max burst)
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        wait_dma_done(1500);
+        
+        // Verify all 16 words
+        data_ok = 1;
+        for (i = 0; i < 16; i = i + 1) begin
+            if (ram_read(32'h9000 + i*4) != (32'h10000000 + i)) begin
+                data_ok = 0;
+            end
+        end
+        
+        if (data_ok) begin
+            pass("Z06: Max Burst + Boundary OK");
+        end else begin
+            fail("Z06: Max Burst + Boundary", "Data mismatch in multi-chunk transfer");
+        end
+        
+        $display("\n[SUITE Z COMPLETE] Burst mode regression finished.\n");
+    end
+endtask
+// =========================================================================
+// SUITE AA: METASTABILITY & ROBUSTNESS (3 Vectors)
+// =========================================================================
+// Goal: Simulate metastability EFFECTS and race conditions that cause 
+// failures after hours of operation on real hardware.
+//
+// Test Cases:
+//   AA01: Reset Attack - Mid-transfer hard reset recovery
+//   AA02: Jitter Stress - Random READY backpressure
+//   AA03: Data Integrity - Verify no X corruption under stress
+
+task run_suite_AA_robustness;
+    logic [31:0] rdata, dma_status;
+    integer timeout_cnt;
+    integer i;
+    logic data_ok;
+    
+    begin
+        $display("\n   SUITE AA: METASTABILITY & ROBUSTNESS");
+        $display("   Target: Reset Recovery, Protocol Jitter, Data Integrity\n");
+        
+        // =====================================================================
+        // AA01: Reset Attack (Mid-Flight Recovery)
+        // =====================================================================
+        // Bug: FSM stuck in "ghost state" after async reset during transfer
+        // Test: Assert reset mid-transfer, verify clean recovery
+        $display("[AA01] Testing mid-transfer reset attack...");
+        
+        // Setup large transfer
+        for (i = 0; i < 16; i = i + 1) begin
+            ram_write(32'h4000 + i*4, 32'hAA000000 + i);
+        end
+        
+        apb_write(ADDR_DMA_SRC, 32'h4000);
+        apb_write(ADDR_DMA_DST, 32'hA000);
+        apb_write(ADDR_DMA_SIZE, 32'd64);  // 16 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Wait for transfer to start
+        timeout_cnt = 0;
+        do begin
+            #10;
+            apb_read(ADDR_DMA_STATUS, dma_status);
+            timeout_cnt = timeout_cnt + 1;
+        end while (!(dma_status & 32'h1) && timeout_cnt < 100);
+        
+        // Let it pump some data
+        repeat(20) @(posedge clk);
+        
+        // ATTACK: Assert reset asynchronously!
+        rst_n = 0;
+        #35;  // Hold for "rude" amount (3.5 cycles at 100MHz)
+        rst_n = 1;
+        
+        // Wait for reset to settle
+        repeat(5) @(posedge clk);
+        
+        // CHECK: DMA must be clean after reset
+        apb_read(ADDR_DMA_STATUS, dma_status);
+        if ((dma_status & 32'h1) == 0) begin  // Not busy
+            // RECOVERY: Run a new transfer to verify FSM is functional
+            ram_write(32'h5000, 32'hDEAD_BEEF);
+            apb_write(ADDR_DMA_SRC, 32'h5000);
+            apb_write(ADDR_DMA_DST, 32'hB000);
+            apb_write(ADDR_DMA_SIZE, 32'd4);
+            apb_write(ADDR_DMA_CTRL, 32'h1);
+            wait_dma_done(500);
+            
+            rdata = ram_read(32'hB000);
+            if (rdata == 32'hDEAD_BEEF) begin
+                pass("AA01: Reset Attack Recovery OK");
+            end else begin
+                fail("AA01: Reset Attack", "Recovery transfer failed - FSM corrupted");
+            end
+        end else begin
+            fail("AA01: Reset Attack", "DMA stuck busy after reset");
+        end
+        
+        // =====================================================================
+        // AA02: Jitter Stress (Protocol Backpressure)
+        // =====================================================================
+        // Bug: Logic that assumes "perfect timing" (no backpressure)
+        // Test: Enable random READY stalls, verify transfer completes
+        $display("[AA02] Testing protocol jitter stress...");
+        
+        // Enable stress mode in AXI model
+        stress_enable = 1;
+        stress_probability = 30;  // 30% chance of stall per cycle
+        
+        // Setup moderately large transfer
+        for (i = 0; i < 32; i = i + 1) begin
+            ram_write(32'h6000 + i*4, 32'hBB000000 + i);
+        end
+        
+        apb_write(ADDR_DMA_SRC, 32'h6000);
+        apb_write(ADDR_DMA_DST, 32'hC000);
+        apb_write(ADDR_DMA_SIZE, 32'd128);  // 32 words
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Wait with generous timeout (jitter slows things down)
+        timeout_cnt = 0;
+        do begin
+            #100;
+            apb_read(ADDR_DMA_STATUS, dma_status);
+            timeout_cnt = timeout_cnt + 1;
+        end while ((dma_status & 32'h1) && timeout_cnt < 2000);
+        
+        stress_enable = 0;  // Disable stress mode
+        
+        if (timeout_cnt >= 2000) begin
+            fail("AA02: Jitter Stress", "DMA deadlock under backpressure");
+        end else begin
+            // Verify data integrity
+            data_ok = 1;
+            for (i = 0; i < 32; i = i + 1) begin
+                if (ram_read(32'hC000 + i*4) != (32'hBB000000 + i)) begin
+                    data_ok = 0;
+                end
+            end
+            
+            if (data_ok) begin
+                pass("AA02: Jitter Stress Survived OK");
+            end else begin
+                fail("AA02: Jitter Stress", "Data corruption under backpressure");
+            end
+        end
+        
+        // =====================================================================
+        // AA03: Data Integrity Under Repeated Transfers
+        // =====================================================================
+        // Bug: Subtle timing issues that only appear after many transfers
+        // Test: Run multiple back-to-back transfers, verify all data
+        $display("[AA03] Testing repeated transfer integrity...");
+        
+        data_ok = 1;
+        for (i = 0; i < 5; i = i + 1) begin
+            // Write unique pattern for this iteration
+            ram_write(32'h7000, 32'hCC000000 + i);
+            ram_write(32'h7004, 32'hCC000100 + i);
+            ram_write(32'h7008, 32'hCC000200 + i);
+            ram_write(32'h700C, 32'hCC000300 + i);
+            
+            apb_write(ADDR_DMA_SRC, 32'h7000);
+            apb_write(ADDR_DMA_DST, 32'hD000 + i*16);
+            apb_write(ADDR_DMA_SIZE, 32'd16);
+            apb_write(ADDR_DMA_CTRL, 32'h1);
+            
+            wait_dma_done(500);
+            
+            // Verify this iteration
+            if (ram_read(32'hD000 + i*16) != (32'hCC000000 + i)) data_ok = 0;
+            if (ram_read(32'hD004 + i*16) != (32'hCC000100 + i)) data_ok = 0;
+            if (ram_read(32'hD008 + i*16) != (32'hCC000200 + i)) data_ok = 0;
+            if (ram_read(32'hD00C + i*16) != (32'hCC000300 + i)) data_ok = 0;
+        end
+        
+        if (data_ok) begin
+            pass("AA03: Repeated Transfer Integrity OK");
+        end else begin
+            fail("AA03: Repeated Transfer", "Data corruption after multiple transfers");
+        end
+        
+        $display("\n[SUITE AA COMPLETE] Metastability & robustness tests finished.\n");
+    end
+endtask
+
+// =========================================================================
 // WRAPPER TO RUN ALL SUITES
 // =========================================================================
-// Suite ordering: A-Y
+// Suite ordering: A-Z, AA
 

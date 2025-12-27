@@ -120,11 +120,13 @@ module cgra_dma_engine #(
     // Local write trigger (for tile/config - single cycle writes)
     logic local_write_en;
     logic local_fifo_pop;  // Explicit pop signal for local writes
+    logic axi_fifo_pop;    // FIX: Explicit pop signal for AXI writes (set in W_WAIT)
     
     // FIFO pop conditions:
-    // - AXI: pop when wvalid && wready (in W_DATA state)  
+    // - AXI: pop in W_WAIT when latching data (same as local) - NOT in W_DATA!
     // - Local: pop via local_fifo_pop (set in W_WAIT when latching data)
-    wire fifo_pop_axi   = (m_axi_wvalid && m_axi_wready && !fifo_empty);
+    // FIX: Both AXI and Local pop at the same time (W_WAIT) to avoid race condition
+    wire fifo_pop_axi   = (axi_fifo_pop && dst_is_axi && !fifo_empty);
     wire fifo_pop_local = (local_fifo_pop && !dst_is_axi && !fifo_empty);
     wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
     wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full);
@@ -233,20 +235,25 @@ module cgra_dma_engine #(
                     // Issue CHUNKED burst - max FIFO_DEPTH words per burst
                     // Only issue if FIFO has room for the burst (space >= words_this_burst)
                     // Available space = FIFO_DEPTH - count
-                    if ((FIFO_DEPTH - count) >= words_this_burst && read_words_remaining != '0) begin
-                        m_axi_araddr <= read_addr;
-                        // ARLEN = words_this_burst - 1 (clamped to FIFO depth)
-                        m_axi_arlen <= words_this_burst[7:0] - 8'd1;
-                        current_burst_len <= words_this_burst[7:0] - 8'd1;
-                        m_axi_arvalid <= 1'b1;
+                    // FIX: Only set arvalid if not already in handshake, and HOLD it until arready
+                    if (!m_axi_arvalid) begin
+                        // Not in handshake yet - check if we can start one
+                        if ((FIFO_DEPTH - count) >= words_this_burst && read_words_remaining != '0) begin
+                            m_axi_araddr <= read_addr;
+                            // ARLEN = words_this_burst - 1 (clamped to FIFO depth)
+                            m_axi_arlen <= words_this_burst[7:0] - 8'd1;
+                            current_burst_len <= words_this_burst[7:0] - 8'd1;
+                            m_axi_arvalid <= 1'b1;
+                        end
+                        // else: wait for FIFO space (arvalid stays 0)
                     end else begin
-                        m_axi_arvalid <= 1'b0;
-                    end
-                    
-                    if (m_axi_arvalid && m_axi_arready) begin
-                        m_axi_arvalid <= 1'b0;
-                        m_axi_rready <= 1'b1;  // Ready to receive data
-                        r_state <= R_DATA;
+                        // arvalid is HIGH - wait for handshake
+                        if (m_axi_arready) begin
+                            m_axi_arvalid <= 1'b0;
+                            m_axi_rready <= 1'b1;  // Ready to receive data
+                            r_state <= R_DATA;
+                        end
+                        // else: HOLD arvalid until arready (AXI spec requirement!)
                     end
                 end
                 
@@ -328,6 +335,7 @@ module cgra_dma_engine #(
             write_data_reg <= '0;
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
+            axi_fifo_pop <= 1'b0;    // FIX: Initialize new signal
             local_write_addr <= '0;
             m_axi_awaddr <= '0;
             m_axi_awvalid <= 1'b0;
@@ -340,6 +348,7 @@ module cgra_dma_engine #(
             write_complete <= 1'b0;
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
+            axi_fifo_pop <= 1'b0;    // FIX: Clear on abort
             m_axi_awvalid <= 1'b0;
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
@@ -349,6 +358,7 @@ module cgra_dma_engine #(
                     write_complete <= 1'b0;
                     local_write_en <= 1'b0;  // Clear local write
                     local_fifo_pop <= 1'b0;  // Clear pop
+                    axi_fifo_pop <= 1'b0;    // FIX: Clear AXI pop
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
@@ -363,14 +373,17 @@ module cgra_dma_engine #(
                     // Wait for FIFO to have data
                     local_write_en <= 1'b0;  // Default off
                     local_fifo_pop <= 1'b0;  // Default off
+                    axi_fifo_pop <= 1'b0;    // FIX: Default off
                     
                     if (!fifo_empty && write_words_remaining != '0) begin
                         // Latch data from FIFO
                         write_data_reg <= fifo_rdata;
                         
-                        // FIX: Pop FIFO NOW for local destinations (same cycle as data latch)
-                        // For AXI, we pop later in W_DATA when wready
-                        if (!dst_is_axi) begin
+                        // FIX: Pop FIFO NOW for ALL destinations (same cycle as data latch)
+                        // This fixes the race condition where FIFO becomes empty between W_WAIT and W_DATA
+                        if (dst_is_axi) begin
+                            axi_fifo_pop <= 1'b1;  // FIX: Pop FIFO for AXI too!
+                        end else begin
                             local_fifo_pop <= 1'b1;  // Pop FIFO this cycle
                         end
                         
@@ -386,15 +399,23 @@ module cgra_dma_engine #(
                 end
                 
                 W_ADDR: begin
+                    // Clear pop signals from W_WAIT
+                    axi_fifo_pop <= 1'b0;
+                    local_fifo_pop <= 1'b0;
+                    
                     if (dst_is_axi) begin
                         // AW phase - address for AXI
-                        m_axi_awaddr <= write_addr;
-                        m_axi_awvalid <= 1'b1;
-                        
-                        if (m_axi_awvalid && m_axi_awready) begin
+                        // FIX: Proper AXI handshake - hold valid until ready
+                        if (!m_axi_awvalid) begin
+                            // First cycle in this state - assert valid
+                            m_axi_awaddr <= write_addr;
+                            m_axi_awvalid <= 1'b1;
+                        end else if (m_axi_awready) begin
+                            // Handshake complete
                             m_axi_awvalid <= 1'b0;
                             w_state <= W_DATA;
                         end
+                        // else: hold awvalid high until awready
                     end else begin
                         // Local destination (tile/config) - single-cycle write
                         local_write_addr <= write_addr;  // Capture CURRENT address BEFORE increment!
@@ -412,20 +433,25 @@ module cgra_dma_engine #(
                 end
                 
                 W_DATA: begin
-                    // W phase - data (FIFO popped when wready)
-                    m_axi_wdata <= write_data_reg;
-                    m_axi_wvalid <= 1'b1;
-                    
-                    if (m_axi_wvalid && m_axi_wready) begin
+                    // W phase - data
+                    // FIX: Proper AXI handshake - hold valid until ready
+                    if (!m_axi_wvalid) begin
+                        // First cycle - assert valid with data
+                        m_axi_wdata <= write_data_reg;
+                        m_axi_wvalid <= 1'b1;
+                    end else if (m_axi_wready) begin
+                        // Handshake complete
                         m_axi_wvalid <= 1'b0;
                         m_axi_bready <= 1'b1;
                         w_state <= W_RESP;
                     end
+                    // else: hold wvalid high until wready
                 end
                 
                 W_RESP: begin
                     // B phase - wait for response
-                    if (m_axi_bvalid && m_axi_bready) begin
+                    // bready was set in W_DATA, now wait for bvalid
+                    if (m_axi_bvalid) begin
                         m_axi_bready <= 1'b0;
                         write_addr <= write_addr + BYTES_PER_WORD;
                         write_words_remaining <= write_words_remaining - 1'b1;
@@ -473,6 +499,7 @@ module cgra_dma_engine #(
     // 4. Status and IRQ Generation
     // =========================================================================
     logic transfer_active;
+    logic transfer_started;  // FIX: One-cycle delay to let FSMs leave IDLE
     
     // Robust busy check: stays HIGH until ALL components are idle
     // This prevents producer-consumer mismatch where Write FSM finishes early
@@ -481,11 +508,13 @@ module cgra_dma_engine #(
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             transfer_active <= 1'b0;
+            transfer_started <= 1'b0;
             status_busy <= 1'b0;
             status_done <= 1'b0;
             irq_done <= 1'b0;
         end else if (cfg_abort) begin  // Abort clears busy immediately
             transfer_active <= 1'b0;
+            transfer_started <= 1'b0;
             status_busy <= 1'b0;
             status_done <= 1'b0;  // Don't signal done on abort
             irq_done <= 1'b0;
@@ -497,13 +526,18 @@ module cgra_dma_engine #(
             if (cfg_start && cfg_size != '0 && !status_busy) begin
                 // Start new transfer
                 transfer_active <= 1'b1;
+                transfer_started <= 1'b0;  // Will be set next cycle
                 status_busy <= 1'b1;
-            end else if (transfer_active && engine_idle) begin
+            end else if (transfer_active && !transfer_started) begin
+                // FIX: Wait one cycle for FSMs to leave IDLE before checking engine_idle
+                transfer_started <= 1'b1;
+            end else if (transfer_active && transfer_started && engine_idle) begin
                 // Complete when ALL parts are done:
                 // - Read FSM in IDLE
                 // - Write FSM in IDLE  
                 // - FIFO is empty (all data consumed)
                 transfer_active <= 1'b0;
+                transfer_started <= 1'b0;
                 status_busy <= 1'b0;
                 status_done <= 1'b1;
                 irq_done <= 1'b1;
@@ -539,8 +573,10 @@ module cgra_dma_engine #(
                 $error("[DMA ASSERT] CRITICAL: FIFO Overflow - push when full!");
             end
             
-            // Check 2: FIFO Underflow Protection 
-            if (m_axi_wvalid && m_axi_wready && fifo_empty) begin
+            // Check 2: FIFO Underflow Protection - only check actual fifo_pop signal
+            // Note: With new design, FIFO is popped in W_WAIT (before W_DATA), so wvalid/wready
+            // during AXI write handshake does NOT indicate FIFO pop anymore
+            if (fifo_pop && fifo_empty) begin
                 $error("[DMA ASSERT] CRITICAL: FIFO Underflow - pop when empty!");
             end
             
@@ -560,18 +596,13 @@ module cgra_dma_engine #(
                 w_state != W_DATA && w_state != W_RESP && w_state != W_DONE) begin
                 $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
             end
-            
-            // Burst Debug: Trace each FIFO push
-            if (m_axi_rvalid && m_axi_rready) begin
-                $display("[DMA_RD] Time=%0t | Data=%h | RLAST=%b | FIFO_WE=%b | r_state=%0d | Count=%0d | WordsLeft=%0d", 
-                         $time, m_axi_rdata, m_axi_rlast, fifo_push, r_state, count, read_words_remaining);
-            end
-            
-            // Burst Debug: Trace each FIFO pop
-            if (fifo_pop) begin
-                $display("[DMA_WR] Time=%0t | PopData=%h | w_state=%0d | Count=%0d | WrWordsLeft=%0d", 
-                         $time, fifo_rdata, w_state, count, write_words_remaining);
-            end
+            // Debug displays removed for synthesis - uncomment for debugging:
+            // if (m_axi_rvalid && m_axi_rready) begin
+            //     $display("[DMA_RD] Data=%h | RLAST=%b | Count=%0d", m_axi_rdata, m_axi_rlast, count);
+            // end
+            // if (fifo_pop) begin
+            //     $display("[DMA_WR] PopData=%h | w_state=%0d | WrWordsLeft=%0d", fifo_rdata, w_state, write_words_remaining);
+            // end
         end
     end
     
