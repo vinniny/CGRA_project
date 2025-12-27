@@ -189,7 +189,7 @@ module cgra_dma_engine #(
     assign m_axi_arburst = 2'b01;   // INCR burst type
     
     // Chunked Burst Calculation with 4KB Boundary Protection
-    // FIFO_DEPTH = 16, so max burst = 16 words, ARLEN = 15
+    // Max burst = FIFO_DEPTH words (default 8), so max ARLEN = 7
     localparam MAX_BURST_WORDS = FIFO_DEPTH;
     
     // AXI 4KB Boundary Protection - bursts cannot cross 4KB page boundaries

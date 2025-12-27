@@ -59,7 +59,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 | PE Scratchpad | 256 entries | 32-bit | SRAM |
 | PE Config RAM | 16 entries | 64-bit | BSG SRAM |
 | Tile Memory | 4 × 1024 entries | 32-bit | SRAM |
-| DMA FIFO | 16 entries | 32-bit | Flip-flop |
+| DMA FIFO | 8 entries | 32-bit | Flip-flop |
 
 ### Interface Specifications
 
@@ -140,8 +140,8 @@ make clean
     ┌─────────┐         │  ┌────────────────┴─────────────────────┐  │
     │ External│◄────────┼──┤         Pipelined DMA Engine         │  │
     │   RAM   │  AXI4   │  │  • Read/Write state machines         │  │
-    └─────────┘ (Burst) │  │  • 16-entry async FIFO               │  │
-                        │  │  • AXI4 burst (up to 16 beats/req)   │  │
+    └─────────┘ (Burst) │  │  • 8-entry async FIFO                │  │
+                        │  │  • AXI4 burst (up to 8 beats/req)    │  │
                         │  │  • 4KB boundary protection           │  │
                         │  └────────────────┬─────────────────────┘  │
                         │                   │                         │
