@@ -45,6 +45,13 @@ module tb_top;
     wire [3:0]  axi_wstrb;
     wire        axi_bvalid, axi_bready;
     reg         axi_bvalid_reg;
+    
+    // AXI4 Burst Signals
+    wire [7:0]  axi_awlen, axi_arlen;
+    wire [2:0]  axi_awsize, axi_arsize;
+    wire [1:0]  axi_awburst, axi_arburst;
+    wire        axi_wlast;
+    reg         axi_rlast_reg;
 
     wire        irq_done;
 
@@ -95,19 +102,28 @@ module tb_top;
         .prdata(prdata),
         .pready(pready),
         .pslverr(pslverr),
+        // AXI4 Master (with Burst Support)
         .m_axi_awaddr(axi_awaddr),
+        .m_axi_awlen(axi_awlen),
+        .m_axi_awsize(axi_awsize),
+        .m_axi_awburst(axi_awburst),
         .m_axi_awvalid(axi_awvalid),
         .m_axi_awready(axi_awready),
         .m_axi_wdata(axi_wdata),
         .m_axi_wstrb(axi_wstrb),
+        .m_axi_wlast(axi_wlast),
         .m_axi_wvalid(axi_wvalid),
         .m_axi_wready(axi_wready),
         .m_axi_bvalid(axi_bvalid),
         .m_axi_bready(axi_bready),
         .m_axi_araddr(axi_araddr),
+        .m_axi_arlen(axi_arlen),
+        .m_axi_arsize(axi_arsize),
+        .m_axi_arburst(axi_arburst),
         .m_axi_arvalid(axi_arvalid),
         .m_axi_arready(axi_arready),
         .m_axi_rdata(axi_rdata),
+        .m_axi_rlast(axi_rlast_reg),
         .m_axi_rvalid(axi_rvalid),
         .m_axi_rready(axi_rready),
         .irq(irq_done),
@@ -136,27 +152,42 @@ module tb_top;
     );
 
     // =========================================================================
-    // 5. AXI MEMORY MODEL (with Stress Support)
+    // 5. AXI MEMORY MODEL (with Burst Support)
     // =========================================================================
     
-    // Read Channel State Machine
+    // Read Channel State Machine (Burst-Capable)
     reg [1:0] r_state;
     reg [31:0] r_addr_reg;
+    reg [7:0]  r_burst_len;     // Latched ARLEN (number of beats - 1)
+    reg [7:0]  r_beat_count;    // Current beat in burst
     localparam R_IDLE = 0, R_DATA = 1;
     
     reg axi_arready_reg, axi_rvalid_reg;
-    reg [31:0] axi_rdata_reg;
     
     assign axi_arready = axi_arready_reg;
     assign axi_rvalid = axi_rvalid_reg;
-    assign axi_rdata = axi_rdata_reg;
+    
+    // RDATA must be COMBINATIONAL to reflect current address immediately
+    // This ensures each beat gets unique data based on current r_addr_reg
+    assign axi_rdata = {mem[r_addr_reg[16:0] + 3],
+                        mem[r_addr_reg[16:0] + 2],
+                        mem[r_addr_reg[16:0] + 1],
+                        mem[r_addr_reg[16:0] + 0]};
+    
+    // RLAST must be COMBINATIONAL to reflect current beat immediately
+    // It asserts on the final beat when r_beat_count equals r_burst_len
+    wire axi_rlast_comb = (r_state == R_DATA) && (r_beat_count == r_burst_len);
+    always @(*) axi_rlast_reg = axi_rlast_comb;
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             r_state <= R_IDLE;
             axi_arready_reg <= 1'b1;
             axi_rvalid_reg <= 1'b0;
-            axi_rdata_reg <= 32'd0;
+            axi_rlast_reg <= 1'b0;
+            // axi_rdata is now combinational, no reset needed
+            r_burst_len <= 8'd0;
+            r_beat_count <= 8'd0;
         end else begin
             case (r_state)
                 R_IDLE: begin
@@ -165,26 +196,42 @@ module tb_top;
                     else
                         axi_arready_reg <= 1'b0;
                     
+                    axi_rlast_reg <= 1'b0;
+                    
                     if (axi_arvalid && axi_arready_reg) begin
+                        // Latch address and burst length
                         r_addr_reg <= axi_araddr;
+                        r_burst_len <= axi_arlen;  // ARLEN = N-1 (0 = 1 beat)
+                        r_beat_count <= 8'd0;
                         axi_arready_reg <= 1'b0;
                         r_state <= R_DATA;
                     end
                 end
                 R_DATA: begin
-                    axi_rdata_reg <= {mem[r_addr_reg[16:0] + 3],
-                                      mem[r_addr_reg[16:0] + 2],
-                                      mem[r_addr_reg[16:0] + 1],
-                                      mem[r_addr_reg[16:0] + 0]};
+                    // RVALID stays high for entire burst
                     axi_rvalid_reg <= 1'b1;
+                    // NOTE: RLAST is handled by combinational logic above
+                    
                     if (axi_rvalid_reg && axi_rready) begin
-                        axi_rvalid_reg <= 1'b0;
-                        r_state <= R_IDLE;
+                        // Beat accepted - prepare for next beat
+                        if (r_beat_count == r_burst_len) begin
+                            // Burst complete
+                            axi_rvalid_reg <= 1'b0;
+                            r_state <= R_IDLE;
+                        end else begin
+                            // More beats to send - increment count AND address for NEXT beat
+                            r_addr_reg <= r_addr_reg + 32'd4;
+                            r_beat_count <= r_beat_count + 8'd1;
+                        end
                     end
+                    
+                    // Data output uses CURRENT address (combinational path)
+                    // This runs every clock, picking up the new address after increment
                 end
             endcase
         end
     end
+    
     
     // =============================================================================
     // FIXED AXI WRITE SLAVE (Supports separate AW/W phases)

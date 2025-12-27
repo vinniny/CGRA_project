@@ -60,16 +60,20 @@ module cgra_top #(
     output logic                  pslverr,
     
     // =========================================================================
-    // AXI4-Lite Master Interface (DMA to External RAM)
+    // AXI4 Master Interface (DMA to External RAM with Burst Support)
     // =========================================================================
     // Write Address Channel
     output logic [ADDR_WIDTH-1:0] m_axi_awaddr,
+    output logic [7:0]            m_axi_awlen,     // Burst length
+    output logic [2:0]            m_axi_awsize,    // Beat size
+    output logic [1:0]            m_axi_awburst,   // Burst type
     output logic                  m_axi_awvalid,
     input  logic                  m_axi_awready,
     
     // Write Data Channel
     output logic [31:0]           m_axi_wdata,
     output logic [3:0]            m_axi_wstrb,
+    output logic                  m_axi_wlast,     // Last beat in burst
     output logic                  m_axi_wvalid,
     input  logic                  m_axi_wready,
     
@@ -79,11 +83,15 @@ module cgra_top #(
     
     // Read Address Channel
     output logic [ADDR_WIDTH-1:0] m_axi_araddr,
+    output logic [7:0]            m_axi_arlen,     // Burst length
+    output logic [2:0]            m_axi_arsize,    // Beat size
+    output logic [1:0]            m_axi_arburst,   // Burst type
     output logic                  m_axi_arvalid,
     input  logic                  m_axi_arready,
     
     // Read Data Channel
     input  logic [31:0]           m_axi_rdata,
+    input  logic                  m_axi_rlast,     // Last beat in burst
     input  logic                  m_axi_rvalid,
     output logic                  m_axi_rready,
     
@@ -104,7 +112,8 @@ module cgra_top #(
     output logic [2:0]            dbg_dma_read_state,
     output logic [2:0]            dbg_dma_write_state,
     output logic                  dbg_dma_fifo_full,
-    output logic                  dbg_dma_fifo_empty
+    output logic                  dbg_dma_fifo_empty,
+    output logic [31:0]           dbg_dma_write_words_remaining  // ILA probe
 );
 
     // =========================================================================
@@ -256,20 +265,28 @@ module cgra_top #(
         .status_done(dma_done),
         .irq_done(),  // Not used here - IRQ from CSR
         
-        // AXI4-Lite Master
+        // AXI4 Master (with Burst Support)
         .m_axi_awaddr(m_axi_awaddr),
+        .m_axi_awlen(m_axi_awlen),
+        .m_axi_awsize(m_axi_awsize),
+        .m_axi_awburst(m_axi_awburst),
         .m_axi_awvalid(m_axi_awvalid),
         .m_axi_awready(m_axi_awready),
         .m_axi_wdata(m_axi_wdata),
         .m_axi_wstrb(m_axi_wstrb),
+        .m_axi_wlast(m_axi_wlast),
         .m_axi_wvalid(m_axi_wvalid),
         .m_axi_wready(m_axi_wready),
         .m_axi_bvalid(m_axi_bvalid),
         .m_axi_bready(m_axi_bready),
         .m_axi_araddr(m_axi_araddr),
+        .m_axi_arlen(m_axi_arlen),
+        .m_axi_arsize(m_axi_arsize),
+        .m_axi_arburst(m_axi_arburst),
         .m_axi_arvalid(m_axi_arvalid),
         .m_axi_arready(m_axi_arready),
         .m_axi_rdata(m_axi_rdata),
+        .m_axi_rlast(m_axi_rlast),
         .m_axi_rvalid(m_axi_rvalid),
         .m_axi_rready(m_axi_rready),
         
@@ -289,7 +306,8 @@ module cgra_top #(
         .dbg_read_fsm_state(dbg_dma_read_state),
         .dbg_write_fsm_state(dbg_dma_write_state),
         .dbg_fifo_full(dbg_dma_fifo_full),
-        .dbg_fifo_empty(dbg_dma_fifo_empty)
+        .dbg_fifo_empty(dbg_dma_fifo_empty),
+        .dbg_write_words_remaining(dbg_dma_write_words_remaining)
     );
     
     // =========================================================================

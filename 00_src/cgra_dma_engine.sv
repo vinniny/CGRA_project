@@ -39,21 +39,34 @@ module cgra_dma_engine #(
     output logic                  irq_done,
     
     // =========================================================================
-    // AXI4-Lite Master Interface
+    // AXI4 Master Interface (Full AXI4 with Burst Support)
     // =========================================================================
+    // Write Address Channel
     output logic [ADDR_WIDTH-1:0] m_axi_awaddr,
+    output logic [7:0]            m_axi_awlen,     // Burst length (0 = 1 beat, 255 = 256 beats)
+    output logic [2:0]            m_axi_awsize,    // Beat size (2 = 4 bytes)
+    output logic [1:0]            m_axi_awburst,   // Burst type (1 = INCR)
     output logic                  m_axi_awvalid,
     input  logic                  m_axi_awready,
+    // Write Data Channel
     output logic [DATA_WIDTH-1:0] m_axi_wdata,
     output logic [DATA_WIDTH/8-1:0] m_axi_wstrb,
+    output logic                  m_axi_wlast,     // Last beat in burst
     output logic                  m_axi_wvalid,
     input  logic                  m_axi_wready,
+    // Write Response Channel
     input  logic                  m_axi_bvalid,
     output logic                  m_axi_bready,
+    // Read Address Channel
     output logic [ADDR_WIDTH-1:0] m_axi_araddr,
+    output logic [7:0]            m_axi_arlen,     // Burst length (0 = 1 beat)
+    output logic [2:0]            m_axi_arsize,    // Beat size (2 = 4 bytes)
+    output logic [1:0]            m_axi_arburst,   // Burst type (1 = INCR)
     output logic                  m_axi_arvalid,
     input  logic                  m_axi_arready,
+    // Read Data Channel
     input  logic [DATA_WIDTH-1:0] m_axi_rdata,
+    input  logic                  m_axi_rlast,     // Last beat in burst
     input  logic                  m_axi_rvalid,
     output logic                  m_axi_rready,
     
@@ -79,7 +92,8 @@ module cgra_dma_engine #(
     output logic [2:0]            dbg_read_fsm_state,
     output logic [2:0]            dbg_write_fsm_state,
     output logic                  dbg_fifo_full,
-    output logic                  dbg_fifo_empty
+    output logic                  dbg_fifo_empty,
+    output logic [31:0]           dbg_write_words_remaining  // ILA probe
 );
 
     localparam BYTES_PER_WORD = DATA_WIDTH / 8;
@@ -166,14 +180,40 @@ module cgra_dma_engine #(
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
     logic        read_complete;
+    logic [7:0]  current_burst_len;  // Current burst length (ARLEN value, 0-indexed)
+    
+    // AXI4 Burst Configuration (constant for INCR bursts)
+    assign m_axi_arsize  = 3'b010;  // 4 bytes per beat
+    assign m_axi_arburst = 2'b01;   // INCR burst type
+    
+    // Chunked Burst Calculation with 4KB Boundary Protection
+    // FIFO_DEPTH = 16, so max burst = 16 words, ARLEN = 15
+    localparam MAX_BURST_WORDS = FIFO_DEPTH;
+    
+    // AXI 4KB Boundary Protection - bursts cannot cross 4KB page boundaries
+    // Calculate words remaining until next 4KB boundary
+    wire [11:0] addr_offset = read_addr[11:0];  // Offset within 4KB page
+    wire [31:0] words_to_boundary = (13'd4096 - {1'b0, addr_offset}) >> 2;  // Words until next 4KB boundary
+    
+    // Step 1: Clamp to remaining words or FIFO depth
+    wire [31:0] len_limit_fifo = (read_words_remaining > MAX_BURST_WORDS) 
+                                 ? MAX_BURST_WORDS 
+                                 : read_words_remaining;
+    
+    // Step 2: Clamp to 4KB boundary - never cross page boundary
+    wire [31:0] words_this_burst = (len_limit_fifo > words_to_boundary) 
+                                   ? words_to_boundary 
+                                   : len_limit_fifo;
     
     always_ff @(posedge clk) begin
-        if (!rst_n || cfg_abort) begin  // FIX: Abort forces FSM to IDLE
+        if (!rst_n || cfg_abort) begin  // Abort forces FSM to IDLE
             r_state <= R_IDLE;
             read_addr <= '0;
             read_words_remaining <= '0;
             read_complete <= 1'b0;
+            current_burst_len <= '0;
             m_axi_araddr <= '0;
+            m_axi_arlen <= '0;
             m_axi_arvalid <= 1'b0;
             m_axi_rready <= 1'b0;
         end else begin
@@ -190,9 +230,14 @@ module cgra_dma_engine #(
                 end
                 
                 R_ADDR: begin
-                    // Only issue read if FIFO has space
-                    if (!fifo_full && read_words_remaining != '0) begin
+                    // Issue CHUNKED burst - max FIFO_DEPTH words per burst
+                    // Only issue if FIFO has room for the burst (space >= words_this_burst)
+                    // Available space = FIFO_DEPTH - count
+                    if ((FIFO_DEPTH - count) >= words_this_burst && read_words_remaining != '0) begin
                         m_axi_araddr <= read_addr;
+                        // ARLEN = words_this_burst - 1 (clamped to FIFO depth)
+                        m_axi_arlen <= words_this_burst[7:0] - 8'd1;
+                        current_burst_len <= words_this_burst[7:0] - 8'd1;
                         m_axi_arvalid <= 1'b1;
                     end else begin
                         m_axi_arvalid <= 1'b0;
@@ -200,33 +245,43 @@ module cgra_dma_engine #(
                     
                     if (m_axi_arvalid && m_axi_arready) begin
                         m_axi_arvalid <= 1'b0;
-                        m_axi_rready <= 1'b1;
+                        m_axi_rready <= 1'b1;  // Ready to receive data
                         r_state <= R_DATA;
                     end
                 end
                 
                 R_DATA: begin
-                    // Wait for read data
+                    // BURST MODE: Stay here receiving ALL beats until RLAST
+                    m_axi_rready <= !fifo_full;  // Backpressure if FIFO full
+                    
                     if (m_axi_rvalid && m_axi_rready) begin
-                        m_axi_rready <= 1'b0;
-                        read_addr <= read_addr + BYTES_PER_WORD;
+                        // Data beat received - FIFO push happens via fifo_push wire
                         read_words_remaining <= read_words_remaining - 1'b1;
                         
-                        if (read_words_remaining == 32'd1) begin
-                            read_complete <= 1'b1;
-                            r_state <= R_DONE;
-                        end else begin
-                            r_state <= R_ADDR;
+                        // Check for RLAST (end of this burst chunk)
+                        if (m_axi_rlast) begin
+                            m_axi_rready <= 1'b0;
+                            
+                            // Update address for next chunk
+                            // current_burst_len is ARLEN (N-1), so words = ARLEN+1
+                            read_addr <= read_addr + ((current_burst_len + 1) * BYTES_PER_WORD);
+                            
+                            // Check if transfer complete
+                            if (read_words_remaining == 32'd1) begin
+                                // This was the last word of the last chunk
+                                read_complete <= 1'b1;
+                                r_state <= R_DONE;
+                            end else begin
+                                // More chunks to transfer - loop back to R_ADDR
+                                r_state <= R_ADDR;
+                            end
                         end
+                        // Otherwise stay in R_DATA for next beat
                     end
                 end
                 
                 R_DONE: begin
-                    // FIX: Go directly to IDLE - don't wait for status_busy
-                    // The circular dependency was:
-                    //   R_DONE waits for !status_busy
-                    //   status_busy waits for r_state == R_IDLE
-                    //   Result: DEADLOCK
+                    // Go directly to IDLE
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     read_complete <= 1'b0;
@@ -256,6 +311,13 @@ module cgra_dma_engine #(
     logic        write_complete;
     logic [DATA_WIDTH-1:0] write_data_reg;  // Latched FIFO data
     logic [31:0] local_write_addr;          // Address captured BEFORE increment for local writes
+    
+    // AXI4 Write Burst Configuration
+    // For now, use single-beat writes (AWLEN=0) - burst writes can be added later
+    assign m_axi_awlen   = 8'h00;   // Single beat (no burst on writes yet)
+    assign m_axi_awsize  = 3'b010;  // 4 bytes per beat
+    assign m_axi_awburst = 2'b01;   // INCR burst type
+    assign m_axi_wlast   = 1'b1;    // Always last beat (single-beat writes)
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -498,6 +560,18 @@ module cgra_dma_engine #(
                 w_state != W_DATA && w_state != W_RESP && w_state != W_DONE) begin
                 $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
             end
+            
+            // Burst Debug: Trace each FIFO push
+            if (m_axi_rvalid && m_axi_rready) begin
+                $display("[DMA_RD] Time=%0t | Data=%h | RLAST=%b | FIFO_WE=%b | r_state=%0d | Count=%0d | WordsLeft=%0d", 
+                         $time, m_axi_rdata, m_axi_rlast, fifo_push, r_state, count, read_words_remaining);
+            end
+            
+            // Burst Debug: Trace each FIFO pop
+            if (fifo_pop) begin
+                $display("[DMA_WR] Time=%0t | PopData=%h | w_state=%0d | Count=%0d | WrWordsLeft=%0d", 
+                         $time, fifo_rdata, w_state, count, write_words_remaining);
+            end
         end
     end
     
@@ -506,10 +580,11 @@ module cgra_dma_engine #(
     // =========================================================================
     // Debug Signal Assignments (For ILA probing)
     // =========================================================================
-    assign dbg_status_busy     = status_busy;
-    assign dbg_read_fsm_state  = {1'b0, r_state};  // Pad 2-bit to 3-bit
-    assign dbg_write_fsm_state = w_state;
-    assign dbg_fifo_full       = fifo_full;
-    assign dbg_fifo_empty      = fifo_empty;
+    assign dbg_status_busy           = status_busy;
+    assign dbg_read_fsm_state        = {1'b0, r_state};  // Pad 2-bit to 3-bit
+    assign dbg_write_fsm_state       = w_state;
+    assign dbg_fifo_full             = fifo_full;
+    assign dbg_fifo_empty            = fifo_empty;
+    assign dbg_write_words_remaining = write_words_remaining;
 
 endmodule
