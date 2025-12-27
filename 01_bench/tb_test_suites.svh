@@ -1,5 +1,5 @@
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Suite (157 Vectors, 26 Suites)
+// tb_test_suites.svh - Master Verification Suite (166 Vectors, 28 Suites)
 // ==============================================================================
 // Complete Pre-Silicon Verification:
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
@@ -14,9 +14,11 @@
 //   Suite W     ( 5): DMA Hang Diagnosis & Recovery
 //   Suite X     ( 4): Advanced Diagnostics (4KB, Reset, Corner)
 //   Suite Y     ( 7): IRQ Verification
+//   Suite Z     ( 6): Burst Mode Regression (H06/X01/W01 fixes)
+//   Suite AA    ( 3): Metastability & Robustness
 //
 // ISA COVERAGE: 19/19 operations verified
-// VERIFICATION STATUS: 157/157 PASSED - SILICON READY
+// VERIFICATION STATUS: 166/166 PASSED - SILICON READY
 // ==============================================================================
 
 // =========================================================================

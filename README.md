@@ -4,10 +4,10 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.1.0 | December 2024*
+*Version 2.2.0 | December 2024*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-141%2F141-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-166%2F166-brightgreen)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -59,14 +59,14 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 | PE Scratchpad | 256 entries | 32-bit | SRAM |
 | PE Config RAM | 16 entries | 64-bit | BSG SRAM |
 | Tile Memory | 4 × 1024 entries | 32-bit | SRAM |
-| DMA FIFO | 8 entries | 32-bit | Flip-flop |
+| DMA FIFO | 16 entries | 32-bit | Flip-flop |
 
 ### Interface Specifications
 
 | Interface | Standard | Width | Description |
 |-----------|----------|-------|-------------|
 | Control | APB 2.0 | 32-bit | Register access |
-| Memory | AXI4-Lite | 32-bit | DMA master |
+| Memory | AXI4 Full | 32-bit | DMA burst master |
 | Interrupt | Level | 1-bit | Active high |
 | Clock | Single | - | Rising edge |
 | Reset | Active-low | - | Synchronous |
@@ -99,6 +99,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 # Run 141-test verification suite
 make sim
 
+# Expected output: PASSED: 166 | FAILED: 0
 # Run with Cadence Xcelium (commercial)
 make sim TOOL=xcelium
 
@@ -138,9 +139,10 @@ make clean
                         │                   │                         │
     ┌─────────┐         │  ┌────────────────┴─────────────────────┐  │
     │ External│◄────────┼──┤         Pipelined DMA Engine         │  │
-    │   RAM   │  AXI    │  │  • Read/Write state machines         │  │
-    └─────────┘         │  │  • 8-entry async FIFO                │  │
-                        │  │  • Burst-capable (single-beat)       │  │
+    │   RAM   │  AXI4   │  │  • Read/Write state machines         │  │
+    └─────────┘ (Burst) │  │  • 16-entry async FIFO               │  │
+                        │  │  • AXI4 burst (up to 16 beats/req)   │  │
+                        │  │  • 4KB boundary protection           │  │
                         │  └────────────────┬─────────────────────┘  │
                         │                   │                         │
                         │  ┌────────────────┴─────────────────────┐  │
