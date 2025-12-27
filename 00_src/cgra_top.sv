@@ -95,7 +95,16 @@ module cgra_top #(
     // =========================================================================
     // Synthesis Keeper (Prevents optimizer from removing unused logic)
     // =========================================================================
-    output logic                  synthesis_keep
+    output logic                  synthesis_keep,
+    
+    // =========================================================================
+    // Debug Ports (For ILA/Chipscope probing)
+    // =========================================================================
+    output logic                  dbg_dma_busy,
+    output logic [2:0]            dbg_dma_read_state,
+    output logic [2:0]            dbg_dma_write_state,
+    output logic                  dbg_dma_fifo_full,
+    output logic                  dbg_dma_fifo_empty
 );
 
     // =========================================================================
@@ -242,6 +251,7 @@ module cgra_top #(
         .cfg_dst(dma_dst),
         .cfg_size(dma_size),
         .cfg_start(dma_start),
+        .cfg_abort(cu_soft_reset),    // FIX: Use CU soft reset to abort stuck DMA
         .status_busy(dma_busy),
         .status_done(dma_done),
         .irq_done(),  // Not used here - IRQ from CSR
@@ -272,7 +282,14 @@ module cgra_top #(
         // Config Interface (To PE Array)
         .config_addr_o(dma_cfg_addr),
         .config_we_o(dma_cfg_we),
-        .config_wdata_o(dma_cfg_wdata)
+        .config_wdata_o(dma_cfg_wdata),
+        
+        // Debug Ports (For ILA)
+        .dbg_status_busy(dbg_dma_busy),
+        .dbg_read_fsm_state(dbg_dma_read_state),
+        .dbg_write_fsm_state(dbg_dma_write_state),
+        .dbg_fifo_full(dbg_dma_fifo_full),
+        .dbg_fifo_empty(dbg_dma_fifo_empty)
     );
     
     // =========================================================================
@@ -394,7 +411,11 @@ module cgra_top #(
             auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b0;
         end else if (cu_soft_reset) begin
-            // When CU starts (soft_reset clears then start), arm the counter
+            // Soft reset clears the counter
+            auto_stop_counter <= 5'd0;
+            auto_stop_armed <= 1'b0;
+        end else if (cu_start) begin
+            // FIX: Arm on start, not soft_reset
             auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b1;
         end else if (pe_enable && auto_stop_armed) begin

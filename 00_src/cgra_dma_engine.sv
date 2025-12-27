@@ -33,6 +33,7 @@ module cgra_dma_engine #(
     input  logic [31:0]           cfg_dst,
     input  logic [31:0]           cfg_size,
     input  logic                  cfg_start,
+    input  logic                  cfg_abort,    // FIX: Abort/soft-reset to clear stuck busy
     output logic                  status_busy,
     output logic                  status_done,
     output logic                  irq_done,
@@ -69,7 +70,16 @@ module cgra_dma_engine #(
     // =========================================================================
     output logic [31:0]           config_addr_o,
     output logic                  config_we_o,
-    output logic [31:0]           config_wdata_o
+    output logic [31:0]           config_wdata_o,
+    
+    // =========================================================================
+    // Debug Ports (For ILA/Chipscope probing)
+    // =========================================================================
+    output logic                  dbg_status_busy,
+    output logic [2:0]            dbg_read_fsm_state,
+    output logic [2:0]            dbg_write_fsm_state,
+    output logic                  dbg_fifo_full,
+    output logic                  dbg_fifo_empty
 );
 
     localparam BYTES_PER_WORD = DATA_WIDTH / 8;
@@ -95,12 +105,13 @@ module cgra_dma_engine #(
     
     // Local write trigger (for tile/config - single cycle writes)
     logic local_write_en;
+    logic local_fifo_pop;  // Explicit pop signal for local writes
     
     // FIFO pop conditions:
     // - AXI: pop when wvalid && wready (in W_DATA state)  
-    // - Local: pop when local_write_en (single cycle in W_WAIT) - ONLY for non-AXI destinations
+    // - Local: pop via local_fifo_pop (set in W_WAIT when latching data)
     wire fifo_pop_axi   = (m_axi_wvalid && m_axi_wready && !fifo_empty);
-    wire fifo_pop_local = (local_write_en && !dst_is_axi && !fifo_empty);  // Extra gate
+    wire fifo_pop_local = (local_fifo_pop && !dst_is_axi && !fifo_empty);
     wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
     wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full);
     
@@ -157,7 +168,7 @@ module cgra_dma_engine #(
     logic        read_complete;
     
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (!rst_n || cfg_abort) begin  // FIX: Abort forces FSM to IDLE
             r_state <= R_IDLE;
             read_addr <= '0;
             read_words_remaining <= '0;
@@ -211,13 +222,15 @@ module cgra_dma_engine #(
                 end
                 
                 R_DONE: begin
-                    // Stay here until transfer is fully complete
+                    // FIX: Go directly to IDLE - don't wait for status_busy
+                    // The circular dependency was:
+                    //   R_DONE waits for !status_busy
+                    //   status_busy waits for r_state == R_IDLE
+                    //   Result: DEADLOCK
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
-                    if (!status_busy) begin
-                        read_complete <= 1'b0;
-                        r_state <= R_IDLE;
-                    end
+                    read_complete <= 1'b0;
+                    r_state <= R_IDLE;
                 end
                 
                 default: r_state <= R_IDLE;
@@ -252,6 +265,7 @@ module cgra_dma_engine #(
             write_complete <= 1'b0;
             write_data_reg <= '0;
             local_write_en <= 1'b0;
+            local_fifo_pop <= 1'b0;
             local_write_addr <= '0;
             m_axi_awaddr <= '0;
             m_axi_awvalid <= 1'b0;
@@ -259,11 +273,20 @@ module cgra_dma_engine #(
             m_axi_wstrb <= '1;
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
+        end else if (cfg_abort) begin  // FIX: Abort forces write FSM to IDLE
+            w_state <= W_IDLE;
+            write_complete <= 1'b0;
+            local_write_en <= 1'b0;
+            local_fifo_pop <= 1'b0;
+            m_axi_awvalid <= 1'b0;
+            m_axi_wvalid <= 1'b0;
+            m_axi_bready <= 1'b0;
         end else begin
             case (w_state)
                 W_IDLE: begin
                     write_complete <= 1'b0;
                     local_write_en <= 1'b0;  // Clear local write
+                    local_fifo_pop <= 1'b0;  // Clear pop
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
@@ -277,15 +300,24 @@ module cgra_dma_engine #(
                 W_WAIT: begin
                     // Wait for FIFO to have data
                     local_write_en <= 1'b0;  // Default off
+                    local_fifo_pop <= 1'b0;  // Default off
                     
                     if (!fifo_empty && write_words_remaining != '0) begin
                         // Latch data from FIFO
                         write_data_reg <= fifo_rdata;
                         
+                        // FIX: Pop FIFO NOW for local destinations (same cycle as data latch)
+                        // For AXI, we pop later in W_DATA when wready
+                        if (!dst_is_axi) begin
+                            local_fifo_pop <= 1'b1;  // Pop FIFO this cycle
+                        end
+                        
                         // For AXI destinations, go through normal handshake
                         // For local destinations, we'll handle in W_ADDR
                         w_state <= W_ADDR;
-                    end else if (write_words_remaining == '0 && read_complete) begin
+                    end else if (write_words_remaining == '0) begin
+                        // FIX: Don't wait for read_complete (it clears immediately now)
+                        // We've written all words - transfer is done
                         write_complete <= 1'b1;
                         w_state <= W_DONE;
                     end
@@ -346,13 +378,14 @@ module cgra_dma_engine #(
                 end
                 
                 W_DONE: begin
+                    // FIX: Go directly to IDLE - same circular dependency fix as R_DONE
+                    // Also clear local_write_en to prevent extra FIFO pop
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
-                    if (!status_busy) begin
-                        write_complete <= 1'b0;
-                        w_state <= W_IDLE;
-                    end
+                    local_write_en <= 1'b0;
+                    write_complete <= 1'b0;
+                    w_state <= W_IDLE;
                 end
                 
                 default: w_state <= W_IDLE;
@@ -379,11 +412,20 @@ module cgra_dma_engine #(
     // =========================================================================
     logic transfer_active;
     
+    // Robust busy check: stays HIGH until ALL components are idle
+    // This prevents producer-consumer mismatch where Write FSM finishes early
+    wire engine_idle = (r_state == R_IDLE) && (w_state == W_IDLE) && fifo_empty;
+    
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             transfer_active <= 1'b0;
             status_busy <= 1'b0;
             status_done <= 1'b0;
+            irq_done <= 1'b0;
+        end else if (cfg_abort) begin  // Abort clears busy immediately
+            transfer_active <= 1'b0;
+            status_busy <= 1'b0;
+            status_done <= 1'b0;  // Don't signal done on abort
             irq_done <= 1'b0;
         end else begin
             // Default: clear done pulse
@@ -391,9 +433,14 @@ module cgra_dma_engine #(
             irq_done <= 1'b0;
             
             if (cfg_start && cfg_size != '0 && !status_busy) begin
+                // Start new transfer
                 transfer_active <= 1'b1;
                 status_busy <= 1'b1;
-            end else if (transfer_active && write_complete) begin
+            end else if (transfer_active && engine_idle) begin
+                // Complete when ALL parts are done:
+                // - Read FSM in IDLE
+                // - Write FSM in IDLE  
+                // - FIFO is empty (all data consumed)
                 transfer_active <= 1'b0;
                 status_busy <= 1'b0;
                 status_done <= 1'b1;
@@ -455,5 +502,14 @@ module cgra_dma_engine #(
     end
     
     // synthesis translate_on
+
+    // =========================================================================
+    // Debug Signal Assignments (For ILA probing)
+    // =========================================================================
+    assign dbg_status_busy     = status_busy;
+    assign dbg_read_fsm_state  = {1'b0, r_state};  // Pad 2-bit to 3-bit
+    assign dbg_write_fsm_state = w_state;
+    assign dbg_fifo_full       = fifo_full;
+    assign dbg_fifo_empty      = fifo_empty;
 
 endmodule

@@ -280,8 +280,8 @@ module tb_top;
     // 7. MAIN EXECUTION
     // =========================================================================
     initial begin
-        //$dumpfile("03_sim/cgra_debug.vcd");
-        //$dumpvars(0, tb_top);
+        $dumpfile("cgra_debug.vcd");  // Runs from 03_sim directory
+        $dumpvars(0, tb_top);
         
         // Initialize memory with test pattern
         init_memory();
@@ -321,6 +321,9 @@ module tb_top;
         run_suite_T_isa_completion(); // ISA Completion (8 vectors)
         run_suite_U_diagnostics();    // Diagnostics & Characterization (3 vectors)
         run_suite_V_neuromorphic();   // Neuromorphic LIF (3 vectors)
+        run_suite_W_dma_hang();       // DMA Hang Diagnosis (5 vectors)
+        run_suite_X_advanced();       // Advanced Diagnostics (4 vectors)
+        run_suite_Y_irq();            // IRQ Verification (6 vectors)
 
         // === FINAL REPORT ===
         $display("\n================================================================");
