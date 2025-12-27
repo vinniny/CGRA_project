@@ -96,7 +96,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 ## Quick Start
 
 ```bash
-# Run 141-test verification suite
+# Run 166-test verification suite
 make sim
 
 # Expected output: PASSED: 166 | FAILED: 0
@@ -293,8 +293,8 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 141 |
-| Passed | 141 |
+| Total Tests | 166 |
+| Passed | 166 |
 | Failed | 0 |
 | Coverage | 100% functional |
 | Status | **SILICON READY** ✅ |
@@ -312,6 +312,11 @@ Bit Position:
 | T | ISA Completion | 8 |
 | U | Diagnostics | 3 |
 | V | Neuromorphic LIF | 3 |
+| W | DMA Hang Diagnosis | 5 |
+| X | Advanced Diagnostics | 4 |
+| Y | IRQ Verification | 6 |
+| Z | Burst Mode Regression | 6 |
+| AA | Metastability & Robustness | 3 |
 
 ### Supported Simulators
 
@@ -512,7 +517,7 @@ static inline uint32_t cgra_get_cycles(void) {
 | Predicated Execution | ✅ Implemented | `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ Implemented | 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
-| Self-Checking TB | ✅ Implemented | 141 tests with golden comparisons |
+| Self-Checking TB | ✅ Implemented | 166 tests with golden comparisons |
 | BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
 
 ### Future Enhancements
