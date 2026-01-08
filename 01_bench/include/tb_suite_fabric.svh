@@ -5,7 +5,7 @@
 // Philosophy: No magic numbers. Random data through interconnect, self-check.
 // ============================================================================
 
-task run_suite_fabric_stress;
+task automatic run_suite_fabric_stress;
     $display("\n");
     $display("========================================");
     $display("   SUITE: FABRIC STRESS (CRV)");
@@ -25,7 +25,7 @@ endtask
 // Weakness Eliminated: Testing 1+1=2 through pipeline
 // Upgrade: Stream random data through PE0->PE1, verify bit-perfect pass-through
 // ============================================================================
-task test_pipeline_integrity;
+task automatic test_pipeline_integrity;
     logic [31:0] input_val, output_val, expected;
     integer i;
     integer pass_count, fail_count;
@@ -79,7 +79,7 @@ endtask
 // Weakness Eliminated: Simple multi-PE with fixed data
 // Upgrade: Random PE selection, random opcode, random data, verify independently
 // ============================================================================
-task test_parallel_stress;
+task automatic test_parallel_stress;
     logic [31:0] a, b, expected, actual;
     logic [5:0] op;
     logic [3:0] pe_id;
@@ -173,7 +173,7 @@ endtask
 // Weakness Eliminated: Fixed routing direction
 // Upgrade: Test N/S/E/W routing with random data, verify integrity
 // ============================================================================
-task test_routing_sweep;
+task automatic test_routing_sweep;
     logic [31:0] input_val, output_val, expected;
     integer i;
     integer pass_count, fail_count;

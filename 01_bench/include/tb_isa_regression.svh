@@ -10,7 +10,7 @@
 //   - Compare: EQ, LT, GT
 // =============================================================================
 
-task run_suite_AD_isa_regression;
+task automatic run_suite_AD_isa_regression;
     integer i, op_idx;
     logic [31:0] a, b, res, expected;
     logic signed [63:0] temp_sum; // 64-bit signed for overflow check

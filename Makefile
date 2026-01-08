@@ -134,9 +134,18 @@ VERILATOR = verilator
 # Minimal waivers: only for RTL issues outside testbench control
 # - UNOPTFLAT: circular ready mesh in cgra_array_4x4.sv (RTL design pattern)
 # - EOFNEWLINE: BSG library files (external code)
+# - UNUSEDSIGNAL/UNUSEDPARAM: Testbench/BSG library infrastructure
+# - TIMESCALEMOD: Mixed timescale (TB vs RTL)
+# - VARHIDDEN: TB local variables shadow globals intentionally
+# - CASEINCOMPLETE: Case selects from random values (not all cases used)
+# NOTE: Keep WIDTHEXPAND/WIDTHTRUNC enabled to catch real width bugs
 VERILATOR_FLAGS = --binary --timing --trace -j 0 \
 	-Wall -Wno-fatal \
 	-Wno-UNOPTFLAT -Wno-EOFNEWLINE \
+	-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	-Wno-TIMESCALEMOD -Wno-VARHIDDEN \
+	-Wno-CASEINCOMPLETE -Wno-SYNCASYNCNET \
+	-Wno-REDEFMACRO -Wno-GENUNNAMED \
 	--top-module tb_top \
 	-I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include \
 	+define+VERILATOR

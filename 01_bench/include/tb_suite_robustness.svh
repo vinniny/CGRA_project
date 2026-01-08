@@ -5,7 +5,7 @@
 // Philosophy: Random fault injection, random timing, verify recovery.
 // ============================================================================
 
-task run_suite_robustness;
+task automatic run_suite_robustness;
     $display("\n");
     $display("========================================");
     $display("   SUITE: ROBUSTNESS (CRV)");
@@ -25,7 +25,7 @@ endtask
 // Weakness Eliminated: Reset at fixed time
 // Upgrade: Inject reset at random cycle during active DMA, verify recovery
 // ============================================================================
-task test_reset_injection;
+task automatic test_reset_injection;
     logic [31:0] src, dst, golden, actual;
     integer i;
     integer pass_count, fail_count;
@@ -72,7 +72,7 @@ endtask
 // Weakness Eliminated: Fixed stall patterns
 // Upgrade: Random stall probability (0-100%), verify data integrity
 // ============================================================================
-task test_stall_injection;
+task automatic test_stall_injection;
     logic [31:0] src, dst, golden, actual;
     integer i, stall_prob;
     integer pass_count, fail_count;
@@ -118,7 +118,7 @@ endtask
 // Weakness Eliminated: Simple IRQ check
 // Upgrade: Fire operations, check IRQ at random, verify status consistency
 // ============================================================================
-task test_irq_stress;
+task automatic test_irq_stress;
     logic [31:0] src, dst, golden, actual, irq_status, irq_mask;
     integer i, random_delay;
     integer pass_count, fail_count;

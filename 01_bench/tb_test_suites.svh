@@ -27,7 +27,7 @@
 // =========================================================================
 // SUITE A: REGISTER LOGIC & CONFIG (16 Vectors)
 // =========================================================================
-task run_suite_A_regs;
+task automatic run_suite_A_regs;
     reg [31:0] rd, saved_val;
     integer i;
     begin
@@ -198,7 +198,7 @@ endtask
 // =========================================================================
 // SUITE B: DMA DATAPATH & SEGMENTATION (16 Vectors)
 // =========================================================================
-task run_suite_B_dma;
+task automatic run_suite_B_dma;
     logic data_ok;
     integer i;
     begin
@@ -298,7 +298,7 @@ endtask
 // =========================================================================
 // SUITE C: PROTOCOL COMPLIANCE (15 Vectors)
 // =========================================================================
-task run_suite_C_protocol;
+task automatic run_suite_C_protocol;
     reg [31:0] rd;
     logic data_ok;
     begin
@@ -379,7 +379,7 @@ endtask
 // =========================================================================
 // SUITE D: PERFORMANCE & TIMING (10 Vectors)
 // =========================================================================
-task run_suite_D_perf;
+task automatic run_suite_D_perf;
     real start_time, end_time, throughput;
     integer total_cycles;
     reg [31:0] rd;
@@ -459,7 +459,7 @@ endtask
 // =========================================================================
 // D05: Pipeline Overlap Test
 // =========================================================================
-task test_D05_pipeline_overlap;
+task automatic test_D05_pipeline_overlap;
     integer overlap_count;
     integer check_cycles;
     begin
@@ -493,7 +493,7 @@ endtask
 // =========================================================================
 // D06: FIFO Isolation Test (Blocked Writer)
 // =========================================================================
-task test_D06_fifo_isolation;
+task automatic test_D06_fifo_isolation;
     integer fifo_count_check;
     begin
         // 1. Enable stress on write channel (80% stall)
@@ -527,7 +527,7 @@ endtask
 // =========================================================================
 // D07: Concurrency Measurement
 // =========================================================================
-task test_D07_concurrency;
+task automatic test_D07_concurrency;
     integer cycles_read_active;
     integer cycles_write_active;
     integer cycles_overlap;
@@ -586,7 +586,7 @@ endtask
 // =========================================================================
 // SUITE E: STRESS TESTING (10 Vectors)
 // =========================================================================
-task run_suite_E_stress;
+task automatic run_suite_E_stress;
     logic data_ok;
     integer i;
     begin
@@ -679,7 +679,7 @@ endtask
 // =========================================================================
 // SUITE F: SYSTEM INTEGRATION (10 Vectors)
 // =========================================================================
-task run_suite_F_system;
+task automatic run_suite_F_system;
     reg [31:0] rd, cycle_before, cycle_after;
     logic data_ok;
     integer i;
@@ -751,7 +751,7 @@ endtask
 // =========================================================================
 // SUITE G: CONSTRAINED RANDOM VERIFICATION (CRV)
 // =========================================================================
-task run_suite_G_crv;
+task automatic run_suite_G_crv;
     logic data_ok;
     integer iter, k;
     reg [31:0] rand_data;
@@ -835,7 +835,7 @@ endtask
 // =========================================================================
 // Tests invalid configurations and error conditions to ensure system stability.
 // Hardware must NOT HANG and should handle gracefully.
-task run_suite_H_negative;
+task automatic run_suite_H_negative;
     reg [31:0] rd;
     logic data_ok;
     begin
@@ -989,7 +989,7 @@ endtask
 // - I02: Tile Memory Loading via DMA (0x1xxx address)
 // - I03: CGRA Execution - Context PC cycling
 // =========================================================================
-task run_suite_I_compute;
+task automatic run_suite_I_compute;
     logic [31:0] rd;
     begin
         $display("\n========================================================");
@@ -1090,7 +1090,7 @@ endtask
 // Tests the COMPLETE path: Tile Memory -> West Input -> PE -> ALU -> Result
 // This proves the CGRA can actually compute, not just move data around.
 // =========================================================================
-task run_suite_J_computation;
+task automatic run_suite_J_computation;
     logic [31:0] rd;
     logic [63:0] add_config;
     begin
@@ -1210,7 +1210,7 @@ endtask
 //       Since we only send 32 bits, src1=IMM tests get value 0.
 //       Instead, we test with src0=WEST, src1=WEST (same value).
 // =========================================================================
-task run_suite_K_advanced;
+task automatic run_suite_K_advanced;
     logic [31:0] res;
     logic [31:0] west_input;
     logic [31:0] config_word;
@@ -1310,7 +1310,7 @@ endtask
 // SUITE L: SPATIAL PIPELINE (PE-to-PE Communication)
 // =============================================================================
 // Goal: Verify PE(0,0) output reaches PE(0,1) input via mesh broadcast
-task run_suite_L_spatial;
+task automatic run_suite_L_spatial;
     logic [31:0] res0, res1;
     begin
         $display("\n   SUITE L: SPATIAL PIPELINE (PE0 -> PE1)");
@@ -1362,7 +1362,7 @@ endtask
 // SUITE M: ISA DISCOVERY SWEEP (Test All Opcodes)
 // =============================================================================
 // Goal: Discover and verify operations: ADD, SUB, AND, OR, XOR, MUL, SHL, SHR
-task run_suite_M_isa_sweep;
+task automatic run_suite_M_isa_sweep;
     integer op;
     logic [31:0] res;
     logic [31:0] expected;
@@ -1431,7 +1431,7 @@ endtask
 // =============================================================================
 // Goal: Prove SRA (arithmetic shift, preserves sign) differs from SRL (logical shift, zero fill)
 // Input A: -4 (0xFFFFFFFC), shifted by 1
-task run_suite_N_signed_math;
+task automatic run_suite_N_signed_math;
     logic [31:0] res9, res10;
     logic [31:0] config_word;
     begin
@@ -1522,7 +1522,7 @@ endtask
 // SUITE O: PARALLEL STRESS TEST (FULL 16-PE ARRAY)
 // =============================================================================
 // Goal: Activate ALL 16 PEs simultaneously to verify power/addressing
-task run_suite_O_parallel_stress;
+task automatic run_suite_O_parallel_stress;
     logic [31:0] res;
     integer pe;
     begin
@@ -1576,7 +1576,7 @@ endtask
 // SUITE P: COMPARATOR DECODER
 // =============================================================================
 // Goal: Identify what Op 12 does (EQ, LT, GT, etc.)
-task run_suite_P_comparator;
+task automatic run_suite_P_comparator;
     logic [31:0] res, config_word;
     begin
         $display("\n   SUITE P: COMPARATOR DECODER");
@@ -1659,7 +1659,7 @@ endtask
 // =============================================================================
 // Goal: Test random A op B values against behavioral model
 // NOTE: PE now uses full 32-bit data path (16-bit payload limitation removed)
-task run_suite_Q_random;
+task automatic run_suite_Q_random;
     integer i, seed;
     logic [31:0] op_a, hw_res, model_res;
     logic [15:0] op_a_16;  // 16-bit value for payload compatibility
@@ -1753,7 +1753,7 @@ endtask
 // =============================================================================
 // Goal: Verify all shift amounts 0-31 work correctly for SHL and SHR
 // RTL Fix: PE now uses 5-bit shift amount [4:0] and arithmetic SHR
-task run_suite_Q2_shifts;
+task automatic run_suite_Q2_shifts;
     integer i;
     logic [31:0] val, hw_res, gold;
     logic signed [31:0] val_signed;  // For SRA golden model
@@ -1822,7 +1822,7 @@ endtask
 // SUITE Q3: MAC ACCUMULATOR STRESS (Sequence Testing)
 // =============================================================================
 // Goal: Verify MAC accumulator works correctly over a sequence of operations
-task run_suite_Q3_mac_stress;
+task automatic run_suite_Q3_mac_stress;
     integer i, seed;
     logic [15:0] val_a, val_b;
     logic [31:0] hw_res;
@@ -1887,7 +1887,7 @@ endtask
 // SUITE Q4: SCRATCHPAD MEMORY (SPM) STRESS
 // =============================================================================
 // Goal: Verify the PE's local scratchpad memory handles random R/W correctly
-task run_suite_Q4_spm_stress;
+task automatic run_suite_Q4_spm_stress;
     integer i, seed;
     logic [7:0] addr;
     logic [31:0] data, hw_res;
@@ -1961,7 +1961,7 @@ endtask
 // SUITE R: LOOP BOUNDARY & STREAMING WRAP
 // =============================================================================
 // Goal: Verify context_pc wraps from 15 -> 0 correctly
-task run_suite_R_boundary;
+task automatic run_suite_R_boundary;
     integer i;
     logic [31:0] res, config_word;
     logic [3:0] final_pc;
@@ -2017,7 +2017,7 @@ endtask
 // SUITE S: RESET RECOVERY (The "Panic" Test)
 // =============================================================================
 // Goal: Assert reset mid-execution and verify clean recovery
-task run_suite_S_reset;
+task automatic run_suite_S_reset;
     logic [31:0] res, config_word;
     begin
         $display("\n   SUITE S: ASYNCHRONOUS RESET RECOVERY");
@@ -2088,7 +2088,7 @@ endtask
 // =============================================================================
 // Goal: Verify remaining unverified opcodes to achieve 19/19 ISA coverage
 // Uses abstraction layer: config_pe_imm(), tile_bank_fill_all(), check_pe_result()
-task run_suite_T_isa_completion;
+task automatic run_suite_T_isa_completion;
     logic [31:0] res;
     begin
         $display("\n--- SUITE T: ISA COMPLETION (The Final Check) ---");
@@ -2182,7 +2182,7 @@ endtask
 // =============================================================================
 // Goal: Confirm actual hardware behavior for ISA documentation
 // Uses proper 64-bit config via config_pe() with double-pump protocol
-task run_suite_U_diagnostics;
+task automatic run_suite_U_diagnostics;
     logic [31:0] res;
     logic [63:0] config64;
     begin
@@ -2265,7 +2265,7 @@ endtask
 // =============================================================================
 // Goal: Verify Leaky Integrate-Fire neuron opcode (Op 18)
 // LIF Model: Accumulate input, leak slowly, fire spike if > threshold
-task run_suite_V_neuromorphic;
+task automatic run_suite_V_neuromorphic;
     logic [31:0] spike;
     logic [63:0] config64;
     begin
@@ -2321,7 +2321,7 @@ endtask
 //   W02: Verify soft reset (cfg_abort) clears stuck busy
 //   W03: Verify hard reset recovers from any state
 //   W04: Zombie state detection (busy=1 but FSM=IDLE)
-task run_suite_W_dma_hang;
+task automatic run_suite_W_dma_hang;
     logic [31:0] rdata;
     logic [31:0] dma_status;
     logic [31:0] saved_size;
@@ -2468,7 +2468,7 @@ endtask
 //   X02: Mid-Transfer Async Reset ("Rage Quit" test)
 //   X03: Zero-Length Transfer (Size=0 handling)
 //   X04: Misaligned Address (non-word-aligned)
-task run_suite_X_advanced;
+task automatic run_suite_X_advanced;
     logic [31:0] dma_status;
     logic [31:0] src_addr, dst_addr;
     integer timeout_cnt;
@@ -2621,7 +2621,7 @@ endtask
 //   Y03: IRQ fires on CU done when mask[1]=1
 //   Y04: IRQ clears when new operation starts
 //   Y05: IRQ status register reflects correct sources
-task run_suite_Y_irq;
+task automatic run_suite_Y_irq;
     logic [31:0] rdata;
     logic [31:0] dma_status;
     logic        irq_val;
@@ -2897,7 +2897,7 @@ endtask
 //   Z05: Tile Memory Sustained (W01 regression) - FIFO empty mid-transfer
 //   Z06: Max Burst (16 words) + Boundary - Combined stress
 
-task run_suite_Z_burst_regression;
+task automatic run_suite_Z_burst_regression;
     logic [31:0] rdata, dma_status;
     logic data_ok;
     integer timeout_cnt;
@@ -3104,7 +3104,7 @@ endtask
 //   AA02: Jitter Stress - Random READY backpressure
 //   AA03: Data Integrity - Verify no X corruption under stress
 
-task run_suite_AA_robustness;
+task automatic run_suite_AA_robustness;
     logic [31:0] rdata, dma_status;
     integer timeout_cnt;
     integer i;
@@ -3268,7 +3268,7 @@ endtask
 //   AB03: DMA Flood (Throughput saturation)
 // =============================================================================
 
-task run_suite_AB_advanced_stress;
+task automatic run_suite_AB_advanced_stress;
     logic [31:0] res, expected;
     logic [31:0] pixel_vals [0:8];  // 3x3 input pixels
     logic signed [31:0] kernel [0:8];  // 3x3 kernel weights
@@ -3376,7 +3376,7 @@ endtask
 //   AC04: MAC Accumulation Precision
 // =============================================================================
 
-task run_suite_AC_precision_math;
+task automatic run_suite_AC_precision_math;
     logic [31:0] res, expected;
     logic [31:0] a_vals [0:3];
     logic [31:0] b_vals [0:3];

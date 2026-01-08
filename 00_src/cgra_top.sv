@@ -405,7 +405,7 @@ module cgra_top #(
         .bank3_valid(row_valid[3]),
         
         // External/DMA port - Write access
-        .ext_addr(dma_tile_addr[11:2]), // FIX: Convert byte address to word index (10-bit)
+        .ext_addr({2'b00, dma_tile_addr[11:2]}), // FIX: Convert byte address to word index (pad to 12-bit)
         .ext_bank_sel(dma_tile_bank_sel),
         .ext_read(1'b0),             // DMA write only for now
         .ext_write(dma_tile_we),

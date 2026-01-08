@@ -195,7 +195,7 @@ module cgra_dma_engine #(
     // AXI 4KB Boundary Protection - bursts cannot cross 4KB page boundaries
     // Calculate words remaining until next 4KB boundary
     wire [11:0] addr_offset = read_addr[11:0];  // Offset within 4KB page
-    wire [31:0] words_to_boundary = (13'd4096 - {1'b0, addr_offset}) >> 2;  // Words until next 4KB boundary
+    wire [31:0] words_to_boundary = (32'd4096 - {20'd0, addr_offset}) >> 2;  // Words until next 4KB boundary
     
     // Step 1: Clamp to remaining words or FIFO depth
     wire [31:0] len_limit_fifo = (read_words_remaining > MAX_BURST_WORDS) 

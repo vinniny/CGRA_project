@@ -5,7 +5,7 @@
 // Philosophy: No magic numbers. Random data, random timing, self-checking.
 // ============================================================================
 
-task run_suite_system_integrity;
+task automatic run_suite_system_integrity;
     $display("\n");
     $display("========================================");
     $display("   SUITE: SYSTEM INTEGRITY (CRV)");
@@ -26,7 +26,7 @@ endtask
 // Weakness Eliminated: No more 0x0, 0x4 with 0xDEADBEEF
 // Upgrade: Random address (within CSR space), random data, self-check
 // ============================================================================
-task test_apb_randomized;
+task automatic test_apb_randomized;
     logic [31:0] addr, wdata, rdata;
     logic [7:0] offset;
     integer i;
@@ -78,7 +78,7 @@ endtask
 // Weakness Eliminated: No more fixed 4B transfers
 // Upgrade: Random src, random dst, random size (4-256B), random payload
 // ============================================================================
-task test_dma_randomized;
+task automatic test_dma_randomized;
     logic [31:0] src, dst, size;
     logic [31:0] golden_data [0:63]; // Max 256B = 64 words
     logic [31:0] actual;
@@ -134,7 +134,7 @@ endtask
 // Weakness Eliminated: Simple handshakes
 // Upgrade: Random backpressure, random stall injection during transfers
 // ============================================================================
-task test_protocol_stress;
+task automatic test_protocol_stress;
     logic [31:0] src, dst, size;
     logic [31:0] golden, actual;
     integer i;
@@ -186,7 +186,7 @@ endtask
 // Weakness Eliminated: Fixed wrap patterns
 // Upgrade: Random addresses near boundary, random sizes, verify wrap behavior
 // ============================================================================
-task test_streaming_wrap;
+task automatic test_streaming_wrap;
     logic [31:0] src, dst, size;
     logic [31:0] golden, actual;
     integer i;
