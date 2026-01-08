@@ -77,7 +77,7 @@ task automatic run_suite_AD_isa_regression;
                     
                     // SUB (Saturating)
                     2: begin
-                        temp_sum = a_s - b_s;
+                        temp_sum = {{32{a_s[31]}}, a_s} - {{32{b_s[31]}}, b_s};
                         if (temp_sum > 64'(MAX_POS)) expected = MAX_POS;
                         else if (temp_sum < 64'(MIN_NEG)) expected = MIN_NEG;
                         else expected = temp_sum[31:0];

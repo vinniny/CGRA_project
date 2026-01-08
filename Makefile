@@ -139,7 +139,7 @@ VERILATOR = verilator
 # - VARHIDDEN: TB local variables shadow globals intentionally
 # - CASEINCOMPLETE: Case selects from random values (not all cases used)
 # NOTE: Keep WIDTHEXPAND/WIDTHTRUNC enabled to catch real width bugs
-VERILATOR_FLAGS = --binary --timing --trace -j 0 \
+VERILATOR_FLAGS = --binary --timing -j 0 \
 	-Wall -Wno-fatal \
 	-Wno-UNOPTFLAT -Wno-EOFNEWLINE \
 	-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
@@ -149,6 +149,12 @@ VERILATOR_FLAGS = --binary --timing --trace -j 0 \
 	--top-module tb_top \
 	-I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include \
 	+define+VERILATOR
+
+RUN_ARGS =
+ifdef TRACE
+	VERILATOR_FLAGS += --trace
+	RUN_ARGS += +trace
+endif
 
 _sim_verilator:
 	@echo "============================================"
@@ -164,7 +170,7 @@ _sim_verilator:
 	@echo "============================================"
 	@echo "Running 166-Vector Verification (Verilator)"
 	@echo "============================================"
-	@cd $(SIM_DIR) && ./Vtb_top +trace
+	@cd $(SIM_DIR) && ./Vtb_top $(RUN_ARGS)
 	@echo ""
 	@echo "Waveform: $(SIM_DIR)/cgra_sim.vcd"
 	@echo "View with: gtkwave $(SIM_DIR)/cgra_sim.vcd &"

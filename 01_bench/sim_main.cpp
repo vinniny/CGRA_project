@@ -63,6 +63,11 @@ int main(int argc, char** argv) {
 
         if (tfp) tfp->dump(contextp->time());
         
+        // Flush log every 1000 cycles for CI visibility
+        if (sim_cycles % 1000 == 0) {
+            std::cout << std::flush;
+        }
+        
         // Progress report every 10M cycles (only if running long simulations)
         if (sim_cycles - last_report_cycles >= 10000000) {
             auto now = std::chrono::high_resolution_clock::now();

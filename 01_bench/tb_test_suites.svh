@@ -407,7 +407,7 @@ task automatic run_suite_D_perf;
         wait_dma_done(100);
         end_time = $time;
         if ((end_time - start_time) / 10 < 10) pass("D02: End Latency < 10 cycles");
-        else fail("D02: End Latency", $sformatf("%0d cycles", (end_time - start_time) / 10));
+        else fail("D02: End Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / 10.0)));
         
         // D03: Read Throughput (256B)
         apb_write(ADDR_DMA_SRC, 32'h1000);
@@ -417,7 +417,7 @@ task automatic run_suite_D_perf;
         apb_write(ADDR_DMA_CTRL, 32'h1);
         wait_dma_done(3000);
         end_time = $time;
-        total_cycles = (end_time - start_time) / 10;
+        total_cycles = integer'((end_time - start_time) / 10.0);
         throughput = 256.0 / total_cycles;
         $display("      256B in %0d cycles (%.2f B/cycle)", total_cycles, throughput);
         if (throughput > 0.3) pass("D03: Read Throughput"); else fail("D03: Throughput", "too slow");
@@ -2733,7 +2733,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_CU_STATUS, rdata);
             timeout_cnt = timeout_cnt + 1;
-        end while ((rdata & 32'h1) && timeout_cnt < 100);
+        end while (((rdata & 32'h1) != 0) && timeout_cnt < 100);
         
         #300;  // Wait for IRQ propagation
         
@@ -2827,7 +2827,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_CU_STATUS, rdata);
             timeout_cnt = timeout_cnt + 1;
-        end while ((rdata & 32'h1) && timeout_cnt < 200);
+        end while (((rdata & 32'h1) != 0) && timeout_cnt < 200);
         
         if (timeout_cnt >= 200) begin
             fail("Y06: Run 1 Timeout", "CU did not finish first run");
@@ -2863,7 +2863,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_CU_STATUS, rdata);
             timeout_cnt = timeout_cnt + 1;
-        end while ((rdata & 32'h1) && timeout_cnt < 200);
+        end while (((rdata & 32'h1) != 0) && timeout_cnt < 200);
         
         if (timeout_cnt >= 200) begin
             fail("Y06: Run 2 Timeout", "CU did not finish second run (auto_stop not re-armed?)");
