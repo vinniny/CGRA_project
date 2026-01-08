@@ -15,7 +15,9 @@
 #include <chrono>
 #include "verilated.h"
 #include "Vtb_top.h"
+#if VM_TRACE
 #include "verilated_vcd_c.h"
+#endif
 
 int main(int argc, char** argv) {
     // ========================================================================
@@ -32,6 +34,7 @@ int main(int argc, char** argv) {
     // ========================================================================
     // 2. Trace Setup (optional, enabled via +trace)
     // ========================================================================
+#if VM_TRACE
     VerilatedVcdC* tfp = nullptr;
     const char* flag = contextp->commandArgsPlusMatch("trace");
     if (flag && 0 == strcmp(flag, "+trace")) {
@@ -40,6 +43,7 @@ int main(int argc, char** argv) {
         tfp->open("cgra_sim.vcd");
         std::cout << "[SIM] VCD tracing enabled: cgra_sim.vcd" << std::endl;
     }
+#endif
 
     // ========================================================================
     // 3. Simulation Loop (Timing-Driven) with Benchmarking
@@ -61,7 +65,9 @@ int main(int argc, char** argv) {
         top->eval();           // Evaluate model at this time
         sim_cycles++;
 
+#if VM_TRACE
         if (tfp) tfp->dump(contextp->time());
+#endif
         
         // Flush log every 1000 cycles for CI visibility
         if (sim_cycles % 1000 == 0) {
@@ -100,10 +106,12 @@ int main(int argc, char** argv) {
     
     std::cout << "[SIM] Simulation finished at time " << contextp->time() << std::endl;
     
+#if VM_TRACE
     if (tfp) {
         tfp->close();
         delete tfp;
     }
+#endif
     
     // Check for fatal errors from the simulation
     if (contextp->gotError()) {
