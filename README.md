@@ -468,16 +468,16 @@ static inline uint32_t cgra_get_cycles(void) {
 
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
-| cgra_top | cgra_top.sv | ~450 | Top-level integration |
-| cgra_axi_csr | cgra_axi_csr.sv | ~225 | APB register interface |
-| cgra_dma_engine | cgra_dma_engine.sv | ~460 | AXI DMA controller |
-| cgra_control_unit | cgra_control_unit.sv | ~190 | Execution FSM |
-| cgra_tile_memory | cgra_tile_memory.sv | ~120 | 4-bank SRAM |
-| cgra_array_4x4 | cgra_array_4x4.sv | ~1175 | PE mesh instantiation |
-| cgra_tile | cgra_tile.sv | ~210 | PE + Router wrapper |
-| cgra_pe | cgra_pe.sv | ~540 | Processing Element |
+| cgra_top | cgra_top.sv | ~610 | Top-level integration |
+| cgra_apb_csr | cgra_apb_csr.sv | ~225 | APB register interface |
+| cgra_dma_engine | cgra_dma_engine.sv | ~650 | AXI DMA controller |
+| cgra_control_unit | cgra_control_unit.sv | ~200 | Execution FSM |
+| cgra_tile_memory | cgra_tile_memory.sv | ~150 | 4-bank SRAM |
+| cgra_array_4x4 | cgra_array_4x4.sv | ~1200 | PE mesh instantiation |
+| cgra_tile | cgra_tile.sv | ~220 | PE + Router wrapper |
+| cgra_pe | cgra_pe.sv | ~600 | Processing Element |
 | cgra_router | cgra_router.sv | ~400 | 5-port XY router |
-| cgra_config_mem_bsg | cgra_config_mem_bsg.sv | ~80 | BSG SRAM wrapper |
+| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~80 | BSG SRAM wrapper |
 
 ---
 

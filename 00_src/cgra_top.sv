@@ -31,7 +31,7 @@
 //   0x30  IRQ_STATUS  [0] DMA Done, [1] CU Done
 //   0x34  IRQ_MASK    IRQ enable mask
 //
-// VERIFICATION: 141/141 tests pass (23 suites, Silicon Ready)
+// VERIFICATION: 173/173 tests pass (25 suites, Silicon Ready)
 // ==============================================================================
 
 module cgra_top #(
