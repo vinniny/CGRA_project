@@ -509,7 +509,7 @@ task automatic test_D06_fifo_isolation;
         wait_cycles(50);
         
         // 4. Check FIFO count - should be partially or fully filled
-        fifo_count_check = u_dut.u_dma.count;
+        fifo_count_check = {28'd0, u_dut.u_dma.count};
         $display("      FIFO count after 50 cycles with writer stalled: %0d", fifo_count_check);
         
         // 5. Disable stress and let it finish
@@ -631,7 +631,8 @@ task automatic run_suite_E_stress;
         apb_write(ADDR_DMA_SIZE, 32'd128);
         apb_write(ADDR_DMA_CTRL, 32'h1);
         for (i = 0; i < 100; i++) begin
-            apb_read(ADDR_DMA_STATUS, data_ok);
+            logic [31:0] discard;
+            apb_read(ADDR_DMA_STATUS, discard);
         end
         wait_dma_done(1000);
         check_data(32'h1000, 32'hE600, 128, data_ok);
@@ -1011,7 +1012,7 @@ task automatic run_suite_I_compute;
         $display("[INFO] I01: Loading Config to PE 0, Slot 0...");
         
         // Load opcode 0xAABBCCDD into PE 0, slot 0
-        config_pe(4'd0, 4'd0, 32'hAABBCCDD);
+        config_pe(4'd0, 4'd0, 64'hAABBCCDD);
         
         // Verify DMA completed without error
         apb_read(ADDR_DMA_STATUS, rd);
@@ -1683,11 +1684,11 @@ task automatic run_suite_Q_random;
             
             // 1. Generate pseudo-random 16-bit POSITIVE value (avoid sign extension issues)
             seed = seed * 1103515245 + 12345;
-            op_a_16 = seed[14:0];  // 15-bit positive value (0 to 32767)
+            op_a_16 = {1'b0, seed[14:0]};  // 15-bit positive value (0 to 32767)
             op_a = {16'd0, op_a_16};  // Zero-extend to 32 bits
             
             // Test ALL 19 opcodes with round-robin selection
-            opcode = (seed[4:0] % 19);  // 0-18
+            opcode = 6'(seed[4:0] % 19);  // 0-18
 
             // 2. Compute "Golden" Expected Result (Behavioral Model)
             // PE does west op west, so both operands are the same (A op A)
@@ -2348,7 +2349,7 @@ task automatic run_suite_W_dma_hang;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         if (timeout_cnt >= 100) begin
             fail("W01: DMA Transfer Timed Out", "Busy bit stuck after 10000 cycles");
@@ -2370,7 +2371,7 @@ task automatic run_suite_W_dma_hang;
         #200;  // Let it start
         
         apb_read(ADDR_DMA_STATUS, dma_status);
-        if (!(dma_status & 32'h1)) begin
+        if (!((dma_status & 32'h1) != 0)) begin
             $display("[INFO] W02: DMA finished too quickly for abort test, skipping...");
             pass("W02: Soft Reset (N/A - transfer too fast)");
         end else begin
@@ -2382,7 +2383,7 @@ task automatic run_suite_W_dma_hang;
             #200;
             apb_read(ADDR_DMA_STATUS, dma_status);
             
-            if (dma_status & 32'h1) begin
+            if ((dma_status & 32'h1) != 0) begin
                 fail("W02: Soft Reset Failed", "DMA still busy after abort");
             end else begin
                 pass("W02: Soft Reset Cleared DMA Busy");
@@ -2410,7 +2411,7 @@ task automatic run_suite_W_dma_hang;
         
         apb_read(ADDR_DMA_STATUS, dma_status);
         
-        if (dma_status & 32'h1) begin
+        if ((dma_status & 32'h1) != 0) begin
             fail("W03: Hard Reset Failed", "DMA still busy after rst_n toggle");
         end else begin
             pass("W03: Hard Reset Cleared DMA State");
@@ -2427,7 +2428,7 @@ task automatic run_suite_W_dma_hang;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         if (timeout_cnt >= 100) begin
             fail("W03: Post-Reset Transfer Failed", "DMA not functional after reset");
@@ -2499,7 +2500,7 @@ task automatic run_suite_X_advanced;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 200);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 200);
         
         if (timeout_cnt >= 200) begin
             fail("X01: 4KB Boundary Hang", "DMA stuck on boundary-crossing address");
@@ -2522,7 +2523,7 @@ task automatic run_suite_X_advanced;
         #300;  // Let it start
         
         apb_read(ADDR_DMA_STATUS, dma_status);
-        if (dma_status & 32'h1) begin
+        if ((dma_status & 32'h1) != 0) begin
             $display("[INFO] X02: DMA confirmed BUSY. Asserting reset mid-transfer...");
             
             // Nuclear option: hard reset during transfer
@@ -2533,7 +2534,7 @@ task automatic run_suite_X_advanced;
             
             apb_read(ADDR_DMA_STATUS, dma_status);
             
-            if (dma_status & 32'h1) begin
+            if ((dma_status & 32'h1) != 0) begin
                 fail("X02: Mid-Transfer Reset Failed", "DMA still BUSY after async reset");
             end else begin
                 // Verify recovery with small transfer
@@ -2547,7 +2548,7 @@ task automatic run_suite_X_advanced;
                     #100;
                     apb_read(ADDR_DMA_STATUS, dma_status);
                     timeout_cnt = timeout_cnt + 1;
-                end while ((dma_status & 32'h1) && timeout_cnt < 100);
+                end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
                 
                 if (timeout_cnt >= 100) begin
                     fail("X02: Post-Reset Recovery Failed", "DMA not functional");
@@ -2575,7 +2576,7 @@ task automatic run_suite_X_advanced;
         
         apb_read(ADDR_DMA_STATUS, dma_status);
         
-        if (dma_status & 32'h1) begin
+        if ((dma_status & 32'h1) != 0) begin
             fail("X03: Zero-Length Hang", "DMA got stuck on Size=0");
             // Try to recover
             apb_write(ADDR_CU_CTRL, 32'h0000_0002);  // Soft reset
@@ -2600,7 +2601,7 @@ task automatic run_suite_X_advanced;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         if (timeout_cnt >= 100) begin
             fail("X04: Minimum Transfer Hang", "DMA stuck on single-word transfer");
@@ -2651,7 +2652,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         #200;  // Wait for IRQ to propagate
         
@@ -2691,7 +2692,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         #300;  // Wait for IRQ to propagate (registered)
         
@@ -2782,7 +2783,7 @@ task automatic run_suite_Y_irq;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 100);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         // -----------------------------------------------------------------
         // Y05: Both Mask Bits
@@ -3049,7 +3050,7 @@ task automatic run_suite_Z_burst_regression;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 500);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 500);
         
         if (timeout_cnt >= 500) begin
             fail("Z05: Tile Memory Sustained", "DMA timeout - W01 bug may still exist");
@@ -3137,7 +3138,7 @@ task automatic run_suite_AA_robustness;
             #10;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while (!(dma_status & 32'h1) && timeout_cnt < 100);
+        end while (!((dma_status & 32'h1) != 0) && timeout_cnt < 100);
         
         // Let it pump some data
         repeat(20) @(posedge clk);
@@ -3152,7 +3153,7 @@ task automatic run_suite_AA_robustness;
         
         // CHECK: DMA must be clean after reset
         apb_read(ADDR_DMA_STATUS, dma_status);
-        if ((dma_status & 32'h1) == 0) begin  // Not busy
+        if (((dma_status & 32'h1) != 0) == 0) begin  // Not busy
             // RECOVERY: Run a new transfer to verify FSM is functional
             ram_write(32'h5000, 32'hDEAD_BEEF);
             apb_write(ADDR_DMA_SRC, 32'h5000);
@@ -3198,7 +3199,7 @@ task automatic run_suite_AA_robustness;
             #100;
             apb_read(ADDR_DMA_STATUS, dma_status);
             timeout_cnt = timeout_cnt + 1;
-        end while ((dma_status & 32'h1) && timeout_cnt < 2000);
+        end while (((dma_status & 32'h1) != 0) && timeout_cnt < 2000);
         
         stress_enable = 0;  // Disable stress mode
         

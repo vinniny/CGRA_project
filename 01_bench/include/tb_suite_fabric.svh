@@ -136,8 +136,8 @@ task automatic test_parallel_stress;
             OP_AND: expected = a & b;
             OP_OR:  expected = a | b;
             OP_XOR: expected = a ^ b;
-            OP_SHL: expected = a << (b & 5'h1F);
-            OP_SHR: expected = a_s >>> (b & 5'h1F);
+            OP_SHL: expected = a << (b & 32'h1F);
+            OP_SHR: expected = a_s >>> (b & 32'h1F);
         endcase
         
         // Load operand A to tile memory

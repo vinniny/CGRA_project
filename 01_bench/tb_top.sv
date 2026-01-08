@@ -27,8 +27,10 @@ module tb_top;
     logic clk;
     logic rst_n;
     
-    initial clk = 0;
-    always #5 clk = ~clk;  // 100 MHz Clock
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end  // 100 MHz Clock
     
     initial begin
         rst_n = 1'b0;

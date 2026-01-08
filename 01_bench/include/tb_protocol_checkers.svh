@@ -43,12 +43,12 @@ always_ff @(posedge clk) begin
         if (ar_pending && !axi_arready) begin
             if (axi_arvalid !== 1'b1) begin
                 $error("[AXI] ARVALID dropped before ARREADY @ %0t", $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             if (axi_araddr !== ar_addr_lock) begin
                 $error("[AXI] ARADDR unstable: was 0x%h, now 0x%h @ %0t", 
                        ar_addr_lock, axi_araddr, $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             ar_stall_cycles <= ar_stall_cycles + 1;
             if (ar_stall_cycles >= STALL_THRESHOLD) begin
@@ -72,11 +72,11 @@ always_ff @(posedge clk) begin
         if (aw_pending && !axi_awready) begin
             if (axi_awvalid !== 1'b1) begin
                 $error("[AXI] AWVALID dropped before AWREADY @ %0t", $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             if (axi_awaddr !== aw_addr_lock) begin
                 $error("[AXI] AWADDR unstable @ %0t", $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             aw_stall_cycles <= aw_stall_cycles + 1;
         end
@@ -97,11 +97,11 @@ always_ff @(posedge clk) begin
         if (w_pending && !axi_wready) begin
             if (axi_wvalid !== 1'b1) begin
                 $error("[AXI] WVALID dropped before WREADY @ %0t", $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             if (axi_wdata !== w_data_lock) begin
                 $error("[AXI] WDATA unstable @ %0t", $time);
-                assertion_errors++;
+                assertion_errors <= assertion_errors + 1;
             end
             w_stall_cycles <= w_stall_cycles + 1;
         end

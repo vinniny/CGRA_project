@@ -55,8 +55,8 @@ task automatic run_suite_AD_isa_regression;
                 
                 // Corner case injection (10% chance)
                 if ((i % 10) == 0) begin
-                    a = (i % 2) ? MAX_POS : MIN_NEG;
-                    b = (i % 4) ? 32'd1 : 32'hFFFF_FFFF;
+                    a = ((i % 2) != 0) ? MAX_POS : MIN_NEG;
+                    b = ((i % 4) != 0) ? 32'd1 : 32'hFFFF_FFFF;
                 end
                 
                 // FIX: Mask b to 16-bit BEFORE golden calculation, as we use IMM (16-bit)
@@ -70,16 +70,16 @@ task automatic run_suite_AD_isa_regression;
                     // ADD (Saturating)
                     1: begin
                         temp_sum = {{32{a_s[31]}}, a_s} + {{32{b_s[31]}}, b_s};
-                        if (temp_sum > MAX_POS) expected = MAX_POS;
-                        else if (temp_sum < MIN_NEG) expected = MIN_NEG;
+                        if (temp_sum > 64'(MAX_POS)) expected = MAX_POS;
+                        else if (temp_sum < 64'(MIN_NEG)) expected = MIN_NEG;
                         else expected = temp_sum[31:0];
                     end
                     
                     // SUB (Saturating)
                     2: begin
                         temp_sum = a_s - b_s;
-                        if (temp_sum > MAX_POS) expected = MAX_POS;
-                        else if (temp_sum < MIN_NEG) expected = MIN_NEG;
+                        if (temp_sum > 64'(MAX_POS)) expected = MAX_POS;
+                        else if (temp_sum < 64'(MIN_NEG)) expected = MIN_NEG;
                         else expected = temp_sum[31:0];
                     end
                     
@@ -119,8 +119,8 @@ task automatic run_suite_AD_isa_regression;
                         temp_sum = (a_s * $signed(b[15:0])); // Sign extended 16-bit?
                         // PE RTL check needed!
                         // Assuming valid:
-                        if (temp_sum > MAX_POS) expected = MAX_POS;
-                        else if (temp_sum < MIN_NEG) expected = MIN_NEG;
+                        if (temp_sum > 64'(MAX_POS)) expected = MAX_POS;
+                        else if (temp_sum < 64'(MIN_NEG)) expected = MIN_NEG;
                         else expected = temp_sum[31:0];
                     end
                     

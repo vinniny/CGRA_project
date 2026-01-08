@@ -39,8 +39,8 @@ task automatic test_apb_randomized;
     for (i = 0; i < 50; i++) begin
         // Random offset within DMA CSR space - SKIP 0x00 (CTRL) to avoid triggering DMA
         // Use 0x04 (STATUS-RO), 0x08 (SRC), 0x0C (DST), 0x10 (SIZE)
-        offset = 8'h04 + (($urandom % 4) * 4); // 0x04, 0x08, 0x0C, 0x10
-        addr = offset;
+        offset = 8'(8'h04 + 8'(($urandom % 4) * 4)); // 0x04, 0x08, 0x0C, 0x10
+        addr = {24'd0, offset};
         
         // Random data - NEVER use 0 or simple patterns
         wdata = $urandom | 32'h0000_0001; // Ensure non-zero

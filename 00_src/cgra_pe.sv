@@ -187,7 +187,7 @@ module cgra_pe #(
     // Scratchpad Memory (SPM)
     // =========================================================================
     logic [DATA_WIDTH-1:0] spm_mem [0:SPM_DEPTH-1];
-    logic [ADDR_WIDTH-1:0] spm_addr;
+    logic [$clog2(SPM_DEPTH)-1:0] spm_addr;
     logic [DATA_WIDTH-1:0] spm_rdata;
     logic [DATA_WIDTH-1:0] spm_wdata;
     logic                  spm_we;
@@ -479,7 +479,7 @@ module cgra_pe #(
         rf_wdata = alu_result[DATA_WIDTH-1:0];
         
         spm_we = 1'b0;
-        spm_addr = operand1[ADDR_WIDTH-1:0];
+        spm_addr = operand1[$clog2(SPM_DEPTH)-1:0];
         spm_wdata = operand0;
         
         if (config_valid && execute_enable && !stall) begin
