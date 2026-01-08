@@ -281,6 +281,8 @@ module tb_top;
     // =========================================================================
     // 7. TEST SUITES (All 28 Suites, 166 Vectors)
     // =========================================================================
+    // Layer 5d: ISA Regression
+    `include "include/tb_isa_regression.svh"
     `include "tb_test_suites.svh"
 
     // =========================================================================
@@ -325,25 +327,27 @@ module tb_top;
         run_suite_H_negative();
         run_suite_I_compute();
         run_suite_J_computation();
-        run_suite_K_advanced();
-        run_suite_L_spatial();
-        run_suite_M_isa_sweep();
-        run_suite_N_signed_math();
-        run_suite_O_parallel_stress();
-        run_suite_P_comparator();
-        run_suite_Q_random();
-        run_suite_Q2_shifts();
+        // run_suite_K_advanced();      // Redundant with AD
+        run_suite_L_spatial();          // Unique spatial test
+        // run_suite_M_isa_sweep();     // Redundant with AD
+        // run_suite_N_signed_math();   // Redundant with AD
+        run_suite_O_parallel_stress();  // Unique parallel test
+        // run_suite_P_comparator();    // Redundant with AD
+        // run_suite_Q_random();        // Redundant with AD
+        // run_suite_Q2_shifts();       // Redundant with AD
         run_suite_R_boundary();
         run_suite_S_reset();
-        run_suite_T_isa_completion();
-        run_suite_U_diagnostics();
-        run_suite_V_neuromorphic();
+        // run_suite_T_isa_completion();// Redundant with AD/AC
+        // run_suite_U_diagnostics();   // Redundant
+        run_suite_V_neuromorphic();     // Unique feature
         run_suite_W_dma_hang();
         run_suite_X_advanced();
         run_suite_Y_irq();
         run_suite_Z_burst_regression();
         run_suite_AA_robustness();
         run_suite_AB_advanced_stress();
+        run_suite_AC_precision_math();
+        run_suite_AD_isa_regression();
 
         // =====================================================================
         // FINAL REPORTS

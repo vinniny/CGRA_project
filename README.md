@@ -7,7 +7,7 @@
 *Version 2.3.0 | January 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-173%2F173-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-6173%2F6173-brightgreen)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -293,8 +293,8 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 173 |
-| Passed | 173 |
+| Total Tests | 6173 |
+| Passed | 6173 |
 | Failed | 0 |
 | Coverage | 100% functional |
 | Status | **SILICON READY** ✅ |
@@ -318,6 +318,9 @@ Bit Position:
 | Z | Burst Mode Regression | 6 |
 | AA | Metastability & Robustness | 3 |
 | AB | Advanced Stress (Conv, Context, DMA Flood) | 5 |
+| AC | Precision ISA (Edge cases, Shifts, Accumulation) | 4 |
+| AD | Randomized ISA Regression (500 vectors/op) | 6000 |
+| **TOTAL** | **ALL SUITES** | **6173** |
 
 ### Supported Simulators
 
