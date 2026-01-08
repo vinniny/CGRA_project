@@ -238,7 +238,7 @@ module cgra_dma_engine #(
                     // FIX: Only set arvalid if not already in handshake, and HOLD it until arready
                     if (!m_axi_arvalid) begin
                         // Not in handshake yet - check if we can start one
-                        if ((FIFO_DEPTH - count) >= words_this_burst && read_words_remaining != '0) begin
+                        if ((32'(FIFO_DEPTH) - 32'(count)) >= words_this_burst && read_words_remaining != '0) begin  // FIX: Explicit width cast
                             m_axi_araddr <= read_addr;
                             // ARLEN = words_this_burst - 1 (clamped to FIFO depth)
                             m_axi_arlen <= words_this_burst[7:0] - 8'd1;
@@ -271,7 +271,7 @@ module cgra_dma_engine #(
                             
                             // Update address for next chunk
                             // current_burst_len is ARLEN (N-1), so words = ARLEN+1
-                            read_addr <= read_addr + ((current_burst_len + 1) * BYTES_PER_WORD);
+                            read_addr <= read_addr + ((32'(current_burst_len) + 32'd1) * BYTES_PER_WORD);  // FIX: Cast to 32-bit
                             
                             // Check if transfer complete
                             if (read_words_remaining == 32'd1) begin

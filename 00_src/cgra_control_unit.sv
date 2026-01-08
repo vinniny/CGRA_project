@@ -143,7 +143,7 @@ module cgra_control_unit #(
             pc_counter <= '0;
         end else if (pe_enable && !global_stall_o) begin
             // Increment PC only when running and not stalled
-            if (pc_counter == (CONTEXT_DEPTH - 1))
+            if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1))  // FIX: Cast to PC_WIDTH bits
                 pc_counter <= '0;  // Wrap around
             else
                 pc_counter <= pc_counter + 1'b1;

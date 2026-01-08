@@ -173,7 +173,7 @@ module cgra_pe #(
         src0_sel   = active_config[9:6];
         src1_sel   = active_config[13:10];
         dst_sel    = active_config[17:14];
-        route_mask = active_config[21:18];
+        route_mask = {1'b0, active_config[21:18]};  // FIX: Zero-extend 4-bit to 5-bit
         pred_en    = active_config[22];
         pred_inv   = active_config[23];
         immediate  = active_config[39:24];
@@ -271,7 +271,7 @@ module cgra_pe #(
             4'd3:    operand0 = data_in_s_full;   // Full 32-bit from South
             4'd4:    operand0 = data_in_w_full;   // Full 32-bit from West
             4'd5:    operand0 = spm_rdata;
-            4'd6:    operand0 = immediate;
+            4'd6:    operand0 = {{16{immediate[15]}}, immediate};  // FIX: Sign-extend 16-bit to 32-bit
             default: operand0 = '0;
         endcase
         
@@ -283,7 +283,7 @@ module cgra_pe #(
             4'd3:    operand1 = data_in_s_full;   // Full 32-bit from South
             4'd4:    operand1 = data_in_w_full;   // Full 32-bit from West
             4'd5:    operand1 = spm_rdata;
-            4'd6:    operand1 = immediate;
+            4'd6:    operand1 = {{16{immediate[15]}}, immediate};  // FIX: Sign-extend 16-bit to 32-bit
             default: operand1 = '0;
         endcase
     end
