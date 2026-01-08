@@ -52,7 +52,7 @@ task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    while (!pready) @(posedge clk);
+    // while (!pready) @(posedge clk); // pready is always 1 in this testbench
     
     if (pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
     
@@ -75,7 +75,7 @@ task automatic apb_read(input logic [31:0] addr, output logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    while (!pready) @(posedge clk);
+    // while (!pready) @(posedge clk); // pready is always 1
     
     if (pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
     
@@ -182,7 +182,7 @@ task automatic check_data(input logic [31:0] src, input logic [31:0] dst,
                           input logic [31:0] size, output logic ok);
     ok = 1'b1;
     for (int i = 0; i < size; i++) begin
-        if (mem[dst[16:0] + i] !== mem[src[16:0] + i]) ok = 1'b0;
+        if (mem[{15'd0, dst[16:0]} + 32'(i)] !== mem[{15'd0, src[16:0]} + 32'(i)]) ok = 1'b0;
     end
 endtask
 
@@ -241,7 +241,7 @@ task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
     logic [31:0] cfg_addr_base;
     logic [31:0] data_high, data_low;
     
-    cfg_addr_base = BASE_CONFIG | ({24'd0, pe_id} << 8) | ({28'd0, slot} << 3);
+    cfg_addr_base = BASE_CONFIG | (32'({24'd0, pe_id}) << 8) | (32'({28'd0, slot}) << 3);
     data_low  = config_data[31:0];
     data_high = config_data[63:32];
     

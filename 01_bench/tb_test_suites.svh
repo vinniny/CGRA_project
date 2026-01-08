@@ -278,7 +278,7 @@ task automatic run_suite_B_dma;
         if (data_ok) pass("B13: Pattern Ones"); else fail("B13: Ones", "mismatch");
         
         // B14: Pattern Random
-        for (i = 0; i < 64; i++) mem[32'h6400 + i] = $urandom_range(0, 255);
+        for (i = 0; i < 64; i++) mem[32'h6400 + i] = 8'($urandom_range(0, 255));
         dma_transfer(32'h6400, 32'h6500, 64, 400);
         check_data(32'h6400, 32'h6500, 64, data_ok);
         if (data_ok) pass("B14: Pattern Random"); else fail("B14: Random", "mismatch");
@@ -396,7 +396,7 @@ task automatic run_suite_D_perf;
         wait(axi_arvalid);
         end_time = $time;
         if ((end_time - start_time) / 10 < 10) pass("D01: Start Latency < 10 cycles");
-        else fail("D01: Start Latency", $sformatf("%0d cycles", (end_time - start_time) / 10));
+        else fail("D01: Start Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / 10.0)));
         wait_dma_done(100);
         
         // D02: Latency End
@@ -1025,9 +1025,9 @@ task automatic run_suite_I_compute;
         // =====================================================================
         $display("[INFO] I02: Loading Config to PE 1, 2, 3...");
         
-        config_pe(4'd1, 4'd0, 32'h11111111);  // PE 1
-        config_pe(4'd2, 4'd0, 32'h22222222);  // PE 2
-        config_pe(4'd3, 4'd0, 32'h33333333);  // PE 3
+        config_pe(4'd1, 4'd0, 64'h11111111);  // PE 1
+        config_pe(4'd2, 4'd0, 64'h22222222);  // PE 2
+        config_pe(4'd3, 4'd0, 64'h33333333);  // PE 3
         
         pass("I02: Multi-PE Config Loaded (DMA not hung)");
 
@@ -1688,7 +1688,7 @@ task automatic run_suite_Q_random;
             op_a = {16'd0, op_a_16};  // Zero-extend to 32 bits
             
             // Test ALL 19 opcodes with round-robin selection
-            opcode = 6'(seed[4:0] % 19);  // 0-18
+            opcode = 6'(32'(seed[4:0]) % 32'd19);  // 0-18
 
             // 2. Compute "Golden" Expected Result (Behavioral Model)
             // PE does west op west, so both operands are the same (A op A)
@@ -1854,9 +1854,9 @@ task automatic run_suite_Q3_mac_stress;
         for (i = 0; i < 20; i++) begin
             // Generate small random values (7-bit positive: 0-127)
             seed = seed * 1103515245 + 12345;
-            val_a = seed[6:0];
+            val_a = {9'd0, seed[6:0]};
             seed = seed * 1103515245 + 12345;
-            val_b = seed[6:0];
+            val_b = {9'd0, seed[6:0]};
             
             // Update Golden Model: Acc += A * B (unsigned for simplicity)
             gold_acc = gold_acc + (val_a * val_b);
