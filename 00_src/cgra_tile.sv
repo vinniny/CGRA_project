@@ -176,13 +176,17 @@ module cgra_tile #(
 
         // FIX #4: Capture PE directional outputs (all carry same result)
         .data_out_n(pe_result),         // Capture result
-        .data_out_e(),                  // Same data, unused
-        .data_out_s(),                  // Same data, unused
-        .data_out_w(),                  // Same data, unused
+        /* verilator lint_off PINCONNECTEMPTY */
+        .data_out_e(),                  // Intentional: PE broadcasts same data_out_n
+        .data_out_s(),                  // Intentional: PE broadcasts same data_out_n
+        .data_out_w(),                  // Intentional: PE broadcasts same data_out_n
+        /* verilator lint_on PINCONNECTEMPTY */
         .valid_out_n(pe_result_valid),  // Capture valid
-        .valid_out_e(),
-        .valid_out_s(),
-        .valid_out_w(),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .valid_out_e(),                 // Intentional: PE broadcasts same valid_out_n
+        .valid_out_s(),                 // Intentional: PE broadcasts same valid_out_n
+        .valid_out_w(),                 // Intentional: PE broadcasts same valid_out_n
+        /* verilator lint_on PINCONNECTEMPTY */
 
         .data_out_local(pe_to_router_data),
         .valid_out_local(pe_to_router_valid),

@@ -152,9 +152,10 @@ module cgra_pe #(
         .rd_valid(config_ram_valid)   // 1-cycle delayed valid
     );
     
-    // Select active config: use config_frame for slot 0 with config_valid, else use RAM
-    // For backward compatibility: direct config_frame input bypasses RAM for slot 0
-    assign active_config = (context_pc == '0 && config_valid) ? config_frame : config_ram_data;
+    // Select active config:
+    // - config_valid=1: Use config_frame input (single-config execution mode)
+    // - config_valid=0: Use config RAM (multi-context mode with context_pc addressing)
+    assign active_config = config_valid ? config_frame : config_ram_data;
 
     // =========================================================================
     // Stall Logic

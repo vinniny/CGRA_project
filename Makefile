@@ -48,7 +48,7 @@ RTL_SRCS := \
 	$(SRC_DIR)/cgra_tile.sv \
 	$(SRC_DIR)/cgra_array_4x4.sv \
 	$(SRC_DIR)/cgra_tile_memory.sv \
-	$(SRC_DIR)/cgra_axi_csr.sv \
+	$(SRC_DIR)/cgra_apb_csr.sv \
 	$(SRC_DIR)/cgra_control_unit.sv \
 	$(SRC_DIR)/cgra_dma_engine.sv \
 	$(SRC_DIR)/cgra_top.sv
@@ -84,8 +84,10 @@ ifeq ($(TOOL),iverilog)
 	@$(MAKE) _sim_iverilog
 else ifeq ($(TOOL),xcelium)
 	@$(MAKE) _sim_xcelium
+else ifeq ($(TOOL),verilator)
+	@$(MAKE) _sim_verilator
 else
-	@echo "ERROR: Unknown TOOL=$(TOOL). Use 'iverilog' or 'xcelium'"
+	@echo "ERROR: Unknown TOOL=$(TOOL). Use 'iverilog', 'xcelium', or 'verilator'"
 	@exit 1
 endif
 
@@ -123,7 +125,40 @@ _compile_iverilog:
 	@echo "Compiling with Icarus Verilog"
 	@echo "============================================"
 	@mkdir -p $(SIM_DIR)
-	@iverilog -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -o $(VVP_FILE) $(ALL_SRCS)
+	@iverilog -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include -o $(VVP_FILE) $(ALL_SRCS)
+
+# ------------------------------------------------------------------------------
+# Verilator 5.x Implementation (with --timing mode)
+# ------------------------------------------------------------------------------
+VERILATOR = verilator
+# Minimal waivers: only for RTL issues outside testbench control
+# - UNOPTFLAT: circular ready mesh in cgra_array_4x4.sv (RTL design pattern)
+# - EOFNEWLINE: BSG library files (external code)
+VERILATOR_FLAGS = --binary --timing --trace -j 0 \
+	-Wall -Wno-fatal \
+	-Wno-UNOPTFLAT -Wno-EOFNEWLINE \
+	--top-module tb_top \
+	-I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include \
+	+define+VERILATOR
+
+_sim_verilator:
+	@echo "============================================"
+	@echo "Compiling with Verilator 5.x (--timing)"
+	@echo "============================================"
+	@mkdir -p $(SIM_DIR)
+	$(VERILATOR) $(VERILATOR_FLAGS) \
+		$(BSG_SRCS) $(RTL_SRCS) \
+		$(TB_DIR)/tb_top.sv \
+		$(TB_DIR)/sim_main.cpp
+	@cp obj_dir/Vtb_top $(SIM_DIR)/Vtb_top
+	@echo ""
+	@echo "============================================"
+	@echo "Running 166-Vector Verification (Verilator)"
+	@echo "============================================"
+	@cd $(SIM_DIR) && ./Vtb_top +trace
+	@echo ""
+	@echo "Waveform: $(SIM_DIR)/cgra_sim.vcd"
+	@echo "View with: gtkwave $(SIM_DIR)/cgra_sim.vcd &"
 
 # ------------------------------------------------------------------------------
 # Cadence Xcelium Implementation
@@ -157,6 +192,7 @@ create_flist:
 	@echo "-incdir ../$(SRC_DIR)" >> flist
 	@echo "-incdir ../$(BSG_DIR)" >> flist
 	@echo "-incdir ../$(TB_DIR)" >> flist
+	@echo "-incdir ../$(TB_DIR)/include" >> flist
 	@mv flist $(SIM_DIR)/flist
 
 # ------------------------------------------------------------------------------

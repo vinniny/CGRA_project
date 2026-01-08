@@ -81,21 +81,23 @@ module cgra_tile_memory #(
             // Register the read request - valid follows read with 1-cycle delay
             bank0_read_reg <= bank0_read || (ext_read && ext_bank_sel == 2'd0);
             
+            /* verilator lint_off WIDTHTRUNC */
             if (bank0_write || (ext_write && ext_bank_sel == 2'd0)) begin
                 if (ext_write && ext_bank_sel == 2'd0) begin
-                    bank0_mem[ext_addr] <= ext_wdata;
+                    bank0_mem[ext_addr[9:0]] <= ext_wdata;
                 end else begin
-                    bank0_mem[bank0_addr] <= bank0_wdata;
+                    bank0_mem[bank0_addr[9:0]] <= bank0_wdata;
                 end
             end
             
             if (bank0_read || (ext_read && ext_bank_sel == 2'd0)) begin
                 if (ext_read && ext_bank_sel == 2'd0) begin
-                    bank0_rdata <= bank0_mem[ext_addr];
+                    bank0_rdata <= bank0_mem[ext_addr[9:0]];
                 end else begin
-                    bank0_rdata <= bank0_mem[bank0_addr];
+                    bank0_rdata <= bank0_mem[bank0_addr[9:0]];
                 end
             end
+            /* verilator lint_on WIDTHTRUNC */
         end
     end
     
@@ -114,21 +116,23 @@ module cgra_tile_memory #(
         end else begin
             bank1_read_reg <= bank1_read || (ext_read && ext_bank_sel == 2'd1);
             
+            /* verilator lint_off WIDTHTRUNC */
             if (bank1_write || (ext_write && ext_bank_sel == 2'd1)) begin
                 if (ext_write && ext_bank_sel == 2'd1) begin
-                    bank1_mem[ext_addr] <= ext_wdata;
+                    bank1_mem[ext_addr[9:0]] <= ext_wdata;
                 end else begin
-                    bank1_mem[bank1_addr] <= bank1_wdata;
+                    bank1_mem[bank1_addr[9:0]] <= bank1_wdata;
                 end
             end
             
             if (bank1_read || (ext_read && ext_bank_sel == 2'd1)) begin
                 if (ext_read && ext_bank_sel == 2'd1) begin
-                    bank1_rdata <= bank1_mem[ext_addr];
+                    bank1_rdata <= bank1_mem[ext_addr[9:0]];
                 end else begin
-                    bank1_rdata <= bank1_mem[bank1_addr];
+                    bank1_rdata <= bank1_mem[bank1_addr[9:0]];
                 end
             end
+            /* verilator lint_on WIDTHTRUNC */
         end
     end
     
@@ -146,21 +150,23 @@ module cgra_tile_memory #(
         end else begin
             bank2_read_reg <= bank2_read || (ext_read && ext_bank_sel == 2'd2);
             
+            /* verilator lint_off WIDTHTRUNC */
             if (bank2_write || (ext_write && ext_bank_sel == 2'd2)) begin
                 if (ext_write && ext_bank_sel == 2'd2) begin
-                    bank2_mem[ext_addr] <= ext_wdata;
+                    bank2_mem[ext_addr[9:0]] <= ext_wdata;
                 end else begin
-                    bank2_mem[bank2_addr] <= bank2_wdata;
+                    bank2_mem[bank2_addr[9:0]] <= bank2_wdata;
                 end
             end
             
             if (bank2_read || (ext_read && ext_bank_sel == 2'd2)) begin
                 if (ext_read && ext_bank_sel == 2'd2) begin
-                    bank2_rdata <= bank2_mem[ext_addr];
+                    bank2_rdata <= bank2_mem[ext_addr[9:0]];
                 end else begin
-                    bank2_rdata <= bank2_mem[bank2_addr];
+                    bank2_rdata <= bank2_mem[bank2_addr[9:0]];
                 end
             end
+            /* verilator lint_on WIDTHTRUNC */
         end
     end
     
@@ -178,21 +184,23 @@ module cgra_tile_memory #(
         end else begin
             bank3_read_reg <= bank3_read || (ext_read && ext_bank_sel == 2'd3);
             
+            /* verilator lint_off WIDTHTRUNC */
             if (bank3_write || (ext_write && ext_bank_sel == 2'd3)) begin
                 if (ext_write && ext_bank_sel == 2'd3) begin
-                    bank3_mem[ext_addr] <= ext_wdata;
+                    bank3_mem[ext_addr[9:0]] <= ext_wdata;
                 end else begin
-                    bank3_mem[bank3_addr] <= bank3_wdata;
+                    bank3_mem[bank3_addr[9:0]] <= bank3_wdata;
                 end
             end
             
             if (bank3_read || (ext_read && ext_bank_sel == 2'd3)) begin
                 if (ext_read && ext_bank_sel == 2'd3) begin
-                    bank3_rdata <= bank3_mem[ext_addr];
+                    bank3_rdata <= bank3_mem[ext_addr[9:0]];
                 end else begin
-                    bank3_rdata <= bank3_mem[bank3_addr];
+                    bank3_rdata <= bank3_mem[bank3_addr[9:0]];
                 end
             end
+            /* verilator lint_on WIDTHTRUNC */
         end
     end
     
@@ -211,15 +219,17 @@ module cgra_tile_memory #(
             // Register ext_read for valid timing
             ext_read_reg <= ext_read;
             
+            /* verilator lint_off WIDTHTRUNC */
             if (ext_read) begin
                 unique case (ext_bank_sel)
-                    2'd0: ext_rdata <= bank0_mem[ext_addr];
-                    2'd1: ext_rdata <= bank1_mem[ext_addr];
-                    2'd2: ext_rdata <= bank2_mem[ext_addr];
-                    2'd3: ext_rdata <= bank3_mem[ext_addr];
+                    2'd0: ext_rdata <= bank0_mem[ext_addr[9:0]];
+                    2'd1: ext_rdata <= bank1_mem[ext_addr[9:0]];
+                    2'd2: ext_rdata <= bank2_mem[ext_addr[9:0]];
+                    2'd3: ext_rdata <= bank3_mem[ext_addr[9:0]];
                     default: ext_rdata <= {DATA_WIDTH{1'b0}};
                 endcase
             end
+            /* verilator lint_on WIDTHTRUNC */
         end
     end
     
