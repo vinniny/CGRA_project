@@ -4,10 +4,10 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.2.0 | December 2024*
+*Version 2.3.0 | January 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-166%2F166-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-173%2F173-brightgreen)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -99,7 +99,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 # Run 166-test verification suite
 make sim
 
-# Expected output: PASSED: 166 | FAILED: 0
+# Expected output: PASSED: 173 | FAILED: 0
 # Run with Cadence Xcelium (commercial)
 make sim TOOL=xcelium
 
@@ -293,8 +293,8 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 166 |
-| Passed | 166 |
+| Total Tests | 173 |
+| Passed | 173 |
 | Failed | 0 |
 | Coverage | 100% functional |
 | Status | **SILICON READY** ✅ |
@@ -317,6 +317,7 @@ Bit Position:
 | Y | IRQ Verification | 6 |
 | Z | Burst Mode Regression | 6 |
 | AA | Metastability & Robustness | 3 |
+| AB | Advanced Stress (Conv, Context, DMA Flood) | 5 |
 
 ### Supported Simulators
 

@@ -1,2 +1,10 @@
 *.vcd
 *.backup
+*.gch
+obj_dir/
+03_sim/Vtb_top
+03_sim/*.vvp
+03_sim/*.vcd
+*.o
+*.d
+Vtb_top
