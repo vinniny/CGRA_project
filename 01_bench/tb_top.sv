@@ -91,6 +91,11 @@ module tb_top;
     `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators
     `include "include/tb_tasks.svh"             // Driver tasks (uses signals)
     `include "include/tb_protocol_checkers.svh" // Protocol monitors (uses signals)
+    
+    // CRV Suite Files (4 Pillars)
+    `include "include/tb_suite_system.svh"      // System Integrity (APB, DMA, Protocol)
+    `include "include/tb_suite_fabric.svh"      // Fabric Stress (Pipeline, Parallel, Routing)
+    `include "include/tb_suite_robustness.svh"  // Robustness (Reset, Stall, IRQ)
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -317,37 +322,17 @@ module tb_top;
         $display("  CGRA MASTER VERIFICATION - 166 VECTOR SUITE (Verilator)");
         $display("================================================================");
 
-        run_suite_A_regs();
-        run_suite_B_dma();
-        run_suite_C_protocol();
-        run_suite_D_perf();
-        run_suite_E_stress();
-        run_suite_F_system();
-        run_suite_G_crv();
-        run_suite_H_negative();
-        run_suite_I_compute();
-        run_suite_J_computation();
-        // run_suite_K_advanced();      // Redundant with AD
-        run_suite_L_spatial();          // Unique spatial test
-        // run_suite_M_isa_sweep();     // Redundant with AD
-        // run_suite_N_signed_math();   // Redundant with AD
-        run_suite_O_parallel_stress();  // Unique parallel test
-        // run_suite_P_comparator();    // Redundant with AD
-        // run_suite_Q_random();        // Redundant with AD
-        // run_suite_Q2_shifts();       // Redundant with AD
-        run_suite_R_boundary();
-        run_suite_S_reset();
-        // run_suite_T_isa_completion();// Redundant with AD/AC
-        // run_suite_U_diagnostics();   // Redundant
-        run_suite_V_neuromorphic();     // Unique feature
-        run_suite_W_dma_hang();
-        run_suite_X_advanced();
-        run_suite_Y_irq();
-        run_suite_Z_burst_regression();
-        run_suite_AA_robustness();
-        run_suite_AB_advanced_stress();
-        run_suite_AC_precision_math();
-        run_suite_AD_isa_regression();
+        // =====================================================================
+        // CRV PILLARS (4 Consolidated High-Quality Suites)
+        // =====================================================================
+        // Philosophy: Random data, random timing, self-checking golden models.
+        // Total: ~7000+ randomized vectors
+        // =====================================================================
+        
+        run_suite_system_integrity();   // 400 vectors: APB, DMA, Protocol, Streaming
+        run_suite_fabric_stress();      // 300 vectors: Pipeline, Parallel, Routing
+        run_suite_robustness();         // 300 vectors: Reset, Stall, IRQ
+        run_suite_AD_isa_regression();  // 6000 vectors: Full ISA regression
 
         // =====================================================================
         // FINAL REPORTS

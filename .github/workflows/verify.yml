@@ -19,20 +19,28 @@ jobs:
     - name: Print Verilator version
       run: verilator --version
     
-    - name: Build and Run 166-Vector Test Suite
-      run: make sim TOOL=verilator
+    - name: Build and Run CRV Test Suite
+      run: |
+        mkdir -p 03_sim
+        make sim TOOL=verilator 2>&1 | tee 03_sim/test.log
     
     - name: Check for test failures
       run: |
-        if grep -q "FAILED" 03_sim/test.log 2>/dev/null; then
-          echo "❌ Some tests failed - see log for details"
-          # Note: We expect Suite T to fail (ISA config incomplete)
-          # Only fail CI if protocol errors exist
-          if grep -q "Protocol Errors:.*[1-9]" 03_sim/test.log; then
-            exit 1
-          fi
+        # Check if any FAIL lines exist (excluding expected failures)
+        if grep -q "\[FAIL\]" 03_sim/test.log; then
+          echo "❌ Some tests failed:"
+          grep "\[FAIL\]" 03_sim/test.log
+          exit 1
         fi
-        echo "✅ All protocol checks passed"
+        
+        # Check for assertion failures
+        if grep -q "%Error" 03_sim/test.log; then
+          echo "❌ Assertion failures detected:"
+          grep "%Error" 03_sim/test.log
+          exit 1
+        fi
+        
+        echo "✅ All CRV tests passed"
     
     - name: Upload VCD waveform (on failure)
       if: failure()
