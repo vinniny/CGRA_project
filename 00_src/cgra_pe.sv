@@ -309,6 +309,7 @@ module cgra_pe #(
     logic [31:0] sub_result_sat;
     logic [31:0] mac_result_sat;
     logic signed [39:0] mac_sum;
+    logic signed [40:0] mac_sum_temp;
     logic signed [63:0] mult_full;
     
     // Saturation constants
@@ -363,31 +364,40 @@ module cgra_pe #(
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
         lif_next_v = accumulator + op0_ext - LIF_LEAK;
-        mac_sum = accumulator + mult_ext;
         
-        // Inline saturation for ADD result
-        if (add_result > MAX_VAL) begin
-            add_result_sat = 32'sd2147483647;
-        end else if (add_result < MIN_VAL) begin
-            add_result_sat = -32'sd2147483648;
+        // FIX: Saturate accumulation to 40-bit to prevent wrap-around of accumulator state
+        mac_sum_temp = accumulator + mult_ext;
+        if (mac_sum_temp > 41'sd549755813887) begin
+            mac_sum = 40'sd549755813887;  // MAX_POS_40
+        end else if (mac_sum_temp < -41'sd549755813888) begin
+            mac_sum = -40'sd549755813888; // MIN_NEG_40
+        end else begin
+            mac_sum = mac_sum_temp[39:0];
+        end
+        
+        // Inline saturation for ADD result (FIX: Use explicit 40-bit signed literals)
+        if (add_result > 40'sd2147483647) begin
+            add_result_sat = 32'h7FFFFFFF;
+        end else if (add_result < -40'sd2147483648) begin
+            add_result_sat = 32'h80000000;
         end else begin
             add_result_sat = add_result[31:0];
         end
         
-        // Inline saturation for SUB result
-        if (sub_result > MAX_VAL) begin
-            sub_result_sat = 32'sd2147483647;
-        end else if (sub_result < MIN_VAL) begin
-            sub_result_sat = -32'sd2147483648;
+        // Inline saturation for SUB result (FIX: Use explicit 40-bit signed literals)
+        if (sub_result > 40'sd2147483647) begin
+            sub_result_sat = 32'h7FFFFFFF;
+        end else if (sub_result < -40'sd2147483648) begin
+            sub_result_sat = 32'h80000000;
         end else begin
             sub_result_sat = sub_result[31:0];
         end
         
-        // Inline saturation for MAC result
-        if (mac_sum > MAX_VAL) begin
-            mac_result_sat = 32'sd2147483647;
-        end else if (mac_sum < MIN_VAL) begin
-            mac_result_sat = -32'sd2147483648;
+        // Inline saturation for MAC result (FIX: Saturate to 32-bit signed range)
+        if (mac_sum > 40'sd2147483647) begin
+            mac_result_sat = 32'h7FFFFFFF;
+        end else if (mac_sum < -40'sd2147483648) begin
+            mac_result_sat = 32'h80000000;
         end else begin
             mac_result_sat = mac_sum[31:0];
         end
