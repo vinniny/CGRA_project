@@ -309,6 +309,7 @@ module cgra_pe #(
     logic [31:0] sub_result_sat;
     logic [31:0] mac_result_sat;
     logic signed [39:0] mac_sum;
+    logic signed [63:0] mult_full;
     
     // Saturation constants
     localparam signed [39:0] MAX_VAL = 40'sd2147483647;
@@ -340,7 +341,7 @@ module cgra_pe #(
         op1_ext = {{(40-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1};
         // FIX: Use 64-bit temporary to prevent 32-bit overflow interpretation (e.g. 0x80000000 becoming -2^31 instead of +2^31)
         // FIX: Use 64-bit temporary to prevent 32-bit overflow and handle >40-bit products
-        logic signed [63:0] mult_full;
+        
         mult_full = $signed(operand0) * $signed(operand1);
         
         // Check for 40-bit overflow
