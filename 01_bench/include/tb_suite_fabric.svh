@@ -116,8 +116,9 @@ task automatic test_parallel_stress;
         endcase
         
         // Golden model calculation (mirrors Suite AD logic)
+        // CRITICAL: b is 16-bit IMM that gets sign-extended by RTL
         a_s = $signed(a);
-        b_s = $signed(b);
+        b_s = $signed({{16{b[15]}}, b[15:0]});  // Sign-extend 16-bit IMM to 32-bit
         
         case (op)
             OP_ADD: begin
@@ -132,10 +133,10 @@ task automatic test_parallel_stress;
                 else if (temp_sum < MIN_NEG) expected = 32'h8000_0000;
                 else expected = temp_sum[31:0];
             end
-            OP_MUL: expected = a * b;
-            OP_AND: expected = a & b;
-            OP_OR:  expected = a | b;
-            OP_XOR: expected = a ^ b;
+            OP_MUL: expected = a * {{16{b[15]}}, b[15:0]};    // Sign-extended b
+            OP_AND: expected = a & {{16{b[15]}}, b[15:0]};  // Sign-extended b
+            OP_OR:  expected = a | {{16{b[15]}}, b[15:0]};  // Sign-extended b
+            OP_XOR: expected = a ^ {{16{b[15]}}, b[15:0]};  // Sign-extended b
             OP_SHL: expected = a << (b & 32'h1F);
             OP_SHR: expected = a_s >>> (b & 32'h1F);
         endcase
@@ -194,8 +195,9 @@ task automatic test_routing_sweep;
         // Configure PE0: XOR with random immediate (variety)
         config_pe_imm(4'd0, OP_XOR, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, input_val[15:0]);
         
-        // Expected: input XOR input = 0
-        expected = 0;
+        // Expected: input XOR sign_extended(input[15:0])
+        // Note: IMM is sign-extended, so result is NOT zero if input[31:16] differs from sign-extension
+        expected = input_val ^ {{16{input_val[15]}}, input_val[15:0]};
         
         // Reset and run
         apb_write(ADDR_CU_CTRL, 32'h2);
