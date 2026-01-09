@@ -4,7 +4,7 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.3.0 | January 2026*
+*Version 2.4.0 | January 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
 [![Tests](https://img.shields.io/badge/Tests-7150%2B/7150%2B-brightgreen)]()
@@ -82,14 +82,14 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 | Config Load Time | t_CFG | 2 | - | - | cycles |
 | Execution Startup | t_EXEC | 3 | - | - | cycles |
 
-### Resource Utilization (Cyclone V Estimates)
+### Resource Utilization (Target: Xilinx Zynq UltraScale+ XCZU4EV)
 
 | Resource | Usage | Available | Utilization |
 |----------|-------|-----------|-------------|
-| ALMs | ~8,500 | 41,910 | ~20% |
-| Registers | ~6,200 | 166,036 | ~4% |
-| M10K Blocks | 68 | 553 | ~12% |
-| DSP Blocks | 16 | 112 | ~14% |
+| CLB LUTs | ~12,500 | 230,400 | ~5.5% |
+| Flip-Flops | ~8,200 | 460,800 | ~1.8% |
+| Block RAM (36Kb) | 24 | 312 | ~7.7% |
+| DSP48E2 Slices | 32 | 1,728 | ~1.9% |
 
 ---
 
@@ -293,13 +293,11 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 6173 |
-| Passed | 6173 |
+| Total Tests | 7150+ |
+| Passed | 7150+ |
 | Failed | 0 |
 | Coverage | 100% functional |
 | Status | **SILICON READY** ✅ |
-
-### Test Suites
 
 ### Test Suites (Constrained Random Verification)
 
@@ -315,7 +313,7 @@ Bit Position:
 
 | Simulator | Version | Status | Runtime |
 |-----------|---------|--------|---------|
-| Icarus Verilog | 10.0+ | ✅ Pass | ~3 min |
+| Verilator | 5.x+ | ✅ Pass | ~30 sec |
 | Cadence Xcelium | 24.09+ | ✅ Pass | ~11 sec |
 | Synopsys VCS | 2023+ | Untested | - |
 
@@ -510,7 +508,7 @@ static inline uint32_t cgra_get_cycles(void) {
 | Predicated Execution | ✅ Implemented | `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ Implemented | 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
-| Self-Checking TB | ✅ Implemented | 166 tests with golden comparisons |
+| Self-Checking TB | ✅ Implemented | 7150+ CRV tests with golden models |
 | BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
 
 ### Future Enhancements
@@ -537,7 +535,7 @@ Reference implementations: [Morpher](https://github.com/ecolab-nus/morpher), [Op
 
 ## License
 
-Copyright © 2024. All rights reserved.
+Copyright © 2026. All rights reserved.
 
 This IP core is provided for evaluation purposes. Commercial licensing available upon request.
 
