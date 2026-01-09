@@ -338,8 +338,12 @@ module cgra_pe #(
     always_comb begin
         op0_ext = {{(40-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0};
         op1_ext = {{(40-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1};
-        mult_result = $signed(operand0) * $signed(operand1);
-        mult_ext = {{8{mult_result[31]}}, mult_result};
+        // FIX: Use 64-bit temporary to prevent 32-bit overflow interpretation (e.g. 0x80000000 becoming -2^31 instead of +2^31)
+        {mult_ext, mult_result} = 72'd0; // Dummy init to avoid latch
+        // Ideally declare temporary. Or just:
+        mult_ext = 40'($signed(operand0) * $signed(operand1));
+        mult_result = mult_ext[31:0]; // Low 32 bits for regular MUL
+
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
         lif_next_v = accumulator + op0_ext - LIF_LEAK;
