@@ -1,7 +1,11 @@
 // ==============================================================================
-// CGRA DMA Engine - Pipelined Producer-Consumer Architecture
+// CGRA DMA Engine - Pipelined Producer-Consumer Architecture - v2.4
 // ==============================================================================
 // AXI4-Lite master for data/config transfers between external RAM and CGRA.
+//
+// CHANGELOG (v2.4 - January 2026):
+//   - Fixed burst length calculation (WIDTHEXPAND)
+//   - Robustness fixes for 4KB boundary crossings
 //
 // ARCHITECTURE:
 //   - Read Engine (Producer): Fetches data from AXI, pushes to FIFO

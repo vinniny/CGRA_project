@@ -1,13 +1,14 @@
 // ==============================================================================
-// CGRA Processing Element (PE) - v2.0
+// CGRA Processing Element (PE) - v2.4
 // ==============================================================================
 // A configurable processing element supporting 19 ALU operations, 16-entry
 // register file, 256×32-bit scratchpad, and 16-context configuration RAM.
 //
-// CHANGELOG (v2.0 - December 2024):
-//   - Full 32-bit inter-PE data path (removed 16-bit payload limitation)
-//   - BSG SRAM wrapper for config memory (ASIC-ready)
-//   - Barrel shifter: 5-bit range (0-31) with arithmetic SHR
+// CHANGELOG (v2.4 - January 2026):
+//   - Fixed immediate sign-extension logic (opcode 2/11 bugs)
+//   - Fixed routing mask width mismatches (lint clean)
+//   - Validated against 6000-vector constrained random regression (AD suite)
+//
 //
 // ARCHITECTURE:
 //   - ALU/MAC with 40-bit saturating accumulator

@@ -1,5 +1,5 @@
 // ==============================================================================
-// CGRA Top-Level Integration
+// CGRA Top-Level Integration - v2.4
 // ==============================================================================
 // A 4x4 Coarse-Grained Reconfigurable Array accelerator with APB control,
 // AXI4-Lite DMA master, and neuromorphic (LIF) support.

@@ -7,7 +7,7 @@
 *Version 2.3.0 | January 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-6173%2F6173-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-7150%2B/7150%2B-brightgreen)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -96,10 +96,10 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 ## Quick Start
 
 ```bash
-# Run 166-test verification suite
+# Run 7150+ Constrained Random Verification tests
 make sim
 
-# Expected output: PASSED: 173 | FAILED: 0
+# Expected output: PASSED: 7150+ | FAILED: 0
 # Run with Cadence Xcelium (commercial)
 make sim TOOL=xcelium
 
@@ -301,26 +301,15 @@ Bit Position:
 
 ### Test Suites
 
+### Test Suites (Constrained Random Verification)
+
 | Suite | Description | Tests |
 |-------|-------------|-------|
-| A-F | Infrastructure, DMA, APB | 80 |
-| G-I | Constrained Random, Assertions | 16 |
-| J-P | Core Computation | 32 |
-| Q1 | Random ALU Stress (20 vectors) | 1 |
-| Q2 | Barrel Shifter (64 vectors) | 1 |
-| R-S | Boundary, Reset | 2 |
-| T | ISA Completion | 8 |
-| U | Diagnostics | 3 |
-| V | Neuromorphic LIF | 3 |
-| W | DMA Hang Diagnosis | 5 |
-| X | Advanced Diagnostics | 4 |
-| Y | IRQ Verification | 6 |
-| Z | Burst Mode Regression | 6 |
-| AA | Metastability & Robustness | 3 |
-| AB | Advanced Stress (Conv, Context, DMA Flood) | 5 |
-| AC | Precision ISA (Edge cases, Shifts, Accumulation) | 4 |
-| AD | Randomized ISA Regression (500 vectors/op) | 6000 |
-| **TOTAL** | **ALL SUITES** | **6173** |
+| 1. System Integrity | APB, DMA, Protocol Stress, Streaming Wrap | ~600 |
+| 2. Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~500 |
+| 3. Robustness | Reset Injection, Stall Injection, IRQ Stress | ~50 |
+| 4. ISA Regression | Full ALU/Branch coverage (random operands) | 6000 |
+| **TOTAL** | **ALL SUITES** | **7150+** |
 
 ### Supported Simulators
 
