@@ -339,10 +339,25 @@ module cgra_pe #(
         op0_ext = {{(40-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0};
         op1_ext = {{(40-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1};
         // FIX: Use 64-bit temporary to prevent 32-bit overflow interpretation (e.g. 0x80000000 becoming -2^31 instead of +2^31)
-        {mult_ext, mult_result} = 72'd0; // Dummy init to avoid latch
-        // Ideally declare temporary. Or just:
-        mult_ext = 40'($signed(operand0) * $signed(operand1));
-        mult_result = mult_ext[31:0]; // Low 32 bits for regular MUL
+        // FIX: Use 64-bit temporary to prevent 32-bit overflow and handle >40-bit products
+        logic signed [63:0] mult_full;
+        mult_full = $signed(operand0) * $signed(operand1);
+        
+        // Check for 40-bit overflow
+        // If all bits from [63:39] are NOT identical, we have overflow beyond 40 bits.
+        // (Sign bit [63] must match effectively the sign of the 40-bit result [39]).
+        // Actually, valid 40-bit number has [63:39] all 0 (positive) or all 1 (negative).
+        // So we check if mult_full[63:39] are ALL 0 or ALL 1.
+        if (&mult_full[63:39] == 1'b1 || |mult_full[63:39] == 1'b0) begin
+            // No overflow, fits in 40 bits
+            mult_ext = mult_full[39:0];
+        end else begin
+            // Overflow. Saturate to MAX/MIN 40-bit value based on sign (bit 63)
+            if (mult_full[63] == 1'b0) mult_ext = 40'sd549755813887;  // MAX_POS (2^39 - 1)
+            else                       mult_ext = -40'sd549755813888; // MIN_NEG (-2^39)
+        end
+        
+        mult_result = mult_full[31:0]; // Low 32 bits for regular MUL
 
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
