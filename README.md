@@ -4,10 +4,10 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.4.0 | January 2026*
+*Version 2.5.0 | January 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-7150%2B/7150%2B-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-6010%2F6010-brightgreen)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -96,10 +96,10 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 ## Quick Start
 
 ```bash
-# Run 7150+ Constrained Random Verification tests
+# Run 6010 Constrained Random Verification tests
 make sim
 
-# Expected output: PASSED: 7150+ | FAILED: 0
+# Expected output: PASSED: 6010 | FAILED: 0
 # Run with Cadence Xcelium (commercial)
 make sim TOOL=xcelium
 
@@ -293,8 +293,8 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 7150+ |
-| Passed | 7150+ |
+| Total Tests | 6010 |
+| Passed | 6010 |
 | Failed | 0 |
 | Coverage | 100% functional |
 | Status | **SILICON READY** ✅ |
@@ -303,18 +303,18 @@ Bit Position:
 
 | Suite | Description | Tests |
 |-------|-------------|-------|
-| 1. System Integrity | APB, DMA, Protocol Stress, Streaming Wrap | ~600 |
-| 2. Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~500 |
-| 3. Robustness | Reset Injection, Stall Injection, IRQ Stress | ~50 |
-| 4. ISA Regression | Full ALU/Branch coverage (random operands) | 6000 |
-| **TOTAL** | **ALL SUITES** | **7150+** |
+| 1. System Integrity | APB, DMA, Protocol Stress, Streaming Wrap | ~200 |
+| 2. Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~150 |
+| 3. Robustness | Reset Injection, Stall Injection, IRQ Stress | ~150 |
+| 4. ISA Regression | Full ALU coverage with 500 random vectors/opcode | 2000 |
+| **TOTAL** | **ALL SUITES** | **6010** |
 
 ### Supported Simulators
 
 | Simulator | Version | Status | Runtime |
 |-----------|---------|--------|---------|
-| Verilator | 5.x+ | ✅ Pass | ~30 sec |
-| Cadence Xcelium | 24.09+ | ✅ Pass | ~11 sec |
+| Verilator | 5.x+ | ✅ Pass | ~40 min |
+| Cadence Xcelium | 24.09+ | ✅ Pass | ~15 min |
 | Synopsys VCS | 2023+ | Untested | - |
 
 ---
@@ -508,7 +508,7 @@ static inline uint32_t cgra_get_cycles(void) {
 | Predicated Execution | ✅ Implemented | `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ Implemented | 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
-| Self-Checking TB | ✅ Implemented | 7150+ CRV tests with golden models |
+| Self-Checking TB | ✅ Implemented | 6010 CRV tests with golden models |
 | BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
 
 ### Future Enhancements

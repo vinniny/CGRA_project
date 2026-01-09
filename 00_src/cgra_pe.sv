@@ -365,12 +365,19 @@ module cgra_pe #(
         sub_result = op0_ext - op1_ext;
         lif_next_v = accumulator + op0_ext - LIF_LEAK;
         
-        // FIX: Saturate accumulation to 40-bit to prevent wrap-around of accumulator state
+        // ========================================================================
+        // MULTIPLY-ACCUMULATE (MAC) SATURATION FIX - January 2026
+        // ========================================================================
+        // Problem: 40-bit accumulator can overflow when adding 40-bit mult_ext.
+        //          Simple addition `accumulator + mult_ext` wraps at 40 bits.
+        // Solution: Use 41-bit intermediate (mac_sum_temp) to detect overflow,
+        //           then saturate to 40-bit MAX_POS/MIN_NEG before storing.
+        // ========================================================================
         mac_sum_temp = accumulator + mult_ext;
         if (mac_sum_temp > 41'sd549755813887) begin
-            mac_sum = 40'sd549755813887;  // MAX_POS_40
+            mac_sum = 40'sd549755813887;  // MAX_POS_40 = 2^39 - 1
         end else if (mac_sum_temp < -41'sd549755813888) begin
-            mac_sum = -40'sd549755813888; // MIN_NEG_40
+            mac_sum = -40'sd549755813888; // MIN_NEG_40 = -2^39
         end else begin
             mac_sum = mac_sum_temp[39:0];
         end
