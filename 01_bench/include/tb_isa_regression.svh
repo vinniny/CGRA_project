@@ -60,7 +60,10 @@ task automatic run_suite_AD_isa_regression;
                 end
                 
                 // FIX: Mask b to 16-bit BEFORE golden calculation, as we use IMM (16-bit)
-                if (op_idx != 8 && op_idx != 9) b = b & 32'hFFFF;
+                // FIX: Mask b to 16-bit and SIGN EXTEND to match RTL behavior
+                if (op_idx != 8 && op_idx != 9) begin
+                    b = {{16{b[15]}}, b[15:0]};
+                end
                 
                 // 2. Compute Golden Result
                 a_s = $signed(a);
