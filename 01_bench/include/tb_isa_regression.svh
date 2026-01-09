@@ -90,38 +90,12 @@ task automatic run_suite_AD_isa_regression;
                     3: expected = a * b;
                     
                     // MAC (Saturating + Accumulate)
-                    // Hard to verify in loop because of state.
-                    // Simplified randomized test: 
-                    // Clear Acc, then Load Acc=A, then MAC with B*1 ? 
-                    // Or just test basic MAC: Acc=0, A*B
-                    // For regression simplicity: We will clear accumulator before each MAC test
+                    // For regression: Clear accumulator before each MAC test
                     // to verify the multiplication/saturation part primarily.
+                    // NOTE: b is already sign-extended from 16-bit by the fix at line 65
                     4: begin
-                        // Pre-calculate expected
-                        // We will set Accumulator to 0 first (in step 3 below)
-                        temp_sum = 0 + (a_s * b_s); // Acc(0) + A * B
-                        // Wait, MAC in RTL is: mac_sum = accumulator + operand0 * operand1
-                        // Operand0 is West, Operand1 is Imm.
-                        // We actually use West * Imm.
-                        // But wait, the RTL takes input from operands.
-                        // We will route A from West (Tile Mem) and B from IMM (16-bit).
-                        // Limitation: IMM is only 16-bit.
-                        // To test full 32x32, we need input from North/East etc.
-                        // Let's stick to West(32) * Imm(16) for regression simplicity, 
-                        // matching our `config_pe_imm` task.
-                        // RE-ROLL B to 16-bit!
-                        b = b & 32'hFFFF; 
-                        b_s = $signed(b); // Re-sign extend if 16-bit? No, imm is unsigned usually or signed?
-                        // RTL: operand1 <= imm_val (extended?).
-                        // Let's check RTL.
-                        // cgra_pe.sv: operand1 = mux_out_source_1
-                        // cgra_pe.sv: alu instruction decoding...
-                        // If SRC_IMM (6), operand1 is usually extended.
-                        
-                        // Let's assume signed multiply for now (temp_sum logic above).
-                        temp_sum = (a_s * $signed(b[15:0])); // Sign extended 16-bit?
-                        // PE RTL check needed!
-                        // Assuming valid:
+                        // MAC: Acc(0) + A * B (both signed, B is sign-extended 16-bit)
+                        temp_sum = (a_s * b_s);
                         if (temp_sum > 64'(MAX_POS)) expected = MAX_POS;
                         else if (temp_sum < 64'(MIN_NEG)) expected = MIN_NEG;
                         else expected = temp_sum[31:0];
