@@ -1,31 +1,37 @@
 # ==============================================================================
-# CGRA Project Makefile
+# CGRA Project Makefile - Cadence Xcelium / Genus / Conformal Flow
 # ==============================================================================
-# Usage:
-#   make sim          - Run 140-test verification
-#   make wave         - Open waveform viewer
-#   make gui          - Run in GUI mode (Xcelium only)
-#   make clean        - Remove generated files
-#   make help         - Show available commands
-#
-# Tool Selection:
-#   Edit TOOL variable below, or override on command line:
-#   make sim TOOL=xcelium
+# Version: 2.5.0 | January 2026
 # ==============================================================================
 
 # ==============================================================================
-# TOOL SELECTION - Change this to switch simulators
+# Directory Structure
 # ==============================================================================
-# Options: iverilog, xcelium
-TOOL ?= iverilog
+SRC_DIR     := 00_src
+BSG_DIR     := 00_src/bsg_mem
+TB_DIR      := 01_bench
+LOG_DIR     := 02_log
+SIM_DIR     := 03_sim
+SYN_DIR     := 04_syn
+LEC_DIR     := 05_lec
+SCRIPT_DIR  := scripts
 
 # ==============================================================================
-# Directories
+# Configurable Parameters
 # ==============================================================================
-SRC_DIR  := 00_src
-BSG_DIR  := 00_src/bsg_mem
-TB_DIR   := 01_bench
-SIM_DIR  := 03_sim
+# Synthesis
+TOP_SYN         ?= cgra_top
+GENUS_GUI_ENABLE ?= 0
+
+# LEC
+LEC_GUI_ENABLE  ?= 0
+LEC_EFFORT      ?= Auto
+
+# Simulation
+SEED            ?= $(shell date +%s)
+TEST_ITERS      ?= 500
+CYCLES          ?= 100
+CORE            ?= 4
 
 # ==============================================================================
 # Source Files
@@ -58,190 +64,317 @@ TB_SRCS := \
 	$(TB_DIR)/cgra_protocol_monitor.sv \
 	$(TB_DIR)/tb_top.sv
 
-# All sources
+# All sources for simulation
 ALL_SRCS := $(BSG_SRCS) $(RTL_SRCS) $(TB_SRCS)
 
 # ==============================================================================
-# Tool-Specific Variables
+# Tool Commands
 # ==============================================================================
-VVP_FILE := $(SIM_DIR)/tb_top.vvp
-VCD_FILE := $(SIM_DIR)/cgra_master_sim.vcd
-SHM_FILE := $(SIM_DIR)/waves.shm
+XMVLOG  := xmvlog
+XMELAB  := xmelab
+XMSIM   := xmsim
+GENUS   := genus
+LEC     := lec
 
 # ==============================================================================
-# Targets
+# Phony Targets
 # ==============================================================================
+.PHONY: all help compile build run sim test lab_test wave clean clean-all \
+        syn restore_syn lec full create_flist lint check_tools
 
-.PHONY: all sim compile wave gui clean clean-all help create_flist
+# ==============================================================================
+# Default Target
+# ==============================================================================
+all: test
 
-all: sim
+# ==============================================================================
+# Help
+# ==============================================================================
+help:
+	@echo "=========================================================================="
+	@echo " CGRA Project Makefile - Cadence Flow"
+	@echo "=========================================================================="
+	@echo ""
+	@echo " Simulation Targets (Split Flow):"
+	@echo "   make compile      - Compile RTL sources with xmvlog"
+	@echo "   make build        - Elaborate design with xmelab"
+	@echo "   make run          - Run simulation with xmsim"
+	@echo "   make test         - Complete flow: compile + build + run (sanity)"
+	@echo "   make lab_test     - Run sanity + advanced + benchmark + stress in one shot"
+	@echo "   make wave         - Open Simvision waveform viewer"
+	@echo ""
+	@echo " Synthesis & Formal Targets:"
+	@echo "   make syn          - Run Genus synthesis"
+	@echo "   make restore_syn  - Restore Genus with synthesized design"
+	@echo "   make lec          - Run Conformal logical equivalence check"
+	@echo "   make full         - Run complete flow (sim + syn + lec)"
+	@echo ""
+	@echo " Utility Targets:"
+	@echo "   make lint         - Run Xcelium lint checks"
+	@echo "   make clean        - Remove simulation artifacts"
+	@echo "   make clean-all    - Remove all generated files"
+	@echo ""
+	@echo " Options:"
+	@echo "   SEED=N                  - Set random seed (default: timestamp)"
+	@echo "   CYCLES=N                - Cycles for stress test (default 100)"
+	@echo "   TEST_ITERS=N            - Iterations per randomized testcase (default 500)"
+	@echo "   CORE=N                  - Number of cores for parallel tools (default 4)"
+	@echo "   TOP_SYN=module          - Top module for synthesis (default cgra_top)"
+	@echo "   GENUS_GUI_ENABLE=1      - Enable Genus GUI"
+	@echo "   LEC_GUI_ENABLE=1        - Enable Conformal GUI"
+	@echo "   LEC_EFFORT=Auto|Medium  - LEC comparison effort"
+	@echo "=========================================================================="
+
+# ==============================================================================
+# SIMULATION TARGETS (Split Flow)
+# ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Main simulation target - switches based on TOOL
+# Step 1: Compile RTL with xmvlog
 # ------------------------------------------------------------------------------
-sim:
-ifeq ($(TOOL),iverilog)
-	@$(MAKE) _sim_iverilog
-else ifeq ($(TOOL),xcelium)
-	@$(MAKE) _sim_xcelium
-else ifeq ($(TOOL),verilator)
-	@$(MAKE) _sim_verilator
-else
-	@echo "ERROR: Unknown TOOL=$(TOOL). Use 'iverilog', 'xcelium', or 'verilator'"
-	@exit 1
-endif
+compile: create_flist
+	@echo "=========================================================================="
+	@echo " [COMPILE] Compiling RTL sources with xmvlog"
+	@echo "=========================================================================="
+	@mkdir -p $(SIM_DIR) $(LOG_DIR)
+	cd $(SIM_DIR) && $(XMVLOG) -sv -f flist \
+		-define XCELIUM \
+		-define SEED=$(SEED) \
+		-define TEST_ITERS=$(TEST_ITERS) \
+		2>&1 | tee ../$(LOG_DIR)/compile.log
+	@echo "[COMPILE] Done - see $(LOG_DIR)/compile.log"
 
 # ------------------------------------------------------------------------------
-# Waveform viewer - switches based on TOOL
+# Step 2: Elaborate design with xmelab
+# ------------------------------------------------------------------------------
+build: 
+	@echo "=========================================================================="
+	@echo " [BUILD] Elaborating design with xmelab"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	cd $(SIM_DIR) && $(XMELAB) \
+		-timescale 1ns/1ps \
+		-access +rwc \
+		-snapshot snap \
+		worklib.tb_top \
+		2>&1 | tee ../$(LOG_DIR)/elaborate.log
+	@echo "[BUILD] Done - see $(LOG_DIR)/elaborate.log"
+
+# ------------------------------------------------------------------------------
+# Step 3: Run simulation with xmsim
+# ------------------------------------------------------------------------------
+run:
+	@echo "=========================================================================="
+	@echo " [RUN] Running simulation with xmsim"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	cd $(SIM_DIR) && $(XMSIM) snap \
+		+SEED=$(SEED) \
+		+TEST_ITERS=$(TEST_ITERS) \
+		+CYCLES=$(CYCLES) \
+		2>&1 | tee ../$(LOG_DIR)/sim.log
+	@echo ""
+	@echo "[RUN] Done - see $(LOG_DIR)/sim.log"
+	@echo "Waveform: $(SIM_DIR)/waves.shm"
+
+# ------------------------------------------------------------------------------
+# Complete sanity flow: compile + build + run
+# ------------------------------------------------------------------------------
+test: compile build run
+	@echo ""
+	@echo "=========================================================================="
+	@echo " [TEST] Complete sanity flow finished"
+	@echo "=========================================================================="
+
+# ------------------------------------------------------------------------------
+# Lab test: Run all test categories in sequence
+# ------------------------------------------------------------------------------
+lab_test:
+	@echo "=========================================================================="
+	@echo " [LAB_TEST] Running complete lab test suite"
+	@echo "=========================================================================="
+	@$(MAKE) compile
+	@$(MAKE) build
+	@echo ""
+	@echo "--- Running Sanity Tests ---"
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=sanity -l sanity.log
+	@echo ""
+	@echo "--- Running Advanced Tests ---"
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=advanced -l advanced.log
+	@echo ""
+	@echo "--- Running Benchmark Tests ---"
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=benchmark -l benchmark.log
+	@echo ""
+	@echo "--- Running Stress Tests ---"
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=stress +CYCLES=$(CYCLES) -l stress.log
+	@echo ""
+	@echo "=========================================================================="
+	@echo " [LAB_TEST] All tests complete. Check logs in $(SIM_DIR)/"
+	@echo "=========================================================================="
+
+# ------------------------------------------------------------------------------
+# Legacy sim target for compatibility
+# ------------------------------------------------------------------------------
+sim: test
+
+# ------------------------------------------------------------------------------
+# Open Simvision waveform viewer
 # ------------------------------------------------------------------------------
 wave:
-ifeq ($(TOOL),iverilog)
-	@gtkwave $(VCD_FILE) &
-else ifeq ($(TOOL),xcelium)
-	@simvision $(SHM_FILE) &
+	@echo "[WAVE] Opening Simvision..."
+	@cd $(SIM_DIR) && simvision waves.shm &
+
+# ------------------------------------------------------------------------------
+# GUI mode with waveform setup
+# ------------------------------------------------------------------------------
+gui: compile
+	@echo "[GUI] Running Xcelium in GUI mode..."
+	@cd $(SIM_DIR) && xrun -gui -64bit \
+		-access +rwc \
+		-f flist \
+		-input ../$(TB_DIR)/restore.tcl
+
+# ------------------------------------------------------------------------------
+# Lint check
+# ------------------------------------------------------------------------------
+lint: create_flist
+	@echo "=========================================================================="
+	@echo " [LINT] Running Xcelium lint checks"
+	@echo "=========================================================================="
+	@mkdir -p $(SIM_DIR)
+	@cd $(SIM_DIR) && xmvlog -sv -64bit -f flist \
+		-work worklib \
+		2>&1 | tee lint.log
+	@echo "[LINT] Done - see $(SIM_DIR)/lint.log"
+
+# ==============================================================================
+# SYNTHESIS TARGETS (Genus)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Run Genus synthesis
+# ------------------------------------------------------------------------------
+syn:
+	@echo "=========================================================================="
+	@echo " [SYN] Running Genus Synthesis"
+	@echo " Top Module: $(TOP_SYN)"
+	@echo "=========================================================================="
+	@mkdir -p $(SYN_DIR)
+ifeq ($(GENUS_GUI_ENABLE),1)
+	@cd $(SYN_DIR) && $(GENUS) -gui \
+		-files ../$(SCRIPT_DIR)/genus_syn.tcl \
+		-log genus.log \
+		-overwrite
+else
+	@cd $(SYN_DIR) && $(GENUS) -batch \
+		-files ../$(SCRIPT_DIR)/genus_syn.tcl \
+		-log genus.log \
+		-overwrite
 endif
+	@echo "[SYN] Done - see $(SYN_DIR)/genus.log"
 
 # ------------------------------------------------------------------------------
-# GUI mode (Xcelium only) - uses restore.tcl for waveform setup
+# Restore Genus with synthesized design
 # ------------------------------------------------------------------------------
-gui: create_flist
-	@mkdir -p $(SIM_DIR)
-	@cd $(SIM_DIR) && xrun -gui -access +rwc -f flist -input ../$(TB_DIR)/restore.tcl
+restore_syn:
+	@echo "=========================================================================="
+	@echo " [RESTORE_SYN] Restoring Genus session"
+	@echo "=========================================================================="
+	@cd $(SYN_DIR) && $(GENUS) -gui \
+		-files ../$(SCRIPT_DIR)/genus_restore.tcl \
+		-log genus_restore.log
+
+# ==============================================================================
+# LEC TARGETS (Conformal)
+# ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Icarus Verilog Implementation
+# Run Conformal LEC
 # ------------------------------------------------------------------------------
-_sim_iverilog: _compile_iverilog
-	@echo "============================================"
-	@echo "Running 140-Vector Verification (iverilog)"
-	@echo "============================================"
-	@cd $(SIM_DIR) && vvp ../$(VVP_FILE)
-	@echo ""
-	@echo "Waveform: $(VCD_FILE)"
-	@echo "View with: make wave"
-
-_compile_iverilog:
-	@echo "============================================"
-	@echo "Compiling with Icarus Verilog"
-	@echo "============================================"
-	@mkdir -p $(SIM_DIR)
-	@iverilog -g2012 -I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include -o $(VVP_FILE) $(ALL_SRCS)
-
-# ------------------------------------------------------------------------------
-# Verilator 5.x Implementation (with --timing mode)
-# ------------------------------------------------------------------------------
-VERILATOR = verilator
-# Minimal waivers: only for RTL issues outside testbench control
-# - UNOPTFLAT: circular ready mesh in cgra_array_4x4.sv (RTL design pattern)
-# - EOFNEWLINE: BSG library files (external code)
-# - UNUSEDSIGNAL/UNUSEDPARAM: Testbench/BSG library infrastructure
-# - TIMESCALEMOD: Mixed timescale (TB vs RTL)
-# - VARHIDDEN: TB local variables shadow globals intentionally
-# - CASEINCOMPLETE: Case selects from random values (not all cases used)
-# NOTE: Keep WIDTHEXPAND/WIDTHTRUNC enabled to catch real width bugs
-VERILATOR_FLAGS = --binary --timing -j 0 \
-	-Wall -Wno-fatal \
-	-Wno-UNOPTFLAT -Wno-EOFNEWLINE \
-	-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-	-Wno-TIMESCALEMOD -Wno-VARHIDDEN \
-	-Wno-CASEINCOMPLETE -Wno-SYNCASYNCNET \
-	-Wno-REDEFMACRO -Wno-GENUNNAMED \
-	--top-module tb_top \
-	-I$(SRC_DIR) -I$(BSG_DIR) -I$(TB_DIR) -I$(TB_DIR)/include \
-	+define+VERILATOR
-
-RUN_ARGS =
-ifdef TRACE
-	VERILATOR_FLAGS += --trace
-	RUN_ARGS += +trace
+lec:
+	@echo "=========================================================================="
+	@echo " [LEC] Running Conformal Logical Equivalence Check"
+	@echo " Effort: $(LEC_EFFORT)"
+	@echo "=========================================================================="
+	@mkdir -p $(LEC_DIR)
+ifeq ($(LEC_GUI_ENABLE),1)
+	@cd $(LEC_DIR) && $(LEC) -gui \
+		-dofile ../$(SCRIPT_DIR)/conformal_lec.tcl \
+		-logfile lec.log
+else
+	@cd $(LEC_DIR) && $(LEC) -nogui \
+		-dofile ../$(SCRIPT_DIR)/conformal_lec.tcl \
+		-logfile lec.log
 endif
+	@echo "[LEC] Done - see $(LEC_DIR)/lec.log"
 
-_sim_verilator:
-	@echo "============================================"
-	@echo "Compiling with Verilator 5.x (--timing)"
-	@echo "============================================"
-	@mkdir -p $(SIM_DIR)
-	$(VERILATOR) $(VERILATOR_FLAGS) \
-		$(BSG_SRCS) $(RTL_SRCS) \
-		$(TB_DIR)/tb_top.sv \
-		$(TB_DIR)/sim_main.cpp
-	@cp obj_dir/Vtb_top $(SIM_DIR)/Vtb_top
-	@echo ""
-	@echo "============================================"
-	@echo "Running 166-Vector Verification (Verilator)"
-	@echo "============================================"
-	@cd $(SIM_DIR) && ./Vtb_top $(RUN_ARGS)
-	@echo ""
-	@echo "Waveform: $(SIM_DIR)/cgra_sim.vcd"
-	@echo "View with: gtkwave $(SIM_DIR)/cgra_sim.vcd &"
+# ==============================================================================
+# FULL FLOW
+# ==============================================================================
+full: test syn lec
+	@echo "=========================================================================="
+	@echo " [FULL] Complete flow finished: Simulation + Synthesis + LEC"
+	@echo "=========================================================================="
 
-# ------------------------------------------------------------------------------
-# Cadence Xcelium Implementation
-# ------------------------------------------------------------------------------
-_sim_xcelium: create_flist
-	@echo "============================================"
-	@echo "Running 140-Vector Verification (Xcelium)"
-	@echo "============================================"
-	@mkdir -p $(SIM_DIR)
-	@cd $(SIM_DIR) && xrun -access +rwc -f flist
-
-# Generate file list for Xcelium (paths relative to SIM_DIR)
+# ==============================================================================
+# FILE LIST GENERATION
+# ==============================================================================
 create_flist:
-	@echo "-> Creating flist"
-	@rm -f flist
-	@echo "-sv" >> flist
-	@echo "-timescale 1ns/1ps" >> flist
-	@echo "-64bit" >> flist
-	@echo "" >> flist
-	@echo "# BSG MEMORY LIBRARY" >> flist
-	@for f in $(BSG_SRCS); do echo ../$$f >> flist; done
-	@echo "" >> flist
-	@echo "# RTL SOURCE FILES" >> flist
-	@for f in $(RTL_SRCS); do echo ../$$f >> flist; done
-	@echo "" >> flist
-	@echo "# TESTBENCH FILES" >> flist
-	@echo "../$(TB_DIR)/cgra_protocol_monitor.sv" >> flist
-	@echo "../$(TB_DIR)/tb_top.sv" >> flist
-	@echo "" >> flist
-	@echo "# INCLUDE DIRECTORIES" >> flist
-	@echo "-incdir ../$(SRC_DIR)" >> flist
-	@echo "-incdir ../$(BSG_DIR)" >> flist
-	@echo "-incdir ../$(TB_DIR)" >> flist
-	@echo "-incdir ../$(TB_DIR)/include" >> flist
-	@mv flist $(SIM_DIR)/flist
+	@echo "[FLIST] Creating file list for Xcelium..."
+	@mkdir -p $(SIM_DIR)
+	@rm -f $(SIM_DIR)/flist
+	@echo "# CGRA Project File List" > $(SIM_DIR)/flist
+	@echo "# Generated: $$(date)" >> $(SIM_DIR)/flist
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "# Compilation options" >> $(SIM_DIR)/flist
+	@echo "-sv" >> $(SIM_DIR)/flist
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "# Include directories" >> $(SIM_DIR)/flist
+	@echo "-incdir ../$(SRC_DIR)" >> $(SIM_DIR)/flist
+	@echo "-incdir ../$(BSG_DIR)" >> $(SIM_DIR)/flist
+	@echo "-incdir ../$(TB_DIR)" >> $(SIM_DIR)/flist
+	@echo "-incdir ../$(TB_DIR)/include" >> $(SIM_DIR)/flist
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "# BSG Memory Library" >> $(SIM_DIR)/flist
+	@for f in $(BSG_SRCS); do echo ../$$f >> $(SIM_DIR)/flist; done
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "# RTL Source Files" >> $(SIM_DIR)/flist
+	@for f in $(RTL_SRCS); do echo ../$$f >> $(SIM_DIR)/flist; done
+	@echo "" >> $(SIM_DIR)/flist
+	@echo "# Testbench Files" >> $(SIM_DIR)/flist
+	@for f in $(TB_SRCS); do echo ../$$f >> $(SIM_DIR)/flist; done
+	@echo "[FLIST] Done - $(SIM_DIR)/flist"
 
-# ------------------------------------------------------------------------------
-# Clean
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# CLEAN TARGETS
+# ==============================================================================
 clean:
-	@echo "-> CLEAN"
-	@rm -rf $(SIM_DIR)/*.vvp $(SIM_DIR)/*.vcd $(SIM_DIR)/*.log
-	@rm -rf xcelium.d *.shm *.log *.key *.history xrun.* *.diag
-	@rm -rf flist INCA_libs *.vcd $(SIM_DIR)/*.shm
+	@echo "[CLEAN] Removing simulation artifacts..."
+	@echo "  - Cleaning $(SIM_DIR)/"
+	@rm -rf $(SIM_DIR)/worklib $(SIM_DIR)/xcelium.d $(SIM_DIR)/INCA_libs
+	@rm -rf $(SIM_DIR)/*.shm $(SIM_DIR)/*.key $(SIM_DIR)/*.diag $(SIM_DIR)/*.history
+	@rm -rf $(SIM_DIR)/flist
+	@echo "  - Cleaning $(LOG_DIR)/"
+	@rm -f $(LOG_DIR)/*.log
+	@echo "  - Cleaning root directory artifacts"
+	@rm -rf xcelium.d INCA_libs xrun.* .simvision
+	@rm -f *.log *.key *.history *.diag
+	@echo "[CLEAN] Done"
 
 clean-all: clean
-	@rm -rf $(SIM_DIR)
+	@echo "[CLEAN-ALL] Removing all generated directories..."
+	@rm -rf $(SIM_DIR)/* $(SYN_DIR)/* $(LEC_DIR)/*
+	@rm -rf obj_dir
+	@echo "[CLEAN-ALL] Done"
 
-# ------------------------------------------------------------------------------
-# Help
-# ------------------------------------------------------------------------------
-help:
-	@echo ""
-	@echo "CGRA Verification Makefile"
-	@echo "=========================="
-	@echo ""
-	@echo "Current TOOL = $(TOOL)"
-	@echo ""
-	@echo "Commands:"
-	@echo "  make sim          - Run 140-test verification"
-	@echo "  make wave         - Open waveform viewer"
-	@echo "  make gui          - Run in GUI mode (Xcelium)"
-	@echo "  make clean        - Remove generated files"
-	@echo "  make help         - Show this help"
-	@echo ""
-	@echo "Switch simulator:"
-	@echo "  make sim TOOL=iverilog   - Use Icarus Verilog"
-	@echo "  make sim TOOL=xcelium    - Use Cadence Xcelium"
-	@echo ""
-	@echo "Or edit line 20:  TOOL ?= xcelium"
-	@echo ""
+# ==============================================================================
+# TOOL CHECK
+# ==============================================================================
+check_tools:
+	@echo "Checking Cadence tools..."
+	@which xmvlog && xmvlog -version || echo "xmvlog not found"
+	@which xmelab && xmelab -version || echo "xmelab not found"
+	@which xmsim && xmsim -version || echo "xmsim not found"
+	@which genus && genus -version || echo "Genus not found"
+	@which lec && lec -version || echo "Conformal not found"

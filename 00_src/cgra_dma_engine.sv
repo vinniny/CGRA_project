@@ -345,7 +345,7 @@ module cgra_dma_engine #(
             m_axi_awaddr <= '0;
             m_axi_awvalid <= 1'b0;
             m_axi_wdata <= '0;
-            m_axi_wstrb <= '1;
+            // Note: m_axi_wstrb driven by continuous assign (line 332)
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
         end else if (cfg_abort) begin  // FIX: Abort forces write FSM to IDLE

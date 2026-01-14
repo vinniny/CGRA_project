@@ -84,8 +84,8 @@ module tb_top;
     logic        stress_enable = 1'b0;
     int          stress_probability = 0;
 
-    // Cycle counter
-    always_ff @(posedge clk) cycle_count <= cycle_count + 1;
+    // Cycle counter (using always for testbench)
+    always @(posedge clk) cycle_count = cycle_count + 1;
 
     // =========================================================================
     // 4. INCLUDE MODULAR LAYERS (Order matters!)
