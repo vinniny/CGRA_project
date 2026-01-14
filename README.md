@@ -1,4 +1,4 @@
-# CGRA SoC Accelerator
+# CGRA Accelerator for SNN Inference
 
 <div align="center">
 
@@ -16,14 +16,19 @@
 
 ## Product Overview
 
-High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP for dataflow computation, DSP, and edge AI applications. Features a 4×4 mesh of processing elements with integrated DMA, APB control interface, and neuromorphic computing support.
+High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP designed specifically for **Sparse Spiking Neural Network (SNN) Inference**. Features a 4×4 mesh of processing elements with integrated DMA, APB control interface, and specialized hardware support for **Leaky Integrate-and-Fire (LIF)** neuron dynamics.
+
+### Key Innovations
+- **Spatially Programmable Mesh**: 4×4 PE array with multicast routing for efficient sparse matrix computation.
+- **Hardware LIF Neurons**: Dedicated state-update logic within each PE for biologically plausible spiking dynamics.
+- **Double-Buffered Configuration**: Latency-hiding context memory allowing "hot-swap" reconfiguration between network layers.
+- **Row-Banked Memory**: 4-bank interleaved SRAM system to maximize parallel data access.
 
 ### Target Applications
+- **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
+- **Sparse Linear Algebra**: Compressed Sparse Column (CSC) matrix operations
 - **Signal Processing**: FIR/IIR filters, FFT acceleration
-- **Machine Learning**: CNN inference, tensor operations
-- **Neuromorphic Computing**: Spiking neural networks (LIF neurons)
-- **Image Processing**: Convolution, edge detection
-- **Cryptography**: AES, SHA acceleration kernels
+- **Edge AI**: Ultra-low latency inference on FPGA
 
 ---
 
@@ -33,18 +38,18 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 
 | Parameter | Symbol | Min | Typ | Max | Unit |
 |-----------|--------|-----|-----|-----|------|
-| Operating Frequency | f_CLK | 10 | 100 | 200* | MHz |
+| Operating Frequency | f_CLK | 10 | 100 | 213.72 | MHz |
 | Supply Voltage | V_DD | 0.9 | 1.0 | 1.1 | V |
 | Operating Temperature | T_A | -40 | 25 | 85 | °C |
 | Reset Pulse Width | t_RST | 10 | - | - | ns |
 
-*\*200 MHz achievable with timing-optimized synthesis*
+*Fmax of 213.72 MHz achieved with timing-optimized synthesis on Zynq UltraScale+*
 
 ### Architecture Specifications
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| **Array Configuration** | 4×4 (16 PEs) | Scalable to 8×8 |
+| **Array Configuration** | 4×4 (16 PEs) | Scalable to 8×8, N×M |
 | **Data Width** | 32-bit | Full precision throughout |
 | **Config Width** | 64-bit | Per-context instruction |
 | **Context Depth** | 16 slots/PE | Multi-context switching |
@@ -75,7 +80,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 
 | Parameter | Symbol | Min | Typ | Max | Unit |
 |-----------|--------|-----|-----|-----|------|
-| Clock Period | t_CLK | 5 | 10 | 100 | ns |
+| Clock Period | t_CLK | 4.68 | 10 | 100 | ns |
 | APB Setup Time | t_SU | 2 | - | - | ns |
 | APB Hold Time | t_HD | 1 | - | - | ns |
 | DMA Latency | t_DMA | 4 | 6 | 10 | cycles |
@@ -100,6 +105,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP f
 make sim
 
 # Expected output: PASSED: 6010 | FAILED: 0
+
 # Run with Cadence Xcelium (commercial)
 make sim TOOL=xcelium
 
@@ -303,10 +309,10 @@ Bit Position:
 
 | Suite | Description | Tests |
 |-------|-------------|-------|
-| 1. System Integrity | APB, DMA, Protocol Stress, Streaming Wrap | ~200 |
-| 2. Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~150 |
-| 3. Robustness | Reset Injection, Stall Injection, IRQ Stress | ~150 |
-| 4. ISA Regression | Full ALU coverage with 500 random vectors/opcode | 2000 |
+| Suite A-F (Infrastructure) | APB, DMA, Protocol Stress, Streaming Wrap | ~200 |
+| Suite AD (ISA Regression) | Full ALU coverage with 500 random vectors/opcode | 2000 |
+| Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~150 |
+| Robustness | Reset Injection, Stall Injection, IRQ Stress | ~150 |
 | **TOTAL** | **ALL SUITES** | **6010** |
 
 ### Supported Simulators
@@ -348,7 +354,7 @@ cgra_top #(
     .pready       (apb_pready),
     .pslverr      (apb_pslverr),
     
-    // AXI4-Lite Master Interface
+    // AXI4 Master Interface
     .m_axi_awaddr (axi_awaddr),
     .m_axi_awvalid(axi_awvalid),
     .m_axi_awready(axi_awready),
@@ -510,14 +516,16 @@ static inline uint32_t cgra_get_cycles(void) {
 | Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
 | Self-Checking TB | ✅ Implemented | 6010 CRV tests with golden models |
 | BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
+| Double-Buffer Config | ✅ Implemented | Ping-pong config memory |
 
 ### Future Enhancements
 
 | Enhancement | Priority | Effort | Description |
 |-------------|----------|--------|-------------|
 | **Parameterized Array** | High | Medium | Convert to `generate` blocks with `ROWS`/`COLS` parameters for 2×2, 8×8, N×M exploration |
-| **Double-Buffer Config** | High | Medium | Ping-pong config memory for zero-latency kernel switching |
 | **2D Strided DMA** | High | High | Add `STRIDE` register for efficient matrix/image sub-block access |
+| **On-Chip Learning (STDP)** | Medium | High | Integrate Spike-Timing-Dependent Plasticity for local learning |
+| **Mixed-Precision Support** | Medium | Medium | Support INT8/INT16 modes for efficiency |
 | **Python Config Generator** | Medium | Low | Script to generate 64-bit config frames from assembly-like syntax |
 | **Floating-Point PE** | Low | High | Optional FPU datapath for scientific computing |
 
@@ -533,6 +541,18 @@ Reference implementations: [Morpher](https://github.com/ecolab-nus/morpher), [Op
 
 ---
 
+## References
+
+1. A. Podobas, K. Sano, and S. Matsuoka, "A Survey on Coarse-Grained Reconfigurable Architectures from a Performance Perspective," arXiv preprint arXiv:2004.04509, 2020.
+2. L. Liu et al., "A Survey of Coarse-Grained Reconfigurable Architecture," ACM Computing Surveys, 2019.
+3. W. Maass, "Networks of Spiking Neurons: The Third Generation of Neural Network Models," Neural Networks, vol. 10, no. 9, pp. 1659–1671, 1997.
+4. W. Gerstner and W. M. Kistler, *Spiking Neuron Models: Single Neurons, Populations, Plasticity*. Cambridge University Press, 2002.
+5. M. Pfeiffer and T. Pfeil, "Deep Learning With Spiking Neurons: Opportunities and Challenges," Frontiers in Neuroscience, vol. 12, 2018.
+6. K. Roy, A. Jaiswal, and P. Panda, "Towards Spike-Based Machine Intelligence with Neuromorphic Computing," Nature, vol. 575, pp. 607–617, 2019.
+7. E. O. Neftci, H. Mostafa, and F. Zenke, "Surrogate Gradient Learning in Spiking Neural Networks," arXiv preprint arXiv:1901.09948, 2019.
+
+---
+
 ## License
 
 Copyright © 2026. All rights reserved.
@@ -543,7 +563,7 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 <div align="center">
 
-**CGRA SoC Accelerator IP Core**
+**CGRA Accelerator for SNN Inference**
 
 *Silicon-Ready • Verified • Production-Quality*
 
