@@ -261,13 +261,17 @@ task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
 endtask
 
 task automatic run_cgra(input int cycles);
-    apb_write(ADDR_CU_CTRL, 32'd2);
-    wait_cycles(1);
-    apb_write(ADDR_CU_CTRL, 32'd0);
-    wait_cycles(1);
-    apb_write(ADDR_CU_CTRL, 32'd1);
+    // FIX: Increase soft reset duration to ensure PE accumulator is cleared
+    // The pe_reset_n signal is registered, so need extra cycles for reset to propagate
+    apb_write(ADDR_CU_CTRL, 32'd2);  // Assert soft_reset
+    wait_cycles(3);                   // Hold reset for 3 cycles (was 1)
+    apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
+    wait_cycles(2);                   // Wait for reset to deassert (was 1)
+    apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution (auto-clears after 1 cycle)
     wait_cycles(cycles);
-    apb_write(ADDR_CU_CTRL, 32'd0);
+    apb_write(ADDR_CU_CTRL, 32'd2);  // Stop via soft_reset (triggers FSM FINISH)
+    wait_cycles(1);                   // Wait for FSM to reach FINISH state
+    apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
 endtask
 
 // ============================================================================
@@ -373,9 +377,16 @@ task automatic check_pe_result(
 );
     logic [31:0] actual;
     logic [31:0] pe0_alu;
+    logic [31:0] pe0_op0, pe0_op1;
+    logic [5:0]  pe0_opcode;
+    logic signed [39:0] pe0_acc;
     
-    // Debug: capture PE0 ALU directly
+    // Debug: capture PE0 internals
     pe0_alu = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+    pe0_op0 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand0;
+    pe0_op1 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand1;
+    pe0_opcode = tb_top.u_dut.u_array.u_tile_00.u_pe.op_code;
+    pe0_acc = tb_top.u_dut.u_array.u_tile_00.u_pe.accumulator;
     
     // Direct probe for PE 0 to avoid function issues
     if (pe_id == 4'd0)
@@ -383,9 +394,16 @@ task automatic check_pe_result(
     else
         actual = read_pe_result(pe_id);
     
-    // Debug output
-    $display("  [DEBUG] pe_id=%0d, pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
-             pe_id, pe0_alu, actual, expected);
+    // Debug output (verbose only on mismatch)
+    if (actual !== expected) begin
+        $display("  [DEBUG-FAIL] pe_id=%0d, opcode=%0d, op0=0x%h, op1=0x%h, acc=0x%h", 
+                 pe_id, pe0_opcode, pe0_op0, pe0_op1, pe0_acc);
+        $display("  [DEBUG-FAIL] pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
+                 pe0_alu, actual, expected);
+    end else begin
+        $display("  [DEBUG] pe_id=%0d, pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
+                 pe_id, pe0_alu, actual, expected);
+    end
     
     if (actual === expected) begin
         pass(test_name);

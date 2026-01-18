@@ -100,6 +100,7 @@ module cgra_control_unit #(
             
             STATE_RUN: begin
                 // Exit conditions: array done OR timeout OR soft reset
+                // Note: Use soft_reset_i to stop execution (testbench writes 0x2 to stop)
                 if (array_done_i || timeout_reached || soft_reset_i) begin
                     state_next = STATE_FINISH;
                 end
@@ -155,8 +156,12 @@ module cgra_control_unit #(
     // =========================================================================
     // Global Stall Logic
     // =========================================================================
-    // Stall the PE array when DMA is active (prevent data hazards during load)
-    assign global_stall_o = dma_busy_i;
+    // Stall the PE array when:
+    //   1. DMA is active (prevent data hazards during load)
+    //   2. PE is not enabled (prevent spurious execution before/after run)
+    // This fixes the MAC accumulator bug where PEs executed between reset
+    // release and start, causing accumulator to accumulate garbage.
+    assign global_stall_o = dma_busy_i || !pe_enable;
     
     // =========================================================================
     // Output Assignments

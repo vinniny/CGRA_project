@@ -157,9 +157,12 @@ task automatic run_suite_AD_isa_regression;
                 
                 config_pe_imm(4'd0, op_idx[5:0], SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, b[15:0]);
                 
-                // Ensure context_pc=0
+                // FIX: Ensure context_pc=0 with sufficient reset hold time
+                // The pe_reset_n is registered, so need extra cycles
                 apb_write(ADDR_CU_CTRL, 32'h2); // Soft Reset
+                wait_cycles(2);                  // Hold reset
                 apb_write(ADDR_CU_CTRL, 32'h0); // Release
+                wait_cycles(1);                  // Wait for deassert
                 
                 run_cgra(2);
                 

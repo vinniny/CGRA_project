@@ -35,6 +35,7 @@ task automatic test_reset_injection;
     fail_count = 0;
     
     for (i = 0; i < 50; i++) begin
+        cov_reset_tests++;  // Track reset test coverage
         // Simply inject soft reset and verify system is still functional
         src = 32'h1000 + (i * 4);
         dst = 32'h6000 + (i * 4);
@@ -82,6 +83,7 @@ task automatic test_stall_injection;
     fail_count = 0;
     
     for (i = 0; i < 50; i++) begin
+        cov_single_beat++;  // Track single-beat transfer coverage
         src = 32'h1000 + (i * 4);
         dst = 32'h7000 + (i * 4);
         golden = $urandom | 32'hFF00_0000; // High bits set
@@ -128,6 +130,7 @@ task automatic test_irq_stress;
     fail_count = 0;
     
     for (i = 0; i < 50; i++) begin
+        cov_single_beat++;  // Track single-beat transfer coverage
         // Setup and execute DMA
         src = 32'h1000 + (i * 4);
         dst = 32'h8000 + (i * 4);

@@ -195,21 +195,22 @@ lab_test:
 	@echo "=========================================================================="
 	@$(MAKE) compile
 	@$(MAKE) build
+	@mkdir -p $(LOG_DIR)
 	@echo ""
 	@echo "--- Running Sanity Tests ---"
-	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=sanity -l sanity.log
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=sanity -l ../$(LOG_DIR)/sanity.log
 	@echo ""
 	@echo "--- Running Advanced Tests ---"
-	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=advanced -l advanced.log
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=advanced -l ../$(LOG_DIR)/advanced.log
 	@echo ""
 	@echo "--- Running Benchmark Tests ---"
-	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=benchmark -l benchmark.log
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=benchmark -l ../$(LOG_DIR)/benchmark.log
 	@echo ""
 	@echo "--- Running Stress Tests ---"
-	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=stress +CYCLES=$(CYCLES) -l stress.log
+	@cd $(SIM_DIR) && $(XMSIM) -64bit worklib.tb_top:snap +TEST_MODE=stress +CYCLES=$(CYCLES) -l ../$(LOG_DIR)/stress.log
 	@echo ""
 	@echo "=========================================================================="
-	@echo " [LAB_TEST] All tests complete. Check logs in $(SIM_DIR)/"
+	@echo " [LAB_TEST] All tests complete. Check logs in $(LOG_DIR)/"
 	@echo "=========================================================================="
 
 # ------------------------------------------------------------------------------
@@ -241,11 +242,11 @@ lint: create_flist
 	@echo "=========================================================================="
 	@echo " [LINT] Running Xcelium lint checks"
 	@echo "=========================================================================="
-	@mkdir -p $(SIM_DIR)
+	@mkdir -p $(SIM_DIR) $(LOG_DIR)
 	@cd $(SIM_DIR) && xmvlog -sv -64bit -f flist \
 		-work worklib \
-		2>&1 | tee lint.log
-	@echo "[LINT] Done - see $(SIM_DIR)/lint.log"
+		2>&1 | tee ../$(LOG_DIR)/lint.log
+	@echo "[LINT] Done - see $(LOG_DIR)/lint.log"
 
 # ==============================================================================
 # SYNTHESIS TARGETS (Genus)
