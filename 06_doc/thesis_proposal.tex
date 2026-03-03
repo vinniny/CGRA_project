@@ -1,0 +1,113 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage[pdftex,
+            pdfpagelabels=true,
+            plainpages=false,
+            colorlinks=true,
+            linkcolor=black,
+            citecolor=black,
+            filecolor=black,
+            urlcolor=black]{hyperref}
+\emergencystretch=1em
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage[table]{xcolor} % Added for colored tables
+\usepackage{longtable} % Added for large tables
+\usepackage{colortbl}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage[backend=biber,style=ieee]{biblatex}
+\addbibresource{references.bib}
+
+% Page Geometry
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\setlength{\headheight}{15pt}
+\raggedbottom
+\onehalfspacing
+
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{CGRA Accelerator for SNN Inference}
+\lhead{Huynh Pham Anh Duy \& Trieu Thanh Vinh}
+\cfoot{\thepage}
+
+% Title Format
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\bfseries}{\thesubsection}{1em}{}
+
+\begin{document}
+
+% 0. Title Page
+\pagenumbering{alph}
+\input{sections/00_title_page}
+
+% Abstract
+\newpage
+\pagenumbering{roman}
+\input{sections/abstract}
+
+% Table of Contents
+\newpage
+\tableofcontents
+
+\newpage
+\listoffigures
+\listoftables
+
+\newpage
+\input{sections/abbreviations}
+
+\newpage
+\pagenumbering{arabic}
+
+% 1. Introduction
+\clearpage
+\input{sections/01_introduction}
+
+% 2. Literature Survey
+\clearpage
+\input{sections/02_literature_survey}
+
+% 3. Research Goal
+\clearpage
+\input{sections/03_research_goal}
+
+% 4. Proposed System Architecture
+\clearpage
+\input{sections/04_methodology}
+\input{sections/04b_isa}
+\input{sections/04c_hardware_design}
+
+% 7. Verification
+\clearpage
+\input{sections/05_verification}
+
+% 8. Results
+\clearpage
+\input{sections/06_results}
+
+% 9. Conclusion
+\clearpage
+\input{sections/07_conclusion}
+
+% 10. Tentative ToC for Thesis
+\clearpage
+\input{sections/08_thesis_toc}
+
+% 11. Timetable
+\clearpage
+\input{sections/09_timetable}
+
+% 12. References
+\clearpage
+\printbibliography[heading=bibintoc, title={References}]
+
+\end{document}

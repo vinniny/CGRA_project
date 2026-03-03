@@ -1,3 +1,5 @@
+`ifndef TB_TASKS_SVH
+`define TB_TASKS_SVH
 // ==============================================================================
 // tb_tasks.svh - Verilator-Native Driver Layer
 // ==============================================================================
@@ -32,8 +34,11 @@ task automatic wait_cycles(input int n);
 endtask
 
 task automatic random_delay(input int min_cycles, input int max_cycles);
-    int delay;
-    delay = min_cycles + ($urandom % (max_cycles - min_cycles + 1));
+    int delay, range;
+    // FIX: Guard against divide-by-zero when max < min
+    range = max_cycles - min_cycles + 1;
+    if (range <= 0) range = 1;
+    delay = min_cycles + ($urandom % range);
     repeat(delay) @(posedge clk);
 endtask
 
@@ -52,7 +57,7 @@ task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    // while (!pready) @(posedge clk); // pready is always 1 in this testbench
+    while (!pready) @(posedge clk); // FIX: Wait for pready (costs nothing when always 1)
     
     if (pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
     
@@ -75,11 +80,11 @@ task automatic apb_read(input logic [31:0] addr, output logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    // while (!pready) @(posedge clk); // pready is always 1
+    while (!pready) @(posedge clk); // FIX: Wait for pready (costs nothing when always 1)
     
     if (pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
     
-    data = prdata;
+    data = prdata;      // FIX: Sample BEFORE deasserting psel/penable
     
     psel = 1'b0;
     penable = 1'b0;
@@ -181,14 +186,72 @@ endtask
 task automatic check_data(input logic [31:0] src, input logic [31:0] dst, 
                           input logic [31:0] size, output logic ok);
     ok = 1'b1;
+
+    // FIX: OOB guard — prevent array access beyond MEM_SIZE
+    if ((32'(src[16:0]) + size) > TB_MEM_SIZE || (32'(dst[16:0]) + size) > TB_MEM_SIZE) begin
+        $error("[check_data] OOB: src[16:0]=0x%05h dst[16:0]=0x%05h size=%0d exceeds MEM_SIZE=%0d",
+               src[16:0], dst[16:0], size, TB_MEM_SIZE);
+        ok = 1'b0;
+        return;
+    end
+
     for (int i = 0; i < size; i++) begin
         if (mem[{15'd0, dst[16:0]} + 32'(i)] !== mem[{15'd0, src[16:0]} + 32'(i)]) ok = 1'b0;
     end
 endtask
 
+// Convenience wrapper: check_data with built-in pass/fail reporting
+task automatic check_data_report(input logic [31:0] src, input logic [31:0] dst, 
+                          input logic [31:0] size, input string test_name);
+    logic ok;
+
+    // OOB guard
+    if ((32'(src[16:0]) + size) > TB_MEM_SIZE || (32'(dst[16:0]) + size) > TB_MEM_SIZE) begin
+        fail(test_name, $sformatf("OOB: src[16:0]=0x%05h dst[16:0]=0x%05h size=%0d exceeds MEM_SIZE=%0d",
+             src[16:0], dst[16:0], size, TB_MEM_SIZE));
+        return;
+    end
+
+    ok = 1'b1;
+    for (int i = 0; i < size; i++) begin
+        if (mem[{15'd0, dst[16:0]} + 32'(i)] !== mem[{15'd0, src[16:0]} + 32'(i)]) begin
+            if (ok) begin  // Print first mismatch only
+                $display("  [MISMATCH] offset=%0d: dst[0x%05h]=0x%02h, src[0x%05h]=0x%02h",
+                         i, dst[16:0]+17'(i), mem[{15'd0, dst[16:0]} + 32'(i)],
+                            src[16:0]+17'(i), mem[{15'd0, src[16:0]} + 32'(i)]);
+            end
+            ok = 1'b0;
+        end
+    end
+
+    if (ok)
+        pass(test_name);
+    else
+        fail(test_name, "Data mismatch between src and dst");
+endtask
+
 // ============================================================================
-// RESULT REPORTING
+// RESULT REPORTING (Centralized — mirrors reference TB log_test_result)
 // ============================================================================
+task automatic log_test_result(input string test_name, input string result);
+    case (result)
+        "PASS": begin
+            pass_count++;
+            $display("  [PASS] %s", test_name);
+        end
+        "FAIL": begin
+            error_count++;
+            $error("  [FAIL] %s", test_name);
+        end
+        "SKIP": begin
+            $display("  [SKIP] %s", test_name);
+        end
+        default: begin
+            $warning("  [UNKNOWN] %s - invalid result: %s", test_name, result);
+        end
+    endcase
+endtask
+
 task automatic pass(input string msg);
     $display("  [PASS] %s", msg);
     pass_count++;
@@ -394,16 +457,20 @@ task automatic check_pe_result(
     else
         actual = read_pe_result(pe_id);
     
-    // Debug output (verbose only on mismatch)
+    // Debug output gated by TB_VERBOSE (only print on mismatch in quiet mode)
+    `ifndef TB_QUIET
     if (actual !== expected) begin
         $display("  [DEBUG-FAIL] pe_id=%0d, opcode=%0d, op0=0x%h, op1=0x%h, acc=0x%h", 
                  pe_id, pe0_opcode, pe0_op0, pe0_op1, pe0_acc);
         $display("  [DEBUG-FAIL] pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
                  pe0_alu, actual, expected);
-    end else begin
-        $display("  [DEBUG] pe_id=%0d, pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
-                 pe_id, pe0_alu, actual, expected);
     end
+    `else
+    if (actual !== expected) begin
+        $display("  [DEBUG-FAIL] pe_id=%0d, opcode=%0d, op0=0x%h, op1=0x%h, acc=0x%h", 
+                 pe_id, pe0_opcode, pe0_op0, pe0_op1, pe0_acc);
+    end
+    `endif
     
     if (actual === expected) begin
         pass(test_name);
@@ -419,15 +486,17 @@ task automatic test_pe_operation(
     input logic [3:0]  pe_id,
     input logic [5:0]  opcode,
     input logic [31:0] operand_a,     // Loaded to tile bank 0
-    input logic [31:0] operand_b,     // Loaded to tile bank 0 (or ignored)
+    input logic [31:0] operand_b,     // FIX: Now used via SRC_IMM (lower 16 bits, sign-extended by PE)
     input logic [31:0] expected,
     input string       test_name
 );
-    // 1. Load operand to tile memory (West input)
+    // 1. Load operand_a to tile memory (West input)
     dma_load_tile_bank(2'd0, 12'd0, operand_a);
     
-    // 2. Configure PE (src0=WEST, src1=WEST, dst=R0, route=none)
-    config_pe_safe(pe_id, opcode, SRC_WEST, SRC_WEST, 4'd0, 4'd0);
+    // 2. Configure PE: src0=WEST (operand_a), src1=IMM (operand_b[15:0])
+    // NOTE: IMM is 16-bit. If operand_b exceeds 16-bit signed range, this
+    //       will silently truncate. Callers must account for this.
+    config_pe_imm(pe_id, opcode, SRC_WEST, SRC_IMM, 4'd0, 4'd0, operand_b[15:0]);
     
     // 3. Run CGRA
     run_cgra(5);
@@ -436,3 +505,41 @@ task automatic test_pe_operation(
     check_pe_result(pe_id, expected, test_name);
 endtask
 
+// =========================================================================
+// DMA WRITE-BACK HELPERS (Suite AE)
+// =========================================================================
+
+// Round-trip transfer: DDR -> Local -> DDR
+task automatic dma_round_trip(
+    input logic [31:0] ddr_src,
+    input logic [31:0] local_addr,
+    input logic [31:0] ddr_dst,
+    input logic [31:0] size,
+    input int timeout
+);
+    // Phase 1: DMA Read (External -> Local)
+    dma_transfer(ddr_src, local_addr, size, timeout);
+    
+    // Phase 2: DMA Write (Local -> External)
+    dma_transfer(local_addr, ddr_dst, size, timeout);
+endtask
+
+// Check AXI write burst protocol (WLAST)
+task automatic check_write_burst_protocol();
+    int beat_count;
+    beat_count = 0;
+    // Wait for write transaction start
+    while (!axi_wvalid) @(posedge clk);
+    
+    // Monitor burst
+    while (!axi_wlast && beat_count < 256) begin
+        if (axi_wvalid && axi_wready) beat_count++;
+        @(posedge clk);
+    end
+    
+    if (axi_wlast && axi_wvalid) pass("Write burst WLAST asserted");
+    else fail("Write burst", "WLAST not asserted or timeout");
+endtask
+
+
+`endif

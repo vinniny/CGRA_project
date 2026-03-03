@@ -1,25 +1,30 @@
 // ==============================================================================
-// CGRA Unified Master Testbench - Layered Architecture for Verilator 5.x
+// CGRA Unified Master Testbench - Layered Architecture
 // ==============================================================================
-// Structure:
-//   Layer 1: tb_defs.svh        - Macros, parameters, address constants
+// Structure (modeled after Bus IP reference TB):
+//   Layer 1: tb_defs.svh        - Macros, verbosity, parameters, assertions
 //   Layer 2: tb_scenario_gen.svh - Random generators, coverage counters
-//   Layer 3: tb_tasks.svh       - APB/DMA/PE driver tasks
+//   Layer 3: tb_tasks.svh       - APB/DMA/PE drivers, log_test_result
 //   Layer 4: tb_protocol_checkers.svh - AXI protocol monitoring
-//   Layer 5: tb_test_suites.svh - All test suites (A-AA)
+//   Layer 5: tb_test_suites.svh - All test suites
 //
-// Build: verilator --binary --timing --trace -j 0 ...
-// Run:   ./Vtb_top +trace  (optional VCD tracing)
+// Features:
+//   - Watchdog timer (TB_WATCHDOG_NS) prevents infinite hangs
+//   - Unified EOS `final` block with VERDICT (PASS/FAIL)
+//   - Verbosity control: define TB_VERBOSE for debug output, default quiet
+//   - ASSERT_TRUE macro with protocol_check_enable guard
+//   - Centralized log_test_result for uniform pass/fail/skip tracking
 //
-// VERIFICATION STATUS: 166/166 PASSED - SILICON READY
+// Build: xmvlog / xmelab / xmsim (Cadence Xcelium)
+//        Add +define+TB_VERBOSE for debug output
 // ==============================================================================
 
 `timescale 1ns/1ps
 
-// Layer 1: Global Definitions
-`include "include/tb_defs.svh"
-
 module tb_top;
+
+    // Layer 1: Global Definitions (must be inside module for localparam)
+    `include "include/tb_defs.svh"
 
     // =========================================================================
     // 1. CLOCK & RESET GENERATION (Timing-driven for Verilator --timing)
@@ -85,7 +90,7 @@ module tb_top;
     int          stress_probability = 0;
 
     // Cycle counter (using always for testbench)
-    always @(posedge clk) cycle_count = cycle_count + 1;
+    always @(posedge clk) cycle_count = cycle_count + 1;  // FIX: Blocking for TB counter consistency
 
     // =========================================================================
     // 4. INCLUDE MODULAR LAYERS (Order matters!)
@@ -98,6 +103,8 @@ module tb_top;
     `include "include/tb_suite_system.svh"      // System Integrity (APB, DMA, Protocol)
     `include "include/tb_suite_fabric.svh"      // Fabric Stress (Pipeline, Parallel, Routing)
     `include "include/tb_suite_robustness.svh"  // Robustness (Reset, Stall, IRQ)
+    `include "include/tb_suite_lpr.svh"          // LPR demo feature tests (RELU, MAX, Loop CSRs)
+    `include "include/tb_suite_dma_writeback.svh"  // DMA Write-Back Verification (Suite AE)
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -182,6 +189,7 @@ module tb_top;
             axi_rvalid_reg <= 1'b0;
             r_burst_len <= 8'd0;
             r_beat_count <= 8'd0;
+            r_addr_reg <= 32'd0;  // FIX: Reset to prevent X propagation through axi_rdata combinational path
         end else begin
             case (r_state)
                 R_IDLE: begin
@@ -215,9 +223,9 @@ module tb_top;
         end
     end
     
-    // Write Address Channel
+    // Write Address Channel - tracks current burst write address
     logic axi_awready_reg, axi_wready_reg;
-    logic [31:0] axi_waddr_latch;
+    logic [31:0] axi_waddr_next;    // Next write address for burst
     logic        axi_waddr_received;
     
     assign axi_awready = axi_awready_reg;
@@ -228,19 +236,31 @@ module tb_top;
         if (!rst_n) begin
             axi_awready_reg <= 1'b1;
             axi_waddr_received <= 1'b0;
-            axi_waddr_latch <= 32'd0;
+            axi_waddr_next <= 32'd0;
         end else begin
             if (stress_enable && $urandom_range(0,100) < stress_probability)
                 axi_awready_reg <= 1'b0;
             else
                 axi_awready_reg <= 1'b1;
             
+            // Handle address tracking
             if (axi_awvalid && axi_awready_reg) begin
-                axi_waddr_latch <= axi_awaddr;
+                // New burst - capture base address
+                // If W also handshaking, beat 0 is done, next is beat 1 address
+                if (axi_wvalid && axi_wready_reg)
+                    axi_waddr_next <= axi_awaddr + 32'd4;
+                else
+                    axi_waddr_next <= axi_awaddr;
                 axi_waddr_received <= 1'b1;
+            end else if (axi_wvalid && axi_wready_reg) begin
+                // W handshake only - increment for next beat
+                axi_waddr_next <= axi_waddr_next + 32'd4;
             end
             
-            if (axi_wvalid && axi_wready_reg && axi_waddr_received)
+            // FIX: Gate WLAST clear with !new_AW to prevent race: simultaneous AW for
+            // next burst + WLAST for current burst would clear received flag, losing
+            // the new burst's base address (last NBA wins in same always block).
+            if (axi_wvalid && axi_wready_reg && axi_wlast && !(axi_awvalid && axi_awready_reg))
                 axi_waddr_received <= 1'b0;
         end
     end
@@ -257,43 +277,112 @@ module tb_top;
         end
     end
     
-    // Memory Write
+    // Memory Write - use tracked address
+    // FIX: Guard on valid address (AW received either this cycle or earlier)
+    // to prevent writing to stale/uninitialized axi_waddr_next
     always_ff @(posedge clk) begin
         if (axi_wvalid && axi_wready_reg) begin
             logic [31:0] target_addr;
-            if (axi_awvalid && axi_awready_reg)
+            if (axi_awvalid && axi_awready_reg) begin
+                // Simultaneous AW+W handshake — use awaddr directly
                 target_addr = axi_awaddr;
-            else
-                target_addr = axi_waddr_latch;
-            
-            if (axi_wstrb[0]) mem[target_addr[16:0] + 0] <= axi_wdata[7:0];
-            if (axi_wstrb[1]) mem[target_addr[16:0] + 1] <= axi_wdata[15:8];
-            if (axi_wstrb[2]) mem[target_addr[16:0] + 2] <= axi_wdata[23:16];
-            if (axi_wstrb[3]) mem[target_addr[16:0] + 3] <= axi_wdata[31:24];
+            end else if (axi_waddr_received) begin
+                // AW already received earlier — use tracked address
+                target_addr = axi_waddr_next;
+            end else begin
+                // W data arrived before AW — protocol violation, skip write
+                $error("[BFM] W-channel data beat without prior AW handshake (WDATA=%08h) — skipping write", axi_wdata);
+                target_addr = '0;  // Prevent latch inference
+            end
+
+            if ((axi_awvalid && axi_awready_reg) || axi_waddr_received) begin
+                if (axi_wstrb[0]) mem[target_addr[16:0] + 0] <= axi_wdata[7:0];
+                if (axi_wstrb[1]) mem[target_addr[16:0] + 1] <= axi_wdata[15:8];
+                if (axi_wstrb[2]) mem[target_addr[16:0] + 2] <= axi_wdata[23:16];
+                if (axi_wstrb[3]) mem[target_addr[16:0] + 3] <= axi_wdata[31:24];
+            end
         end
     end
     
-    // Write Response Channel
+    // Write Response Channel - FIX: Counter-based to prevent swallowed BVALIDs
+    // on overlapping/back-to-back bursts. A single flip-flop loses events when
+    // a new WLAST arrives before the prior BVALID is acked.
+    logic [3:0] bvalid_count;  // Pending write responses (max 16 outstanding)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            axi_bvalid_reg <= 1'b0;
+            bvalid_count <= 4'd0;
         end else begin
-            if (axi_wvalid && axi_wready_reg)
-                axi_bvalid_reg <= 1'b1;
-            else if (axi_bvalid_reg && axi_bready)
-                axi_bvalid_reg <= 1'b0;
+            case ({axi_wvalid && axi_wready_reg && axi_wlast,
+                   axi_bvalid_reg && axi_bready})
+                2'b10:   bvalid_count <= bvalid_count + 4'd1;  // New burst completed, no ack
+                2'b01:   bvalid_count <= bvalid_count - 4'd1;  // Ack consumes one response
+                default: ;  // 2'b11: simultaneous +1/-1, 2'b00: no change
+            endcase
         end
     end
+    assign axi_bvalid_reg = (bvalid_count > 4'd0);
 
     // =========================================================================
-    // 7. TEST SUITES (All 28 Suites, 166 Vectors)
+    // 7. PROTOCOL MONITOR (AXI + APB Hybrid I/O Verification)
+    // =========================================================================
+    cgra_protocol_monitor u_monitor (
+        .clk(clk),
+        .rst_n(rst_n),
+        
+        // AXI Write Address Channel
+        .awaddr(axi_awaddr),
+        .awvalid(axi_awvalid),
+        .awready(axi_awready),
+        
+        // AXI Write Data Channel
+        .wdata(axi_wdata),
+        .wstrb(axi_wstrb),
+        .wvalid(axi_wvalid),
+        .wready(axi_wready),
+        .wlast(axi_wlast),
+        
+        // AXI Write Response Channel
+        .bvalid(axi_bvalid),
+        .bready(axi_bready),
+        
+        // AXI Read Address Channel
+        .araddr(axi_araddr),
+        .arvalid(axi_arvalid),
+        .arready(axi_arready),
+        
+        // AXI Read Data Channel
+        .rdata(axi_rdata),
+        .rvalid(axi_rvalid),
+        .rready(axi_rready),
+        
+        // APB Signals (for Hybrid I/O verification)
+        .psel(psel),
+        .penable(penable),
+        .pwrite(pwrite),
+        .paddr(paddr),
+        .prdata(prdata)
+    );
+
+    // =========================================================================
+    // 8. TEST SUITES (All 28 Suites, 166 Vectors)
     // =========================================================================
     // Layer 5d: ISA Regression
     `include "include/tb_isa_regression.svh"
     `include "tb_test_suites.svh"
 
     // =========================================================================
-    // 8. MAIN EXECUTION
+    // 9. WATCHDOG TIMER (prevents infinite sim hangs)
+    // =========================================================================
+    initial begin
+        #(`TB_WATCHDOG_NS);
+        $display("");
+        $display("ERROR: tb_top WATCHDOG TIMEOUT after %0d ns", `TB_WATCHDOG_NS);
+        $display("");
+        $finish;
+    end
+
+    // =========================================================================
+    // 10. MAIN EXECUTION
     // =========================================================================
     initial begin
         // Setup tracing (enabled via +trace command line arg)
@@ -317,47 +406,87 @@ module tb_top;
         #100;
         
         // =====================================================================
-        // RUN ALL TEST SUITES
+        // RUN TEST SUITES (with inter-suite reset for state isolation)
         // =====================================================================
-        $display("\n");
-        $display("================================================================");
-        $display("  CGRA MASTER VERIFICATION - 166 VECTOR SUITE (Verilator)");
-        $display("================================================================");
+        run_suite_system_integrity();
 
-        // =====================================================================
-        // CRV PILLARS (4 Consolidated High-Quality Suites)
-        // =====================================================================
-        // Philosophy: Random data, random timing, self-checking golden models.
-        // Total: ~7000+ randomized vectors
-        // =====================================================================
-        
-        run_suite_system_integrity();   // 400 vectors: APB, DMA, Protocol, Streaming
-        run_suite_fabric_stress();      // 300 vectors: Pipeline, Parallel, Routing
-        run_suite_robustness();         // 300 vectors: Reset, Stall, IRQ
-        run_suite_AD_isa_regression();  // 6000 vectors: Full ISA regression
+        reset_dut(5);
+        run_suite_fabric_stress();
 
-        // =====================================================================
-        // FINAL REPORTS
-        // =====================================================================
-        print_coverage_report();
-        print_protocol_stats();
-        
+        reset_dut(5);
+        run_suite_robustness();
+
+        reset_dut(5);
+        run_suite_AD_isa_regression();
+
+        reset_dut(5);
+        run_suite_LPR();
+
+        reset_dut(5);
+        run_suite_AE_dma_writeback();
+
         $display("\n================================================================");
-        $display("  FINAL RESULTS");
-        $display("================================================================");
-        $display("  PASSED: %0d", pass_count);
-        $display("  FAILED: %0d", error_count);
-        $display("  ASSERTIONS: %0d errors", assertion_errors);
-        $display("  TOTAL:  %0d", pass_count + error_count);
-        $display("================================================================");
-        
-        if (error_count == 0 && assertion_errors == 0)
-            $display("\n  *** STATUS: PASSED (All Suites) - SILICON READY ***\n");
-        else
-            $display("\n  *** STATUS: FAILED (%0d Errors) - REVIEW REQUIRED ***\n", 
-                     error_count + assertion_errors);
+        $display("  ALL TEST SUITES COMPLETE");
+        $display("================================================================\n");
         
         $finish;
+    end
+
+    // =========================================================================
+    // 11. UNIFIED END-OF-SIMULATION REPORT (modeled after reference TB)
+    // =========================================================================
+    final begin
+        $display("");
+        $display("####################################################################");
+        $display("#                    END-OF-SIMULATION REPORT                      #");
+        $display("####################################################################");
+
+        // Section 1: Test Results
+        $display("");
+        $display("  1. TEST RESULTS");
+        $display("  ----------------------------------------------------------------");
+        $display("    PASS : %0d", pass_count);
+        $display("    FAIL : %0d", error_count);
+        $display("    Protocol errors : %0d", assertion_errors);
+
+        // Section 2: AXI Protocol Statistics
+        $display("");
+        $display("  2. AXI PROTOCOL STATISTICS  (%0d cycles)", cycle_count);
+        $display("  ----------------------------------------------------------------");
+        $display("    AR handshakes : %0d", ar_txn_count);
+        $display("    R  beats      : %0d", r_txn_count);
+        $display("    AW handshakes : %0d", aw_txn_count);
+        $display("    W  beats      : %0d", w_txn_count);
+        $display("    B  responses  : %0d", b_txn_count);
+        $display("    4KB splits    : %0d", axi_read_reqs_split_at_4kb);
+
+        // Section 3: Coverage Summary
+        $display("");
+        $display("  3. COVERAGE SUMMARY");
+        $display("  ----------------------------------------------------------------");
+        $display("    Single-beat DMA  : %0d", cov_single_beat);
+        $display("    Multi-beat DMA   : %0d", cov_multi_beat);
+        $display("    Max-burst DMA    : %0d", cov_max_burst);
+        $display("    4KB boundary     : %0d", cov_4kb_boundary);
+        $display("    Stress cycles    : %0d", cov_stress_cycles);
+        $display("    Reset tests      : %0d", cov_reset_tests);
+
+        // Section 4: Verdict
+        $display("");
+        $display("  ================================================================");
+        if (error_count == 0 && assertion_errors == 0)
+            $display("    VERDICT: PASS   (%0d tests, 0 failures, 0 violations)",
+                     pass_count);
+        else begin
+            $display("    VERDICT: FAIL");
+            if (error_count > 0)
+                $display("      - %0d test(s) failed", error_count);
+            if (assertion_errors > 0)
+                $display("      - %0d protocol violation(s)", assertion_errors);
+        end
+        $display("  ================================================================");
+        $display("####################################################################");
+        $display("");
     end
 
 endmodule

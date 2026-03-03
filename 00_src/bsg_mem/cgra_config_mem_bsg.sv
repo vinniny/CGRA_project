@@ -19,8 +19,8 @@
 
 module cgra_config_mem_bsg #(
     parameter DATA_WIDTH = 64,
-    parameter DEPTH      = 16,     // Number of config slots (context depth)
-    parameter ADDR_WIDTH = 4       // $clog2(DEPTH)
+    parameter DEPTH      = 16,                 // Number of config slots (context depth)
+    parameter ADDR_WIDTH = $clog2(DEPTH)       // FIX: Auto-compute from DEPTH
 )(
     input  wire                   clk,
     input  wire                   rst_n,
@@ -68,7 +68,8 @@ module cgra_config_mem_bsg #(
     // ------------------------------------------------
     // Read Valid Signal (1-cycle latency)
     // ------------------------------------------------
-    always_ff @(posedge clk or negedge rst_n) begin
+    // FIX: Use synchronous reset to match rest of design (was async: posedge clk or negedge rst_n)
+    always_ff @(posedge clk) begin
         if (!rst_n) begin
             rd_valid <= 1'b0;
         end else begin

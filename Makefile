@@ -1,7 +1,7 @@
 # ==============================================================================
 # CGRA Project Makefile - Cadence Xcelium / Genus / Conformal Flow
 # ==============================================================================
-# Version: 2.5.0 | January 2026
+# Version: 2.6.0 | January 2026
 # ==============================================================================
 
 # ==============================================================================
@@ -41,6 +41,7 @@ CORE            ?= 4
 BSG_SRCS := \
 	$(BSG_DIR)/bsg_defines.sv \
 	$(BSG_DIR)/bsg_dff.sv \
+	$(BSG_DIR)/bsg_dff_en.sv \
 	$(BSG_DIR)/bsg_dff_en_bypass.sv \
 	$(BSG_DIR)/bsg_mem_1r1w_sync_synth.sv \
 	$(BSG_DIR)/bsg_mem_1r1w_sync.sv \
@@ -80,7 +81,7 @@ LEC     := lec
 # Phony Targets
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
-        syn restore_syn lec full create_flist lint check_tools
+        syn restore_syn lec full create_flist lint check_tools gui
 
 # ==============================================================================
 # Default Target
@@ -92,16 +93,18 @@ all: test
 # ==============================================================================
 help:
 	@echo "=========================================================================="
-	@echo " CGRA Project Makefile - Cadence Flow"
+	@echo " CGRA Project Makefile - Cadence Xcelium / Genus / Conformal"
 	@echo "=========================================================================="
 	@echo ""
-	@echo " Simulation Targets (Split Flow):"
+	@echo " Simulation Targets:"
 	@echo "   make compile      - Compile RTL sources with xmvlog"
 	@echo "   make build        - Elaborate design with xmelab"
 	@echo "   make run          - Run simulation with xmsim"
-	@echo "   make test         - Complete flow: compile + build + run (sanity)"
-	@echo "   make lab_test     - Run sanity + advanced + benchmark + stress in one shot"
+	@echo "   make sim          - Complete flow: compile + build + run"
+	@echo "   make test         - Alias for sim"
+	@echo "   make lab_test     - Run sanity + advanced + benchmark + stress"
 	@echo "   make wave         - Open Simvision waveform viewer"
+	@echo "   make gui          - Run Xcelium in GUI mode"
 	@echo ""
 	@echo " Synthesis & Formal Targets:"
 	@echo "   make syn          - Run Genus synthesis"

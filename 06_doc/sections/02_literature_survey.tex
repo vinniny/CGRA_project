@@ -1,0 +1,33 @@
+\section{Literature Review and Background}
+
+\subsection{Overview of Coarse-Grained Reconfigurable Architectures}
+Coarse-Grained Reconfigurable Architectures (CGRAs) represent a class of programmable hardware structures positioned between traditional fine-grained FPGAs and fixed-function ASICs. Well-known examples include ADRES \cite{mei2003adres} and the more recent Plasticine architecture \cite{prabhakar2017plasticine}. Extensive surveys on CGRA performance and architectural diversity can be found in \cite{podobas2020survey} and \cite{liu2019survey}.
+
+CGRAs mitigate issue of routing congestion and configuration overhead by operating at the arithmetic-operator granularity. A typical CGRA execution flow involves configuration mapping, spatial/temporal scheduling, and data routing across the mesh.
+
+\subsection{Spiking Neural Networks (SNNs)}
+SNNs represent the third generation of neural network models \cite{maass1997networks}, in which information is encoded and processed using discrete spike events rather than continuous-valued activations. This temporal and event-driven formulation, as detailed in \cite{gerstner2002spiking}, allows SNNs to more closely resemble biological neural systems. Modern deep learning applications leveraging these models are extensively discussed in \cite{pfeiffer2018deep} and \cite{roy2019towards}, while training methodologies such as surrogate gradient learning \cite{neftci2019surrogate} have bridged the gap between SNNs and traditional deep learning.
+
+\subsubsection{Leaky Integrate-and-Fire (LIF) Neuron Model}
+Among many neuron models, the LIF model strikes a balance between biological plausibility and implementation simplicity. It captures the essential features of integration, leakage, and threshold-based spiking. In discrete time, the LIF neuron is modeled as:
+\begin{equation}
+    v[t + 1] = \beta \cdot v[t] + I[t] - \lambda
+\end{equation}
+where $v[t]$ is the membrane potential, $\beta \in (0,1)$ is the leak factor, $I[t]$ is the sum of weighted spikes, and $\lambda$ is a constant modeling tonic leak.
+
+\subsubsection{Information Encoding Schemes}
+There are two primary encoding paradigms supported by this architecture:
+\begin{itemize}
+    \item \textbf{Rate Coding:} Information is conveyed by the firing rate of the neurons.
+    \item \textbf{Temporal Coding:} Information is encoded in the precise timing of individual spikes (Time-to-First-Spike).
+\end{itemize}
+
+\subsection{Computational Advantages of CGRA for SNNs}
+The theoretical motivation for designing a specific CGRA for SNNs lies in:
+\begin{itemize}
+    \item \textbf{Event-Driven Processing:} Computation is only triggered when an input spike arrives, saving dynamic power.
+    \item \textbf{Sparsity Exploitation:} By using CSC format and multicast routing, the architecture avoids fetching "zero" values.
+    \item \textbf{Locality of Reference:} Keeping the membrane potential state $v[t]$ in local PE scratchpads reduces data movement energy.
+\end{itemize}
+
+The SNN implementation and dataset verification also leverage standard benchmarks like MNIST \cite{lecun1998gradient} and modern software frameworks such as snnTorch \cite{snntorch2021}.

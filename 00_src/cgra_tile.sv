@@ -140,6 +140,8 @@ module cgra_tile #(
     // FIX #4: Capture PE result for mesh broadcast
     logic [DATA_WIDTH-1:0] pe_result;
     logic                  pe_result_valid;
+    // FIX: Capture all 4 PE valid outputs to support any route direction
+    logic                  pe_valid_n, pe_valid_e, pe_valid_s, pe_valid_w;
     
     cgra_pe #(
         .DATA_WIDTH(DATA_WIDTH),
@@ -181,12 +183,11 @@ module cgra_tile #(
         .data_out_s(),                  // Intentional: PE broadcasts same data_out_n
         .data_out_w(),                  // Intentional: PE broadcasts same data_out_n
         /* verilator lint_on PINCONNECTEMPTY */
-        .valid_out_n(pe_result_valid),  // Capture valid
-        /* verilator lint_off PINCONNECTEMPTY */
-        .valid_out_e(),                 // Intentional: PE broadcasts same valid_out_n
-        .valid_out_s(),                 // Intentional: PE broadcasts same valid_out_n
-        .valid_out_w(),                 // Intentional: PE broadcasts same valid_out_n
-        /* verilator lint_on PINCONNECTEMPTY */
+        // FIX: Capture all 4 PE valid outputs (not just N) so any route direction works
+        .valid_out_n(pe_valid_n),
+        .valid_out_e(pe_valid_e),
+        .valid_out_s(pe_valid_s),
+        .valid_out_w(pe_valid_w),
 
         .data_out_local(pe_to_router_data),
         .valid_out_local(pe_to_router_valid),
@@ -197,15 +198,27 @@ module cgra_tile #(
     // =========================================================================
     // FIX #4: BROADCAST PE RESULT TO ALL NEIGHBORS
     // =========================================================================
+    // FIX: Forward per-direction valid from PE route_mask to preserve directional
+    // routing control. Previously all 4 valid signals were OR-reduced into one,
+    // defeating the PE's 4-bit route_mask configuration entirely.
+    // NOTE: pe_result_valid is intentionally unused — kept as a convenience
+    // for debug or future OR-reduced "any output active" monitoring.
+    /* verilator lint_off UNUSEDSIGNAL */
+    assign pe_result_valid = pe_valid_n | pe_valid_e | pe_valid_s | pe_valid_w;
+    /* verilator lint_on UNUSEDSIGNAL */
+    
     // Override router outputs - PE result goes directly to all neighbors
     assign data_out_n = pe_result;
     assign data_out_e = pe_result;
     assign data_out_s = pe_result;
     assign data_out_w = pe_result;
     
-    assign valid_out_n = pe_result_valid;
-    assign valid_out_e = pe_result_valid;
-    assign valid_out_s = pe_result_valid;
-    assign valid_out_w = pe_result_valid;
+    // FIX: Use per-direction valid from PE instead of unified broadcast.
+    // This allows config route_mask bits (N/E/S/W) to selectively enable
+    // data flow to specific neighbors, enabling directed data-flow graphs.
+    assign valid_out_n = pe_valid_n;
+    assign valid_out_e = pe_valid_e;
+    assign valid_out_s = pe_valid_s;
+    assign valid_out_w = pe_valid_w;
 
 endmodule

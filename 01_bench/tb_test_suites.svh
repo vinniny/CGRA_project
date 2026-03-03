@@ -114,15 +114,31 @@ task automatic run_suite_A_regs;
         
         // =====================================================================
         // A08: Random Stress (TC10)
-        // Loop 20x: Random writes/reads to valid addresses
+        // Loop 20x: Random writes/reads to valid addresses, then verify readback
         // =====================================================================
-        for (i = 0; i < 20; i = i + 1) begin
-            apb_write(ADDR_DMA_SRC, $urandom);
-            apb_write(ADDR_DMA_DST, $urandom);
-            apb_write(ADDR_DMA_SIZE, $urandom);
-            apb_read(ADDR_DMA_SRC, rd);
-            apb_read(ADDR_DMA_DST, rd);
-            apb_read(ADDR_DMA_SIZE, rd);
+        begin
+            logic [31:0] wr_src, wr_dst, wr_size;
+            for (i = 0; i < 20; i = i + 1) begin
+                wr_src  = $urandom;
+                wr_dst  = $urandom;
+                wr_size = $urandom;
+                apb_write(ADDR_DMA_SRC,  wr_src);
+                apb_write(ADDR_DMA_DST,  wr_dst);
+                apb_write(ADDR_DMA_SIZE, wr_size);
+                apb_read(ADDR_DMA_SRC, rd);
+                // FIX: Verify readback matches last write
+                if (rd !== wr_src) begin
+                    fail("A08", $sformatf("DMA_SRC readback mismatch: wrote 0x%08h, read 0x%08h", wr_src, rd));
+                end
+                apb_read(ADDR_DMA_DST, rd);
+                if (rd !== wr_dst) begin
+                    fail("A08", $sformatf("DMA_DST readback mismatch: wrote 0x%08h, read 0x%08h", wr_dst, rd));
+                end
+                apb_read(ADDR_DMA_SIZE, rd);
+                if (rd !== wr_size) begin
+                    fail("A08", $sformatf("DMA_SIZE readback mismatch: wrote 0x%08h, read 0x%08h", wr_size, rd));
+                end
+            end
         end
         pass("A08: Random Stress (20 iterations)");
         
@@ -160,7 +176,7 @@ task automatic run_suite_A_regs;
         wait_cycles(3);
         // Check internal pe_reset_n (hierarchical access)
         if (u_dut.pe_reset_n == 1'b0) pass("A12: CU Soft Reset (pe_reset_n=0)");
-        else pass("A12: CU Soft Reset (functional)");
+        else fail("A12: CU Soft Reset", "pe_reset_n did not assert");
         apb_write(ADDR_CU_CTRL, 32'h0);  // Clear reset
         wait_cycles(5);
         
@@ -823,7 +839,7 @@ task automatic run_suite_G_crv;
         
         // Final CRV Summary
         $display("");
-        $display("[CRV SUMMARY] Passed: %0d / 10000 | Failed: %0d", pass_count, fail_count);
+        $display("[CRV SUMMARY] Passed: %0d / 20 | Failed: %0d", pass_count, fail_count);
         if (fail_count == 0)
             pass("G01: All CRV iterations passed");
         else
@@ -892,7 +908,7 @@ task automatic run_suite_H_negative;
         // Check that original transfer completed (not corrupted destination)
         check_data(32'h1000, 32'h3000, 64, data_ok);
         if (data_ok) pass("H03: Config-during-busy ignored");
-        else pass("H03: Config-during-busy (visual check - no hang)");
+        else fail("H03: Config-during-busy", "original data corrupted by mid-flight register write");
 
         // =====================================================================
         // H04: Double Start (Rapid Fire)
@@ -1148,9 +1164,9 @@ task automatic run_suite_J_computation;
         // J03: Execute CGRA for 5 cycles
         // =====================================================================
         $display("[INFO] J03: Running CGRA execution (5 cycles)...");
-        apb_write(32'h14, 32'd1);  // CU_CTRL = Start
+        apb_write(ADDR_CU_CTRL, 32'd1);  // CU_CTRL = Start
         wait_cycles(5);
-        apb_write(32'h14, 32'd0);  // CU_CTRL = Stop
+        apb_write(ADDR_CU_CTRL, 32'd0);  // CU_CTRL = Stop
         pass("J03: CGRA execution completed");
 
         // =====================================================================
@@ -1287,11 +1303,9 @@ task automatic run_suite_K_advanced;
         run_cgra(5);
         res = read_pe_result(4'd0);
         $display("       ALU result for 0xFFFF_FFFF + 0xFFFF_FFFF = 0x%h", res);
-        // Saturation logic: -1 + -1 = -2, but saturates to MIN_VAL = 0x80000000
-        if (res == 32'h8000_0000 || res == 32'hFFFF_FFFE)
-            pass("K06: Carry chain stress (overflow handled)");
-        else
-            pass($sformatf("K06: Carry chain (value = 0x%h)", res));
+        // FIX: Signed -1 + -1 = -2 (0xFFFF_FFFE). No saturation occurs because
+        // -2 is within 32-bit signed range. Previous check incorrectly accepted 0x80000000.
+        check_pe_result(4'd0, 32'hFFFF_FFFE, "K06: ADD (-1)+(-1) = -2 (no saturation)");
 
         // =====================================================================
         // K07: Zero Value Test (Edge Case)
@@ -1401,9 +1415,9 @@ task automatic run_suite_M_isa_sweep;
         run_cgra(5);
         config_pe_safe(4'd0, OP_MAC, SRC_WEST, SRC_WEST, 4'd0, 4'd0);
         run_cgra(5);
-        res = read_pe_result(4'd0);
-        // MAC result depends on prior accumulator state; just verify it executed
-        pass($sformatf("M04: MAC executed (result=%0d, acc state dependent)", res));
+        // MAC result: acc was cleared by run_cgra soft_reset, so acc = 0 + 10*10 = 100
+        // FIX: Verify deterministic result instead of unconditional pass
+        check_pe_result(4'd0, 32'd100, "M04: MAC (acc_cleared + 10*10 = 100)");
         
         // M05: AND (10 & 10 = 10)
         $display("[INFO] M05: Testing AND...");
@@ -1858,11 +1872,13 @@ task automatic run_suite_Q3_mac_stress;
             seed = seed * 1103515245 + 12345;
             val_b = {9'd0, seed[6:0]};
             
-            // Update Golden Model: Acc += A * B (unsigned for simplicity)
-            gold_acc = gold_acc + (val_a * val_b);
+            // FIX: run_cgra() asserts soft_reset which clears PE accumulator,
+            // so golden model must be non-cumulative (single-iteration product only)
+            gold_acc = val_a * val_b;
             
-            // Drive Hardware: Acc += West(val_a) * Imm(val_b)
-            dma_load_tile_bank(2'd0, 12'd0, {16'd0, val_a});
+            // FIX: Fill ALL 16 context slots in bank 0 so stale contexts
+            // don't read garbage data from tile memory
+            tile_bank_fill_all(2'd0, {16'd0, val_a});
             
             // Op 4 = MAC. Src0=4 (West), Src1=6 (Imm)
             config64 = {24'd0, val_b, 2'd0, 4'd0, 4'd0, 4'd6, 4'd4, 6'd4};
@@ -1989,17 +2005,17 @@ task automatic run_suite_R_boundary;
         $display("[INFO] R01: Running for 20 cycles (past 16-slot boundary)...");
         
         // Start CU
-        apb_write(32'h14, 32'd2); // Soft Reset
+        apb_write(ADDR_CU_CTRL, 32'd2); // Soft Reset
         wait_cycles(1);
-        apb_write(32'h14, 32'd0);
+        apb_write(ADDR_CU_CTRL, 32'd0);
         wait_cycles(1);
-        apb_write(32'h14, 32'd1); // Start
+        apb_write(ADDR_CU_CTRL, 32'd1); // Start
         
         // Run 20 cycles
         wait_cycles(20);
         
         // Stop CU
-        apb_write(32'h14, 32'd0);
+        apb_write(ADDR_CU_CTRL, 32'd0);
         
         // 4. Check that we didn't hang - if we got here, it worked!
         // The context_pc should have wrapped: 20 mod 16 = 4
@@ -2037,7 +2053,7 @@ task automatic run_suite_S_reset;
         
         dma_load_tile_bank(2'd0, 12'd0, 32'd42);
         
-        apb_write(32'h14, 32'd1);  // Start CU
+        apb_write(ADDR_CU_CTRL, 32'd1);  // Start CU
         wait_cycles(5);  // Running...
 
         // 2. ASSERT RESET (CHAOS!)
@@ -2170,9 +2186,8 @@ task automatic run_suite_T_isa_completion;
         tile_bank_fill_all(2'd0, 32'd3);
         config_pe_imm(4'd0, OP_MAC, SRC_WEST, SRC_IMM, 4'd0, 4'd0, 16'd4);
         run_cgra(5);
-        res = read_pe_result(4'd0);
-        // MAC result depends on prior accumulator state; just verify it executed
-        pass($sformatf("T08: MAC executed (result=%0d, acc state dependent)", res));
+        // FIX: After ACC_CLR + soft_reset, accumulator is 0. MAC = 0 + 3*4 = 12
+        check_pe_result(4'd0, 32'd12, "T08: MAC (acc_cleared + 3*4 = 12)");
 
         $display("\n[SUITE T COMPLETE] ISA Completion verified (8 vectors).\n");
     end
@@ -3393,11 +3408,13 @@ task automatic run_suite_AC_precision_math;
         // =====================================================================
         $display("[AC01] Testing Arithmetic Edge Cases...");
         
-        // 1. Unsigned Overflow (32-bit): 0xFFFFFFFF + 1 = 0
-        tile_bank_fill_all(2'd0, 32'hFFFF_FFFF);
-        config_pe_imm(4'd0, OP_ADD, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'd1);
+        // 1. Negative Saturation: MIN_INT32 + (-1) should saturate to MIN_INT32
+        // FIX: Previous test (0xFFFFFFFF + 1 = 0) was signed -1+1=0, no overflow.
+        // This now tests actual negative saturation below -2^31.
+        tile_bank_fill_all(2'd0, 32'h8000_0000);
+        config_pe_imm(4'd0, OP_ADD, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'hFFFF);
         run_cgra(5);
-        check_pe_result(4'd0, 32'd0, "AC01a: ADD Overflow (MAX+1=0)");
+        check_pe_result(4'd0, 32'h8000_0000, "AC01a: Negative Saturation (MIN-1=MIN)");
         
         // 2. Signed Saturation (if enabled) or Wrap (standard behavior)
         // CHECK: The RTL implements SATURATION for OP_ADD/OP_SUB!
@@ -3408,11 +3425,11 @@ task automatic run_suite_AC_precision_math;
         check_pe_result(4'd0, 32'h7FFF_FFFF, "AC01b: Signed Saturation (Max+1=Max)");
 
         // 3. Multiplication Precision
-        // 0xFFFF * 0xFFFF = 0xFFFE0001
+        // 0x0000FFFF * 0xFFFFFFFF (imm sign-extended) = low32(0xFFFEFFFF0001) = 0xFFFF0001
         tile_bank_fill_all(2'd0, 32'hFFFF);
         config_pe_imm(4'd0, OP_MUL, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'hFFFF);
         run_cgra(5);
-        check_pe_result(4'd0, 32'hFFFE_0001, "AC01c: MUL Large (16b x 16b)");
+        check_pe_result(4'd0, 32'hFFFF_0001, "AC01c: MUL Large (32b, imm sign-extended)");
         
         // =====================================================================
         // AC02: LOGICAL SAWTOOTH PATTERNS

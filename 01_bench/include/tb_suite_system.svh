@@ -1,3 +1,5 @@
+`ifndef TB_SUITE_SYSTEM_SVH
+`define TB_SUITE_SYSTEM_SVH
 // ============================================================================
 // SUITE: SYSTEM INTEGRITY (CRV Philosophy)
 // ============================================================================
@@ -16,8 +18,10 @@ task automatic run_suite_system_integrity;
     test_dma_randomized();
     test_dma_max_burst();              // NEW: Large transfer (>512B) tests
     test_dma_4kb_boundary_crossing();  // CRITICAL: Verify 4KB split logic
+    test_dma_axi_write_handshake();    // AXI4 Write FSM stress test
     test_protocol_stress();
     test_streaming_wrap();
+    test_hybrid_io_readback();         // Thesis Hybrid I/O verification
     
     $display("\n[SUITE SYSTEM INTEGRITY COMPLETE]\n");
 endtask
@@ -307,6 +311,99 @@ task automatic test_dma_4kb_boundary_crossing;
 endtask
 
 // ============================================================================
+// TEST: DMA AXI Write Handshake (Stress Test)
+// ============================================================================
+// Verifies AXI4 Write Master FSM under backpressure:
+//   1. Source: Internal memory (0x1000...)
+//   2. Destination: External DDR region (0x8000...)
+//   3. Transfer: 16 words (64 bytes) - multi-beat burst
+//   4. Stress: Random WREADY toggling (backpressure injection)
+//   5. Verify: All data arrives correctly at destination
+// ============================================================================
+task automatic test_dma_axi_write_handshake;
+    localparam int NUM_WORDS = 16;  // 64 bytes = 16 words
+    localparam int TRANSFER_SIZE = NUM_WORDS * 4;
+    
+    logic [31:0] src_base, dst_base;
+    logic [31:0] golden_data [0:NUM_WORDS-1];
+    logic [31:0] actual;
+    integer i, j;
+    integer pass_count, fail_count;
+    integer stress_levels [0:3];
+    
+    $display("[AXI_WR_HANDSHAKE] Testing AXI4 Write Master with backpressure...");
+    pass_count = 0;
+    fail_count = 0;
+    
+    // Stress levels to test: 0%, 30%, 60%, 90% backpressure
+    stress_levels[0] = 0;
+    stress_levels[1] = 30;
+    stress_levels[2] = 60;
+    stress_levels[3] = 90;
+    
+    for (j = 0; j < 4; j++) begin
+        // -------------------------------------------------------------------------
+        // Step 1: Setup source and destination addresses
+        // -------------------------------------------------------------------------
+        src_base = 32'h0000_1000 + (j * 32'h100);  // Internal memory
+        dst_base = 32'h0000_8000 + (j * 32'h100);  // External DDR region
+        
+        // -------------------------------------------------------------------------
+        // Step 2: Initialize source memory with known pattern
+        // -------------------------------------------------------------------------
+        for (i = 0; i < NUM_WORDS; i++) begin
+            golden_data[i] = 32'hA5A5_0000 | (j << 12) | i;  // Unique per test & word
+            ram_write(src_base + (i * 4), golden_data[i]);
+        end
+        
+        // -------------------------------------------------------------------------
+        // Step 3: Enable backpressure injection
+        // -------------------------------------------------------------------------
+        $display("  [TEST %0d] Stress=%0d%%, Src=0x%08h, Dst=0x%08h, Size=%0d bytes",
+                 j, stress_levels[j], src_base, dst_base, TRANSFER_SIZE);
+        
+        enable_stress(stress_levels[j]);
+        
+        // -------------------------------------------------------------------------
+        // Step 4: Execute DMA transfer
+        // -------------------------------------------------------------------------
+        dma_transfer(src_base, dst_base, TRANSFER_SIZE, 5000);  // Extended timeout for stalls
+        
+        // -------------------------------------------------------------------------
+        // Step 5: Disable stress for verification reads
+        // -------------------------------------------------------------------------
+        disable_stress();
+        
+        // -------------------------------------------------------------------------
+        // Step 6: Verify all words arrived correctly
+        // -------------------------------------------------------------------------
+        for (i = 0; i < NUM_WORDS; i++) begin
+            actual = ram_read(dst_base + (i * 4));
+            if (actual !== golden_data[i]) begin
+                $display("    [FAIL] Word %0d: Expected=0x%08h, Got=0x%08h",
+                         i, golden_data[i], actual);
+                fail_count++;
+            end else begin
+                pass_count++;
+            end
+        end
+        
+        if (fail_count == 0)
+            $display("    [PASS] All %0d words verified", NUM_WORDS);
+    end
+    
+    // -------------------------------------------------------------------------
+    // Final Report
+    // -------------------------------------------------------------------------
+    if (fail_count == 0)
+        pass($sformatf("AXI_WR_HANDSHAKE: %0d/%0d words verified across 4 stress levels",
+                       pass_count, pass_count));
+    else
+        fail("AXI_WR_HANDSHAKE", $sformatf("%0d word mismatches - Write FSM may have issues",
+                                           fail_count));
+endtask
+
+// ============================================================================
 // TEST: Protocol Stress (100 vectors)
 // ============================================================================
 // Weakness Eliminated: Simple handshakes
@@ -403,3 +500,134 @@ task automatic test_streaming_wrap;
     else
         fail("STREAM_WRAP", $sformatf("%0d failures", fail_count));
 endtask
+
+// ============================================================================
+// TEST: Hybrid I/O Readback (Thesis Verification)
+// ============================================================================
+// Verifies the 'Hybrid I/O' upgrade path:
+//   1. Configure entire Row 3 (PEs 12-15) as PASS0 pipeline
+//   2. Load known pattern (0xCAFEBABE) via DMA into Tile Memory bank 3
+//   3. Execute CGRA - data flows: TileMem→PE12→PE13→PE14→PE15→edge_e3
+//   4. Poll APB Status register (0x44) until result_valid
+//   5. Read APB Result register (0x40) and verify against golden
+//
+// TOPOLOGY: Tile memory bank 3 feeds the WEST edge of Row 3 column 0
+//   (PE[12] = tile 3,0). Data must flow EAST through PEs 13, 14, 15 to
+//   reach edge_e3 which drives global_result. Unconfigured PEs execute
+//   NOP (alu_result=0), so ALL 4 PEs in the row must be configured.
+// ============================================================================
+task automatic test_hybrid_io_readback;
+    logic [31:0] status, result;
+    logic [31:0] golden_data;
+    integer poll_count, max_polls;
+    logic timeout_flag;
+    
+    $display("[HYBRID_IO] Testing Hybrid I/O readback path...");
+    
+    // -------------------------------------------------------------------------
+    // Step 1: Define test pattern
+    // -------------------------------------------------------------------------
+    golden_data = 32'hCAFE_BABE;
+    
+    // -------------------------------------------------------------------------
+    // Step 2: Load golden data into ALL 16 context slots of Tile Memory bank 3
+    // Bank 3 feeds Row 3 PEs via West edge. Context_pc sweeps 0-15, so ALL
+    // slots must be populated for the PE to see golden data every cycle.
+    // tile_bank_fill_all addresses: BASE_TILE | (bank << 12) | (slot * 4)
+    //   Bank 3 word 0 = 0x1000_3000, word 1 = 0x1000_3004, ... word 15 = 0x1000_303C
+    // -------------------------------------------------------------------------
+    tile_bank_fill_all(2'd3, golden_data);
+    
+    // -------------------------------------------------------------------------
+    // Step 3: Configure ALL 4 PEs in Row 3 with PASS0 + ROUTE_EAST
+    //
+    // Pipeline: TileMem bank3 → PE[12](3,0) → PE[13](3,1) → PE[14](3,2)
+    //           → PE[15](3,3) → edge_e3 → global_result
+    //
+    // Each PE: PASS0 (output = input A), src0 = WEST (data from left neighbor)
+    //          ROUTE_EAST (valid propagates east through the pipeline)
+    //
+    // All 16 config slots must be filled per PE because context_pc sweeps
+    // 0-15 during execution; empty slots decode as NOP (alu_result=0).
+    //
+    // Pipeline latency: ~5 cycles (1 BSG read + 4 PE stages), so with 16
+    // execution cycles, PE[15] outputs valid data for the last ~11 cycles.
+    // -------------------------------------------------------------------------
+    begin
+        logic [63:0] pass0_cfg;
+        pass0_cfg = build_pe_config(OP_PASS0, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST, 16'd0);
+        for (int pe = 12; pe <= 15; pe++) begin
+            for (int slot = 0; slot < 16; slot++) begin
+                config_pe(pe[3:0], slot[3:0], pass0_cfg);
+            end
+        end
+    end
+    
+    // -------------------------------------------------------------------------
+    // Step 4: Start Control Unit execution
+    // Soft-reset first to clear any stale state, then start.
+    // Auto-stop triggers after 16 context cycles → CU FINISH → cu_done pulse
+    // → result_valid_latch goes high (cleared on next soft_reset).
+    // -------------------------------------------------------------------------
+    apb_write(ADDR_CU_CTRL, 32'd2);  // Assert soft_reset first
+    wait_cycles(3);
+    apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
+    wait_cycles(2);
+    apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution
+    
+    // -------------------------------------------------------------------------
+    // Step 5: Poll Status register until result_valid (bit 0)
+    // -------------------------------------------------------------------------
+    poll_count = 0;
+    max_polls = 1000;
+    timeout_flag = 1'b0;
+    
+    $display("  [INFO] Polling RESULT_STATUS (0x44) for valid bit...");
+    
+    forever begin
+        apb_read(ADDR_RESULT_STATUS, status);
+        
+        if (status[0] == 1'b1) begin
+            $display("  [INFO] Result valid after %0d polls", poll_count);
+            break;
+        end
+        
+        poll_count++;
+        if (poll_count >= max_polls) begin
+            timeout_flag = 1'b1;
+            $display("  [ERROR] Timeout waiting for result_valid!");
+            break;
+        end
+        
+        wait_cycles(1);
+    end
+    
+    // -------------------------------------------------------------------------
+    // Step 6: Read Result register and verify
+    // -------------------------------------------------------------------------
+    if (!timeout_flag) begin
+        apb_read(ADDR_RESULT_DATA, result);
+        
+        $display("  [INFO] RESULT_DATA (0x40) = 0x%08h", result);
+        $display("  [INFO] Expected          = 0x%08h", golden_data);
+        
+        if (result === golden_data) begin
+            pass("HYBRID_IO: APB readback matches golden data");
+        end else begin
+            fail("HYBRID_IO", $sformatf("Mismatch: expected 0x%08h, got 0x%08h", 
+                                        golden_data, result));
+        end
+    end else begin
+        fail("HYBRID_IO", "Timeout waiting for result_valid");
+    end
+    
+    // -------------------------------------------------------------------------
+    // Step 7: Stop execution
+    // -------------------------------------------------------------------------
+    apb_write(ADDR_CU_CTRL, 32'd2);  // Soft reset to stop
+    wait_cycles(2);
+    apb_write(ADDR_CU_CTRL, 32'd0);  // Release reset
+    
+endtask
+
+`endif

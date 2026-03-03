@@ -1,0 +1,10 @@
+\contentsline {figure}{\numberline {1}{\ignorespaces Biological vs. Artificial Spiking Neuron Models}}{1}{figure.1}%
+\contentsline {figure}{\numberline {2}{\ignorespaces Hybrid I/O Architecture: Decoupled Control (APB) and Data (AXI4) Planes}}{6}{figure.2}%
+\contentsline {figure}{\numberline {3}{\ignorespaces High-Level Block Diagram of the CGRA Accelerator IP Subsystems}}{7}{figure.3}%
+\contentsline {figure}{\numberline {4}{\ignorespaces Bi-Directional AXI4 DMA Engine Architecture}}{8}{figure.4}%
+\contentsline {figure}{\numberline {5}{\ignorespaces 4x4 PE Array Mesh Topology}}{9}{figure.5}%
+\contentsline {figure}{\numberline {6}{\ignorespaces Multicast NoC Routing Patterns in the 4x4 Mesh}}{10}{figure.6}%
+\contentsline {figure}{\numberline {7}{\ignorespaces Top-Level RTL Module Hierarchy}}{12}{figure.7}%
+\contentsline {figure}{\numberline {8}{\ignorespaces DMA Engine Control Logic and AXI4 Interface}}{14}{figure.8}%
+\contentsline {figure}{\numberline {9}{\ignorespaces PE Datapath and Instruction Execution Pipeline}}{15}{figure.9}%
+\contentsline {figure}{\numberline {10}{\ignorespaces Row-Banked Tile Memory Architecture}}{17}{figure.10}%

@@ -1,3 +1,5 @@
+`ifndef TB_ISA_REGRESSION_SVH
+`define TB_ISA_REGRESSION_SVH
 
 // =============================================================================
 // SUITE AD: RANDOMIZED ISA REGRESSION (500 Vectors/Opcode)
@@ -54,8 +56,11 @@ task automatic run_suite_AD_isa_regression;
                 b = $urandom();
                 
                 // Corner case injection (10% chance)
+                // FIX: Original code always set a=MIN_NEG because (i%10)==0 implies
+                // (i%2)==0, so the ternary always took the false branch.
+                // Now alternate MAX_POS and MIN_NEG across injection windows.
                 if ((i % 10) == 0) begin
-                    a = ((i % 2) != 0) ? MAX_POS : MIN_NEG;
+                    a = ((i % 20) != 0) ? MAX_POS : MIN_NEG;
                     b = ((i % 4) != 0) ? 32'd1 : 32'hFFFF_FFFF;
                 end
                 
@@ -110,15 +115,9 @@ task automatic run_suite_AD_isa_regression;
                     8: expected = a << b[4:0];
                     9: expected = $signed(a) >>> b[4:0]; // Arithmetic Right Shift
                     
-                    // Compare
-                    10: expected = (a > b) ? 1 : 0; // Unsigned compare in RTL? CHECK!
-                        // RTL: OP_CMP_GT -> (operand0 > operand1)
-                        // If operands are logic [31:0], > is unsigned.
-                        // Wait, RTL uses `logic [31:0]` for operands. 
-                        // Standard SV `>` is unsigned.
-                        // But for `OP_SHR` it did `$signed(operand0)`.
-                        // We will assume unsigned for CMP unless specified.
-                    11: expected = (a < b) ? 1 : 0;
+                    // Compare (FIX: RTL now uses $signed comparison)
+                    10: expected = ($signed(a) > $signed(b)) ? 1 : 0;
+                    11: expected = ($signed(a) < $signed(b)) ? 1 : 0;
                     12: expected = (a == b) ? 1 : 0;
                     
                     default: expected = 0;
@@ -157,13 +156,8 @@ task automatic run_suite_AD_isa_regression;
                 
                 config_pe_imm(4'd0, op_idx[5:0], SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, b[15:0]);
                 
-                // FIX: Ensure context_pc=0 with sufficient reset hold time
-                // The pe_reset_n is registered, so need extra cycles
-                apb_write(ADDR_CU_CTRL, 32'h2); // Soft Reset
-                wait_cycles(2);                  // Hold reset
-                apb_write(ADDR_CU_CTRL, 32'h0); // Release
-                wait_cycles(1);                  // Wait for deassert
-                
+                // run_cgra() already performs soft-reset internally (3-cycle hold),
+                // so no extra manual reset is needed here.
                 run_cgra(2);
                 
                 // 4. Check
@@ -173,3 +167,5 @@ task automatic run_suite_AD_isa_regression;
         $display("\n[SUITE AD COMPLETE] 6000 Randomized tests finished.\n");
     end
 endtask
+
+`endif

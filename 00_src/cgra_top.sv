@@ -30,6 +30,13 @@
 //   0x2C  CU_TIMEOUT  Max cycles (0 = no limit)
 //   0x30  IRQ_STATUS  [0] DMA Done, [1] CU Done
 //   0x34  IRQ_MASK    IRQ enable mask
+//   0x48  LOOP_START  Hardware loop start PC      [NEW - LPR]
+//   0x4C  LOOP_END    Hardware loop end PC         [NEW - LPR]
+//   0x50  LOOP_COUNT  Hardware loop iteration count [NEW - LPR]
+//   0x58  RESULT_ROW0 East-edge result row 0 (RO)  [NEW - LPR]
+//   0x5C  RESULT_ROW1 East-edge result row 1 (RO)  [NEW - LPR]
+//   0x60  RESULT_ROW2 East-edge result row 2 (RO)  [NEW - LPR]
+//   0x64  RESULT_ROW3 East-edge result row 3 (RO)  [NEW - LPR]
 //
 // VERIFICATION: 173/173 tests pass (25 suites, Silicon Ready)
 // ==============================================================================
@@ -117,6 +124,11 @@ module cgra_top #(
 );
 
     // =========================================================================
+    // Internal Wires: APB CSR Multiplexing
+    // =========================================================================
+    logic [31:0] csr_prdata;  // Internal prdata from u_csr module
+    
+    // =========================================================================
     // Internal Wires: CSR → DMA
     // =========================================================================
     logic [31:0] dma_src;
@@ -136,6 +148,14 @@ module cgra_top #(
     logic        cu_done;
     logic [31:0] cu_cycles;
     
+    // Hardware Loop Configuration (from CSR)
+    logic [15:0] cu_loop_start_pc;
+    logic [15:0] cu_loop_end_pc;
+    logic [15:0] cu_loop_count;
+    
+    // East-edge result registers (4 rows for LPR 4×4 output capture)
+    logic [DATA_WIDTH-1:0] result_row [0:3];
+    
     // =========================================================================
     // Internal Wires: Control Unit → Array
     // =========================================================================
@@ -150,8 +170,8 @@ module cgra_top #(
     logic [1:0]  dma_tile_bank_sel;
     logic        dma_tile_we;
     logic [31:0] dma_tile_wdata;
-    logic [31:0] dma_tile_rdata;
-    logic        dma_tile_valid;
+    logic [31:0] dma_tile_rdata;  // NOTE: Placeholder for future DMA-read-from-tile-memory path (currently unread)
+    logic        dma_tile_valid;  // NOTE: Placeholder — driven by tile_memory but not consumed yet
     
     // Row data from tile memory → Array
     logic [31:0] row_data [0:3];
@@ -172,32 +192,54 @@ module cgra_top #(
     logic [31:0] config_high_reg;     // Holding register for upper 32 bits
     logic [63:0] config_full_word;    // Combined 64-bit config
     logic        config_commit_en;    // Triggers when low word written
+    logic        config_high_loaded;  // FIX: Guard — high word must be written before commit
     
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            config_high_reg <= 32'd0;
+        if (!rst_n || cu_soft_reset) begin
+            config_high_reg    <= 32'd0;  // FIX: Clear on soft reset to prevent stale pairing
+            config_high_loaded <= 1'b0;
         end else if (dma_cfg_we && dma_cfg_addr[2]) begin
             // Writing to high word address (offset 4 within config slot)
-            config_high_reg <= dma_cfg_wdata;
+            config_high_reg    <= dma_cfg_wdata;
+            config_high_loaded <= 1'b1;
+        end else if (config_commit_en) begin
+            config_high_loaded <= 1'b0;   // Clear after commit
         end
     end
     
-    // Commit trigger: DMA writes to low word address (addr[2]=0)
-    assign config_commit_en = dma_cfg_we && !dma_cfg_addr[2];
+    // Commit trigger: DMA writes to low word address (addr[2]=0) AND high word was loaded
+    // FIX: Without config_high_loaded guard, a stray low-word write could commit
+    //      a stale or zeroed high_reg, silently corrupting the PE config frame.
+    assign config_commit_en = dma_cfg_we && !dma_cfg_addr[2] && config_high_loaded;
     
     // Combined 64-bit config: {high_reg, current_low_word}
     assign config_full_word = {config_high_reg, dma_cfg_wdata};
     
     // =========================================================================
-    // Internal Wires: Control Unit → Flow Control
+    // Internal Wires: APB Handshake Signals (for multiplexing)
     // =========================================================================
-    logic [3:0]  context_pc;
-    logic        global_stall;
+    // csr_prdata already declared at line 122
+    logic        csr_pready;  // CSR module ready signal
+    logic        csr_pslverr; // CSR module slave error
     
     // =========================================================================
     // Internal Wires: Configuration (simplified for now)
     // =========================================================================
     logic [CONFIG_WIDTH-1:0] config_frames [0:15];  // 16 PE configs
+    
+    // =========================================================================
+    // Internal Wires: Control Unit → Flow Control
+    // =========================================================================
+    logic [3:0]  context_pc;    // 4-bit PC counter (0-15) from Control Unit
+    logic        global_stall;  // Stall signal to PE array
+    
+    // =========================================================================
+    // Internal Wires: Hybrid I/O - Result Collection from Array
+    // =========================================================================
+    // Capture computation result from last PE (PE 3,3 = tile 15)
+    // Using East edge output as it's typically the final output direction
+    logic [31:0] global_result;
+    logic        result_valid;
 
     // Config Write Logic: Populate config_frames when DMA commits
     always_ff @(posedge clk) begin
@@ -215,6 +257,13 @@ module cgra_top #(
     // TEMPORARY: Placeholder assignment for config PE selection
     // =========================================================================
     assign dma_cfg_pe_sel = dma_cfg_addr[11:8];  // PE select from higher bits (avoid overlap with slot)
+    
+    // =========================================================================
+    // TEMPORARY: Hardware Loop Configuration - NOW WIRED FROM CSR
+    // =========================================================================
+    // Hardware loop parameters are programmable via APB CSR registers:
+    //   0x48 = LOOP_START, 0x4C = LOOP_END, 0x50 = LOOP_COUNT
+    // Default values (no looping): start=0, end=15, count=0
         
     // =========================================================================
     // 1. APB CSR Module
@@ -226,15 +275,15 @@ module cgra_top #(
         .clk(clk),
         .rst_n(rst_n),
         
-        // APB Interface
+        // APB Interface - use internal wires for muxing
         .psel(psel),
         .penable(penable),
         .pwrite(pwrite),
         .paddr(paddr),
         .pwdata(pwdata),
-        .prdata(prdata),
-        .pready(pready),
-        .pslverr(pslverr),
+        .prdata(csr_prdata),   // Internal wire for multiplexing
+        .pready(csr_pready),   // Internal wire for multiplexing
+        .pslverr(csr_pslverr),
         
         // DMA Config Wires
         .dma_src(dma_src),
@@ -253,7 +302,12 @@ module cgra_top #(
         .cu_cycles_i(cu_cycles),
         
         // IRQ
-        .irq(irq)
+        .irq(irq),
+        
+        // Hardware Loop (NEW - LPR: programmable via CSR 0x48-0x50)
+        .loop_start_pc(cu_loop_start_pc),
+        .loop_end_pc(cu_loop_end_pc),
+        .loop_count(cu_loop_count)
     );
     
     // =========================================================================
@@ -352,7 +406,12 @@ module cgra_top #(
         .dma_busy_i(dma_busy),
         
         // Configuration
-        .max_cycles_i(cu_max_cycles)  // Programmable timeout from CSR @ 0x2C
+        .max_cycles_i(cu_max_cycles),  // Programmable timeout from CSR @ 0x2C
+        
+        // Hardware Loop Configuration
+        .loop_start_pc_i(cu_loop_start_pc),
+        .loop_end_pc_i(cu_loop_end_pc),
+        .loop_count_i(cu_loop_count)
     );
     
     // =========================================================================
@@ -446,12 +505,17 @@ module cgra_top #(
             // Soft reset clears the counter
             auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b0;
-        end else if (cu_start) begin
-            // FIX: Arm on start, not soft_reset
+        end else if (cu_start && !cu_busy && !cu_soft_reset) begin
+            // FIX: Arm on start, not soft_reset. Gate with !cu_busy to prevent
+            // mid-execution cu_start from resetting the counter spuriously.
+            // FIX: Also gate with !cu_soft_reset — if start is asserted in the
+            // same cycle as soft_reset, arming must not occur.
             auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b1;
-        end else if (pe_enable && auto_stop_armed) begin
-            // Count while running
+        end else if (pe_enable && auto_stop_armed && !global_stall && !array_done) begin
+            // FIX: Only count when PEs actually execute (not stalled by DMA)
+            // Gate with !array_done to prevent counter overshooting to 17
+            // during the 1-cycle pe_enable pipeline lag after FINISH.
             auto_stop_counter <= auto_stop_counter + 1'b1;
         end
     end
@@ -604,5 +668,89 @@ module cgra_top #(
                             (|edge_s0) | (|edge_s1) | (|edge_s2) | (|edge_s3) |
                             (|edge_e0) | (|edge_e1) | (|edge_e2) | (|edge_e3) |
                             (|edge_w0) | (|edge_w1) | (|edge_w2) | (|edge_w3);
+    
+    // =========================================================================
+    // Hybrid I/O: Capture Result from Last PE (PE 3,3)
+    // =========================================================================
+    // Register the result on cu_done pulse so the APB read returns a stable
+    // value. Without this, edge_e3 is a live combinational wire that could
+    // change during the 1-2 pipeline-drain cycles after auto-stop fires.
+    logic [DATA_WIDTH-1:0] global_result_reg;
+    always_ff @(posedge clk) begin
+        if (!rst_n)
+            global_result_reg <= '0;
+        else if (cu_done && !cu_soft_reset)
+            global_result_reg <= edge_e3;  // FIX: Don't capture on soft-reset abort
+    end
+    assign global_result = global_result_reg;
+    
+    // =========================================================================
+    // LPR: Capture ALL 4 East-Edge Results (one per row)
+    // =========================================================================
+    // For 4×4 matrix operations, each row produces an independent result.
+    // Capture on cu_done so PS can read all 4 via APB (0x58-0x64).
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            result_row[0] <= '0;
+            result_row[1] <= '0;
+            result_row[2] <= '0;
+            result_row[3] <= '0;
+        end else if (cu_done && !cu_soft_reset) begin
+            result_row[0] <= edge_e0;  // PE(0,3) output
+            result_row[1] <= edge_e1;  // PE(1,3) output
+            result_row[2] <= edge_e2;  // PE(2,3) output
+            result_row[3] <= edge_e3;  // PE(3,3) output
+        end
+    end
+    
+    // Result valid: latched on cu_done, cleared by soft_reset
+    // CRITICAL: cu_done is a 1-cycle pulse that APB polling would miss.
+    // Latch it so result_valid stays high until the next soft_reset.
+    logic result_valid_latch;
+    always_ff @(posedge clk) begin
+        if (!rst_n || cu_soft_reset)
+            result_valid_latch <= 1'b0;
+        else if (cu_done)
+            result_valid_latch <= 1'b1;
+    end
+    assign result_valid = result_valid_latch;
+    
+    // =========================================================================
+    // Hybrid I/O: APB Multiplexers (Result Data + Handshake Signals)
+    // =========================================================================
+    // Extended APB address map:
+    //   0x40  RESULT_DATA   - Computation result from last PE (RO)
+    //   0x44  RESULT_STATUS - {31'b0, result_valid} (RO)
+    //
+    // Multiplexes between CSR module output and result registers
+    // CRITICAL: Must drive pready for all addresses (APB protocol requirement)
+    
+    // Internal wires to avoid multiple drivers on output ports
+    logic [31:0] apb_prdata;
+    logic        apb_pready;
+    
+    always_comb begin
+        // Data multiplexer: result registers vs CSR module
+        case (paddr[7:0])
+            8'h40: apb_prdata = global_result;              // RESULT_DATA (combinational)
+            8'h44: apb_prdata = {31'b0, result_valid};      // RESULT_STATUS (combinational)
+            8'h58: apb_prdata = result_row[0];              // LPR: Row 0 east-edge result
+            8'h5C: apb_prdata = result_row[1];              // LPR: Row 1 east-edge result
+            8'h60: apb_prdata = result_row[2];              // LPR: Row 2 east-edge result
+            8'h64: apb_prdata = result_row[3];              // LPR: Row 3 east-edge result
+            default: apb_prdata = csr_prdata;                // All other addresses from CSR
+        endcase
+        
+        // Ready signal multiplexer: result registers always ready, CSR module for others
+        case (paddr[7:0])
+            8'h40, 8'h44, 8'h58, 8'h5C, 8'h60, 8'h64: apb_pready = 1'b1;
+            default: apb_pready = csr_pready;                // CSR addresses: use CSR ready
+        endcase
+    end
+    
+    // Output assignments (replace CSR direct connections)
+    assign prdata = apb_prdata;
+    assign pready = apb_pready;
+    assign pslverr = csr_pslverr;  // Slave error only from CSR (result regs don't error)
 
 endmodule

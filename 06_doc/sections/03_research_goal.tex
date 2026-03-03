@@ -1,0 +1,20 @@
+\section{Project Objectives}
+
+The primary objective of this project is to design and implement a CGRA-based accelerator IP featuring an APB control interface and an AXI4 high-bandwidth DMA engine.
+
+\subsection{Design Goals}
+\begin{itemize}
+    \item \textbf{High-Dynamic-Range Computation:} Development of a 4×4 PE mesh incorporating 40-bit saturating arithmetic.
+    \item \textbf{Neuromorphic Acceleration:} Integration of dedicated hardware LIF units within each PE for efficient potential evolution and spike generation.
+    \item \textbf{Low-Latency Context Switching:} Implementation of a ``hot-reloadable'' configuration mechanism using double-buffered context memory.
+    \item \textbf{Scalable Sparse Processing:} Support for Compressed Sparse Column (CSC) data structures to optimize for connectivity sparsity ($<$1\% activity).
+\end{itemize}
+
+\subsection{Evaluation Criteria}
+The success of the project will be measured by:
+\begin{enumerate}
+    \item Correct functional behavior as verified by a 6,010-case randomized regression suite.
+    \item Protocol compliance with AMBA AXI4 and APB standards as validated by assertions.
+    \item Timing closure at $>$200 MHz on the Zynq UltraScale+ platform.
+    \item Demonstration of end-to-end inference for digit classification tasks (MNIST).
+\end{enumerate}

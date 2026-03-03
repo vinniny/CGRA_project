@@ -185,7 +185,7 @@ module cgra_dma_engine #(
     read_state_t r_state;
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
-    logic        read_complete;
+    logic        read_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
     logic [7:0]  current_burst_len;  // Current burst length (ARLEN value, 0-indexed)
     
     // AXI4 Burst Configuration (constant for INCR bursts)
@@ -207,9 +207,11 @@ module cgra_dma_engine #(
                                  : read_words_remaining;
     
     // Step 2: Clamp to 4KB boundary - never cross page boundary
-    wire [31:0] words_this_burst = (len_limit_fifo > words_to_boundary) 
-                                   ? words_to_boundary 
-                                   : len_limit_fifo;
+    wire [31:0] words_this_burst_raw = (len_limit_fifo > words_to_boundary) 
+                                       ? words_to_boundary 
+                                       : len_limit_fifo;
+    // FIX: Guard against zero (unaligned addr at 4KB boundary → underflow to ARLEN=255)
+    wire [31:0] words_this_burst = (words_this_burst_raw == '0) ? 32'd1 : words_this_burst_raw;
     
     always_ff @(posedge clk) begin
         if (!rst_n || cfg_abort) begin  // Abort forces FSM to IDLE
@@ -319,17 +321,30 @@ module cgra_dma_engine #(
     write_state_t w_state;
     logic [31:0] write_addr;
     logic [31:0] write_words_remaining;
-    logic        write_complete;
+    logic        write_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
     logic [DATA_WIDTH-1:0] write_data_reg;  // Latched FIFO data
+    logic        write_data_reg_valid;      // Pipeline register has valid data
     logic [31:0] local_write_addr;          // Address captured BEFORE increment for local writes
     
-    // AXI4 Write Burst Configuration
-    assign m_axi_awlen   = 8'h00;   // Single beat (no burst on writes yet)
+    // AXI4 Write Burst Tracking
+    logic [7:0]  write_burst_len;           // Current burst length (AWLEN value, 0-indexed)
+    logic [7:0]  write_beat_counter;        // Counts beats in current burst (0 to AWLEN)
+    logic [31:0] write_burst_words;         // Words in this burst (for address increment)
+    
+    // AXI4 Write Burst Configuration (constant signals)
     assign m_axi_awsize  = 3'b010;  // 4 bytes per beat
     assign m_axi_awburst = 2'b01;   // INCR burst type
-    assign m_axi_wlast   = 1'b1;    // Always last beat (single-beat writes)
-    // FIX: WSTRB must be continuously driven (was only set in reset!)
     assign m_axi_wstrb   = 4'hF;    // Always full word writes
+    
+    // FIX: Write-burst boundary variables moved to module scope for synthesis tool compat
+    // (IEEE 1364 / some synth tools reject variable declarations inside always_ff blocks)
+    logic [11:0] write_addr_offset;
+    logic [31:0] words_to_write_boundary;
+    logic [31:0] len_limit_fifo_write;
+    logic [31:0] words_this_write_burst;
+    
+    // Dynamic signals driven by FSM
+    // m_axi_awlen, m_axi_wlast - driven in FSM based on burst tracking
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -338,23 +353,32 @@ module cgra_dma_engine #(
             write_words_remaining <= '0;
             write_complete <= 1'b0;
             write_data_reg <= '0;
+            write_data_reg_valid <= 1'b0;
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
-            axi_fifo_pop <= 1'b0;    // FIX: Initialize new signal
+            axi_fifo_pop <= 1'b0;
             local_write_addr <= '0;
+            write_burst_len <= '0;
+            write_beat_counter <= '0;
+            write_burst_words <= '0;
             m_axi_awaddr <= '0;
+            m_axi_awlen <= '0;
             m_axi_awvalid <= 1'b0;
             m_axi_wdata <= '0;
-            // Note: m_axi_wstrb driven by continuous assign (line 332)
+            m_axi_wlast <= 1'b0;
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
         end else if (cfg_abort) begin  // FIX: Abort forces write FSM to IDLE
             w_state <= W_IDLE;
             write_complete <= 1'b0;
+            write_data_reg_valid <= 1'b0;  // FIX: Clear pipeline register on abort
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
-            axi_fifo_pop <= 1'b0;    // FIX: Clear on abort
+            axi_fifo_pop <= 1'b0;
+            write_burst_len <= '0;
+            write_beat_counter <= '0;
             m_axi_awvalid <= 1'b0;
+            m_axi_wlast <= 1'b0;
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
         end else begin
@@ -364,6 +388,7 @@ module cgra_dma_engine #(
                     local_write_en <= 1'b0;
                     local_fifo_pop <= 1'b0;
                     axi_fifo_pop <= 1'b0;
+                    write_data_reg_valid <= 1'b0;
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
@@ -375,16 +400,48 @@ module cgra_dma_engine #(
                 end
                 
                 W_WAIT: begin
-                    // Wait for FIFO to have data
+                    // CRITICAL: Re-assert bready for multi-burst response handling
+                    // After W_RESP consumes a response, bready is de-asserted.
+                    // When starting the next burst, must re-assert to avoid deadlock.
+                    m_axi_bready <= 1'b1;
+                    
+                    // Wait for FIFO to have data and calculate burst size
                     local_write_en <= 1'b0;
                     local_fifo_pop <= 1'b0;
                     axi_fifo_pop <= 1'b0;
                     
                     if (!fifo_empty && write_words_remaining != '0) begin
-                        // Latch data from FIFO
-                        write_data_reg <= fifo_rdata;
+                        if (dst_is_axi) begin
+                            // Calculate burst size with 4KB boundary protection
+                            // Max burst = min(FIFO_DEPTH, write_words_remaining, words_to_4KB_boundary)
+                            
+                            write_addr_offset = write_addr[11:0];
+                            words_to_write_boundary = (32'd4096 - {20'd0, write_addr_offset}) >> 2;
+                            
+                            // Step 1: Clamp to FIFO depth or remaining words
+                            len_limit_fifo_write = (write_words_remaining > MAX_BURST_WORDS) 
+                                                   ? MAX_BURST_WORDS 
+                                                   : write_words_remaining;
+                            
+                            // Step 2: Clamp to 4KB boundary
+                            words_this_write_burst = (len_limit_fifo_write > words_to_write_boundary)
+                                                     ? words_to_write_boundary
+                                                     : len_limit_fifo_write;
+                            
+                            // FIX: Guard against zero (same as read path)
+                            if (words_this_write_burst == '0) words_this_write_burst = 32'd1;
+                            
+                            // Set burst parameters
+                            write_burst_len <= words_this_write_burst[7:0] - 8'd1;  // AWLEN is N-1
+                            write_burst_words <= words_this_write_burst;
+                            write_beat_counter <= '0;
+                        end
                         
-                        // Pop FIFO NOW for ALL destinations
+                        // Latch first data word from FIFO (for both AXI and local)
+                        write_data_reg <= fifo_rdata;
+                        write_data_reg_valid <= 1'b1;  // Mark valid for W_DATA
+                        
+                        // Pop FIFO NOW for first word
                         if (dst_is_axi) begin
                             axi_fifo_pop <= 1'b1;
                         end else begin
@@ -404,10 +461,11 @@ module cgra_dma_engine #(
                     local_fifo_pop <= 1'b0;
                     
                     if (dst_is_axi) begin
-                        // AW phase - address for AXI
+                        // AW phase - address and burst length for AXI
                         if (!m_axi_awvalid) begin
-                            // First cycle - assert valid
+                            // First cycle - assert valid with burst info
                             m_axi_awaddr <= write_addr;
+                            m_axi_awlen <= write_burst_len;  // Burst length (N-1)
                             m_axi_awvalid <= 1'b1;
                         end else if (m_axi_awready) begin
                             // Handshake complete
@@ -431,33 +489,86 @@ module cgra_dma_engine #(
                 end
                 
                 W_DATA: begin
-                    // W phase - data
+                    // W phase - burst data transfer with beat-by-beat handshake
+                    // Strategy: Use write_data_reg as pipeline register for ALL beats
+                    // - Beat 0: write_data_reg was loaded in W_WAIT (word0 already popped)
+                    // - Beat N: After handshake, pop FIFO into write_data_reg for next beat
+                    // 
+                    // CRITICAL: write_data_reg_valid tracks if pipeline register has fresh data
+                    // When FIFO is empty (read side slower due to 4KB split), we must wait
+                    axi_fifo_pop <= 1'b0;
+                    
                     if (!m_axi_wvalid) begin
-                        // First cycle - assert valid with data
-                        m_axi_wdata <= write_data_reg;
-                        m_axi_wvalid <= 1'b1;
+                        // wvalid is low - check if we have valid data to send
+                        if (write_beat_counter == 0 || write_data_reg_valid) begin
+                            // Have valid data - assert wvalid
+                            m_axi_wdata <= write_data_reg;
+                            m_axi_wlast <= (write_beat_counter == write_burst_len);
+                            m_axi_wvalid <= 1'b1;
+                            write_data_reg_valid <= 1'b0;  // Will be consumed
+                        end else if (!fifo_empty) begin
+                            // Need data and FIFO has it - load pipeline register
+                            write_data_reg <= fifo_rdata;
+                            axi_fifo_pop <= 1'b1;
+                            write_data_reg_valid <= 1'b1;
+                            // Next cycle will assert wvalid
+                        end
+                        // else: waiting for FIFO data - stay with wvalid low
                     end else if (m_axi_wready) begin
-                        // Handshake complete
-                        m_axi_wvalid <= 1'b0;
-                        m_axi_bready <= 1'b1;
-                        w_state <= W_RESP;
+                        // Handshake occurred - beat transferred
+                        write_words_remaining <= write_words_remaining - 1'b1;
+                        
+                        if (write_beat_counter == write_burst_len) begin
+                            // Last beat - go to response phase
+                            m_axi_wvalid <= 1'b0;
+                            m_axi_wlast <= 1'b0;
+                            m_axi_bready <= 1'b1;
+                            write_addr <= write_addr + (write_burst_words * BYTES_PER_WORD);
+                            w_state <= W_RESP;
+                        end else if (!fifo_empty) begin
+                            // More beats AND FIFO has data - load next word
+                            write_beat_counter <= write_beat_counter + 1'b1;
+                            write_data_reg <= fifo_rdata;
+                            axi_fifo_pop <= 1'b1;
+                            write_data_reg_valid <= 1'b1;
+                            // Deassert wvalid for 1 cycle to load new data
+                            m_axi_wvalid <= 1'b0;
+                            m_axi_wlast <= 1'b0;
+                        end else begin
+                            // More beats but FIFO empty - wait for data
+                            write_beat_counter <= write_beat_counter + 1'b1;
+                            write_data_reg_valid <= 1'b0;  // Mark invalid
+                            m_axi_wvalid <= 1'b0;
+                            m_axi_wlast <= 1'b0;
+                        end
                     end
+                    // else: waiting for wready - hold signals unchanged
                 end
                 
                 W_RESP: begin
-                    // B phase - wait for response
+                    // B phase - wait for write response
+                    // m_axi_bready stays HIGH throughout this state (asserted in W_DATA or W_WAIT)
+                    // This follows AXI best practice: keep ready high while waiting for valid.
+                    
                     if (m_axi_bvalid) begin
+                        // Response received - de-assert ready until next burst is queued
                         m_axi_bready <= 1'b0;
-                        write_addr <= write_addr + BYTES_PER_WORD;
-                        write_words_remaining <= write_words_remaining - 1'b1;
                         
-                        if (write_words_remaining == 32'd1) begin
+                        // Note: In production code, should check m_axi_bresp:
+                        // 2'b00 = OKAY, 2'b01 = EXOKAY, 2'b10 = SLVERR, 2'b11 = DECERR
+                        // For now, we assume OKAY response (can add error handling later)
+                        
+                        // Check if all words written
+                        if (write_words_remaining == 32'd0) begin
+                            // Transfer complete
                             write_complete <= 1'b1;
                             w_state <= W_DONE;
                         end else begin
+                            // More words to write - start next burst
                             w_state <= W_WAIT;
                         end
                     end
+                    // else: waiting for bvalid - hold bready
                 end
                 
                 W_DONE: begin
@@ -544,6 +655,20 @@ module cgra_dma_engine #(
     // These checks catch internal bugs that external protocol monitors miss.
     // synthesis translate_off
     
+    // DMA ABORT SAFETY ASSERTION
+    // cfg_abort (connected to cu_soft_reset) must NOT fire while DMA has active
+    // AXI transactions. The abort path drops VALID signals without handshake
+    // completion, which violates AXI protocol. Ensure DMA completes before
+    // asserting soft_reset. For PYNQ: DMA loads finish before CU starts.
+    always_ff @(posedge clk) begin
+        if (cfg_abort && !(!rst_n)) begin
+            if (m_axi_arvalid || (r_state == R_DATA))
+                $warning("[DMA ABORT] Abort while AXI read transaction active - AXI protocol risk!");
+            if (m_axi_awvalid || m_axi_wvalid || (w_state == W_DATA) || (w_state == W_RESP))
+                $warning("[DMA ABORT] Abort while AXI write transaction active - AXI protocol risk!");
+        end
+    end
+    
     // Deadlock detection counter
     integer busy_cycle_count;
     
@@ -588,6 +713,24 @@ module cgra_dma_engine #(
             if (w_state != W_IDLE && w_state != W_WAIT && w_state != W_ADDR && 
                 w_state != W_DATA && w_state != W_RESP && w_state != W_DONE) begin
                 $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
+            end
+            
+            // Check 6: AXI4 Write Protocol - WLAST must be high on last beat
+            if (m_axi_wvalid && m_axi_wready && m_axi_wlast && (write_beat_counter != write_burst_len)) begin
+                $error("[DMA ASSERT] WLAST asserted but beat_counter(%0d) != burst_len(%0d)", 
+                       write_beat_counter, write_burst_len);
+            end
+            
+            // Check 7: AXI4 Write Protocol - No WLAST before last beat
+            if (m_axi_wvalid && m_axi_wready && !m_axi_wlast && (write_beat_counter == write_burst_len)) begin
+                $error("[DMA ASSERT] Last beat but WLAST not asserted!");
+            end
+            
+            // Check 8: AXI4 Write Protocol - AWVALID/WVALID dependency
+            // WDATA can appear before, simultaneous with, or after AWADDR
+            // But we should never have WVALID without having issued AWVALID first
+            if (m_axi_wvalid && w_state == W_ADDR && !m_axi_awvalid) begin
+                $warning("[DMA WARN] WVALID high in W_ADDR state without AWVALID");
             end
             // Debug displays removed for synthesis - uncomment for debugging:
             // if (m_axi_rvalid && m_axi_rready) begin

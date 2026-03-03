@@ -1,0 +1,8 @@
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This thesis presents the architectural definition and implementation of a Coarse-Grained Reconfigurable Architecture (CGRA) optimized for Spiking Neural Network (SNN) inference. Modern event-driven workloads suffer from irregular data access and significant I/O bottlenecks. To address these challenges, the proposed accelerator features a novel ``Hybrid I/O'' architecture that decouples high-bandwidth input streaming (DMA) from low-latency control and status output (APB), effectively minimizing bus contention and reducing synchronization overhead.
+
+A key innovation of the design is the integration of a parameterizable mesh of Processing Elements (PEs) interconnected by a dynamic multicast-capable routing fabric. This fabric exploits the high fan-out nature of SNNs by replicating spike packets to multiple destination PEs in a single cycle, significantly reducing latency compared to traditional point-to-point networks. Each PE includes a hardware-accelerated Leaky Integrate-and-Fire (LIF) unit to compute neuron dynamics with high energy efficiency.
+
+The system is implemented on the Xilinx Zynq UltraScale+ platform using a hardware-software co-verification strategy. Key technical contributions include a double-buffered configuration memory for zero-latency reconfiguration and a deterministic scheduling mechanism for sparse dataflow execution. Experimental results confirm a maximum operating frequency of 213.72 MHz and 100\% pass rate across rigorous regression suites, establishing a scalable and robust platform for edge-based neuromorphic computing.

@@ -14,8 +14,11 @@
 //   0x24  CU_STATUS   RO  [0] Busy, [1] Done (sticky)
 //   0x28  CU_CYCLES   RO  Cycle counter
 //   0x2C  CU_TIMEOUT  RW  Max cycles (0 = no limit)  [NEW]
-//   0x30  IRQ_STATUS  RO  [0] DMA Done, [1] CU Done
+//   0x30  IRQ_STATUS  W1C [0] DMA Done, [1] CU Done
 //   0x34  IRQ_MASK    RW  IRQ enable mask
+//   0x48  LOOP_START  RW  Hardware loop start PC  [NEW - LPR]
+//   0x4C  LOOP_END    RW  Hardware loop end PC    [NEW - LPR]
+//   0x50  LOOP_COUNT  RW  Hardware loop count     [NEW - LPR]
 // ==============================================================================
 
 module cgra_apb_csr #(
@@ -60,7 +63,14 @@ module cgra_apb_csr #(
     // =========================================================================
     // Interrupt Output
     // =========================================================================
-    output logic                  irq
+    output logic                  irq,
+    
+    // =========================================================================
+    // Hardware Loop Configuration (NEW - for LPR multi-tile execution)
+    // =========================================================================
+    output logic [15:0]           loop_start_pc,
+    output logic [15:0]           loop_end_pc,
+    output logic [15:0]           loop_count
 );
 
     // =========================================================================
@@ -80,8 +90,13 @@ module cgra_apb_csr #(
     localparam ADDR_CU_TIMEOUT = 8'h2C;  // RW: Max cycles (0 = no limit)
     
     // IRQ Region
-    localparam ADDR_IRQ_STATUS = 8'h30;  // RO: [0] DMA Done, [1] CU Done
+    localparam ADDR_IRQ_STATUS = 8'h30;  // W1C: [0] DMA Done, [1] CU Done
     localparam ADDR_IRQ_MASK   = 8'h34;  // RW: IRQ enable mask
+    
+    // Hardware Loop Region (NEW - LPR)
+    localparam ADDR_LOOP_START = 8'h48;  // RW: Loop start PC
+    localparam ADDR_LOOP_END   = 8'h4C;  // RW: Loop end PC
+    localparam ADDR_LOOP_COUNT = 8'h50;  // RW: Loop iteration count
     
     // =========================================================================
     // Internal Registers
@@ -96,6 +111,11 @@ module cgra_apb_csr #(
     
     logic [31:0] reg_irq_mask;
     
+    // Hardware Loop registers (NEW - LPR)
+    logic [31:0] reg_loop_start;
+    logic [31:0] reg_loop_end;
+    logic [31:0] reg_loop_count;
+    
     // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
     logic        cu_done_latch;
@@ -109,24 +129,30 @@ module cgra_apb_csr #(
     // =========================================================================
     // Done Bit Latching - Sticky until next start
     // =========================================================================
+    // W1C wire: APB write to IRQ_STATUS clears individual done latches
+    wire irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             dma_done_latch <= 1'b0;
             cu_done_latch <= 1'b0;
         end else begin
-            // Latch DMA done
-            if (dma_done_i) begin
-                dma_done_latch <= 1'b1;
-            end else if (dma_start) begin
-                dma_done_latch <= 1'b0;  // Clear on new start
-            end
+            // DMA done latch: start-clear wins to prevent stale done on back-to-back ops
+            // Priority: start-clear > W1C-clear > done-set  (last assignment wins)
+            if (dma_done_i)
+                dma_done_latch <= 1'b1;          // done sets
+            if (irq_w1c && pwdata[0])
+                dma_done_latch <= 1'b0;          // W1C clears
+            if (dma_start)
+                dma_done_latch <= 1'b0;          // start clears (wins)
             
-            // Latch CU done
-            if (cu_done_i) begin
+            // CU done latch: start-clear wins
+            if (cu_done_i)
                 cu_done_latch <= 1'b1;
-            end else if (cu_start) begin
-                cu_done_latch <= 1'b0;  // Clear on new start
-            end
+            if (irq_w1c && pwdata[1])
+                cu_done_latch <= 1'b0;
+            if (cu_start)
+                cu_done_latch <= 1'b0;
         end
     end
     
@@ -155,6 +181,9 @@ module cgra_apb_csr #(
             reg_cu_ctrl  <= 32'd0;
             reg_cu_timeout <= 32'd0;  // Default: no timeout
             reg_irq_mask <= 32'd0;
+            reg_loop_start <= 32'd0;       // Default: PC 0
+            reg_loop_end   <= 32'd15;      // Default: PC 15 (full range)
+            reg_loop_count <= 32'd0;       // Default: no looping
         end else begin
             // APB Write Phase
             if (psel && penable && pwrite) begin
@@ -166,14 +195,20 @@ module cgra_apb_csr #(
                     ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
                     ADDR_CU_TIMEOUT: reg_cu_timeout <= pwdata;
                     ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
+                    ADDR_LOOP_START: reg_loop_start <= pwdata;
+                    ADDR_LOOP_END:   reg_loop_end   <= pwdata;
+                    ADDR_LOOP_COUNT: reg_loop_count <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
                 endcase
-            end else begin
-                // Auto-clear Start bits after 1 cycle (pulse generation)
-                if (reg_dma_ctrl[0]) reg_dma_ctrl[0] <= 1'b0;
-                if (reg_cu_ctrl[0])  reg_cu_ctrl[0]  <= 1'b0;
             end
+            
+            // FIX: Auto-clear start bits unconditionally (moved out of else branch)
+            // Prevents multi-cycle pulse during back-to-back APB writes to other regs
+            if (reg_dma_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_DMA_CTRL))
+                reg_dma_ctrl[0] <= 1'b0;
+            if (reg_cu_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_CU_CTRL))
+                reg_cu_ctrl[0] <= 1'b0;
         end
     end
     
@@ -193,6 +228,9 @@ module cgra_apb_csr #(
             ADDR_CU_TIMEOUT: prdata = reg_cu_timeout;
             ADDR_IRQ_STATUS: prdata = reg_irq_status;
             ADDR_IRQ_MASK:   prdata = reg_irq_mask;
+            ADDR_LOOP_START: prdata = reg_loop_start;
+            ADDR_LOOP_END:   prdata = reg_loop_end;
+            ADDR_LOOP_COUNT: prdata = reg_loop_count;
             default:         prdata = 32'hDEAD_BEEF;  // Undefined address
         endcase
     end
@@ -208,6 +246,11 @@ module cgra_apb_csr #(
     assign cu_start = reg_cu_ctrl[0];
     assign cu_soft_reset = reg_cu_ctrl[1];
     assign cu_max_cycles = reg_cu_timeout;  // Programmable timeout
+    
+    // Hardware Loop outputs
+    assign loop_start_pc = reg_loop_start[15:0];
+    assign loop_end_pc   = reg_loop_end[15:0];
+    assign loop_count    = reg_loop_count[15:0];
     
     // =========================================================================
     // IRQ Generation

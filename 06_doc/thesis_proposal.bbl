@@ -1,0 +1,503 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{none/global//global/global/global}
+    \entry{maass1997networks}{article}{}{}
+      \name{author}{1}{}{%
+        {{hash=1b7071d23a59fcc869863e969ca2e992}{%
+           family={Maass},
+           familyi={M\bibinitperiod},
+           given={Wolfgang},
+           giveni={W\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {Elsevier}%
+      }
+      \strng{namehash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{fullhash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{fullhashraw}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{bibnamehash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{authorbibnamehash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{authornamehash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{authorfullhash}{1b7071d23a59fcc869863e969ca2e992}
+      \strng{authorfullhashraw}{1b7071d23a59fcc869863e969ca2e992}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Neural networks}
+      \field{number}{9}
+      \field{title}{Networks of spiking neurons: the third generation of neural network models}
+      \field{volume}{10}
+      \field{year}{1997}
+      \field{pages}{1659\bibrangedash 1671}
+      \range{pages}{13}
+    \endentry
+    \entry{arm_amba_axi}{manual}{}{}
+      \name{author}{1}{}{%
+        {{hash=d8c59dfa75014dab2a6b898b0ba1b5e9}{%
+           family={{ARM Limited}},
+           familyi={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{fullhash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{fullhashraw}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{bibnamehash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{authorbibnamehash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{authornamehash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{authorfullhash}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \strng{authorfullhashraw}{d8c59dfa75014dab2a6b898b0ba1b5e9}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Standard Spec}
+      \field{title}{AMBA AXI and ACE Protocol Specification}
+      \field{year}{2020}
+    \endentry
+    \entry{xilinx_ug1085}{manual}{}{}
+      \name{author}{1}{}{%
+        {{hash=bd4dc2386402e8a13fb61afa30767cb4}{%
+           family={{Xilinx, Inc.}},
+           familyi={X\bibinitperiod}}}%
+      }
+      \strng{namehash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{fullhash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{fullhashraw}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{bibnamehash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{authorbibnamehash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{authornamehash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{authorfullhash}{bd4dc2386402e8a13fb61afa30767cb4}
+      \strng{authorfullhashraw}{bd4dc2386402e8a13fb61afa30767cb4}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Electronic Resource}
+      \field{title}{Zynq UltraScale+ MPSoC Technical Reference Manual (UG1085)}
+      \field{year}{2021}
+      \verb{urlraw}
+      \verb https://www.xilinx.com/support/documentation/user_guides/ug1085-zynq-ultrascale-trm.pdf
+      \endverb
+      \verb{url}
+      \verb https://www.xilinx.com/support/documentation/user_guides/ug1085-zynq-ultrascale-trm.pdf
+      \endverb
+    \endentry
+    \entry{mei2003adres}{inproceedings}{}{}
+      \name{author}{5}{}{%
+        {{hash=4e2eac687624b0acc0478d8e29e703f4}{%
+           family={Mei},
+           familyi={M\bibinitperiod},
+           given={Bingfeng},
+           giveni={B\bibinitperiod}}}%
+        {{hash=17002dc28c280d51ab1e04549f27c33c}{%
+           family={Vernalde},
+           familyi={V\bibinitperiod},
+           given={Serge},
+           giveni={S\bibinitperiod}}}%
+        {{hash=1fd9098021075be921177e415234bf5c}{%
+           family={Verkest},
+           familyi={V\bibinitperiod},
+           given={Diederik},
+           giveni={D\bibinitperiod}}}%
+        {{hash=9db6e4cf34d0fd8cd3c8947df22caf68}{%
+           family={De\bibnamedelima Man},
+           familyi={D\bibinitperiod\bibinitdelim M\bibinitperiod},
+           given={Hugo},
+           giveni={H\bibinitperiod}}}%
+        {{hash=120cb8c5eb80084bd955f0e1a2605876}{%
+           family={Lauwereins},
+           familyi={L\bibinitperiod},
+           given={Rudy},
+           giveni={R\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {Springer}%
+      }
+      \strng{namehash}{d3ae62b5ea3fe9e29463e9397dbb91fa}
+      \strng{fullhash}{3e82dc130ff77d722c28b66fded80c2f}
+      \strng{fullhashraw}{3e82dc130ff77d722c28b66fded80c2f}
+      \strng{bibnamehash}{3e82dc130ff77d722c28b66fded80c2f}
+      \strng{authorbibnamehash}{3e82dc130ff77d722c28b66fded80c2f}
+      \strng{authornamehash}{d3ae62b5ea3fe9e29463e9397dbb91fa}
+      \strng{authorfullhash}{3e82dc130ff77d722c28b66fded80c2f}
+      \strng{authorfullhashraw}{3e82dc130ff77d722c28b66fded80c2f}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Field Programmable Logic and Application: 13th International Conference, FPL 2003}
+      \field{title}{ADRES: An architecture with dynamic reconfigurable instruction set extensions}
+      \field{year}{2003}
+      \field{pages}{282\bibrangedash 291}
+      \range{pages}{10}
+    \endentry
+    \entry{prabhakar2017plasticine}{inproceedings}{}{}
+      \name{author}{5}{}{%
+        {{hash=3b9d692883a1eaea08ac68ea905155f6}{%
+           family={Prabhakar},
+           familyi={P\bibinitperiod},
+           given={Raghu},
+           giveni={R\bibinitperiod}}}%
+        {{hash=0d70e20786ecc12eceb26abb58605e53}{%
+           family={Zhang},
+           familyi={Z\bibinitperiod},
+           given={Yaqi},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=fbccb2d14c9adcfdafac58cfd57dc1d1}{%
+           family={Koeplinger},
+           familyi={K\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=d1aa679bf1eaf42b145d701678962ee7}{%
+           family={Feldman},
+           familyi={F\bibinitperiod},
+           given={Matt},
+           giveni={M\bibinitperiod}}}%
+        {{hash=c61a7de5f04815ccf23f05ec7f00c36a}{%
+           family={Olukotun},
+           familyi={O\bibinitperiod},
+           given={Kunle},
+           giveni={K\bibinitperiod}}}%
+      }
+      \strng{namehash}{f413e723f957f71043af9d01fd455b86}
+      \strng{fullhash}{95367c716996da1ce8cbe0725ccdd708}
+      \strng{fullhashraw}{95367c716996da1ce8cbe0725ccdd708}
+      \strng{bibnamehash}{95367c716996da1ce8cbe0725ccdd708}
+      \strng{authorbibnamehash}{95367c716996da1ce8cbe0725ccdd708}
+      \strng{authornamehash}{f413e723f957f71043af9d01fd455b86}
+      \strng{authorfullhash}{95367c716996da1ce8cbe0725ccdd708}
+      \strng{authorfullhashraw}{95367c716996da1ce8cbe0725ccdd708}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the 44th Annual International Symposium on Computer Architecture}
+      \field{title}{Plasticine: A reconfigurable architecture for parallel patterns}
+      \field{year}{2017}
+      \field{pages}{389\bibrangedash 402}
+      \range{pages}{14}
+    \endentry
+    \entry{podobas2020survey}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=d472908c910b267579ebb61a49b833d8}{%
+           family={Podobas},
+           familyi={P\bibinitperiod},
+           given={Artur},
+           giveni={A\bibinitperiod}}}%
+        {{hash=5faef21c3c6e5bae4df87ee88aadd8c1}{%
+           family={Sano},
+           familyi={S\bibinitperiod},
+           given={Kentaro},
+           giveni={K\bibinitperiod}}}%
+        {{hash=2af7d09ee10699b6e1e1d553594fe8d4}{%
+           family={Matsuoka},
+           familyi={M\bibinitperiod},
+           given={Satoshi},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{e092621f184282352643ceaee71e0b64}
+      \strng{fullhash}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \strng{fullhashraw}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \strng{bibnamehash}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \strng{authorbibnamehash}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \strng{authornamehash}{e092621f184282352643ceaee71e0b64}
+      \strng{authorfullhash}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \strng{authorfullhashraw}{c7d61b67ac733af4c6210f7cd41c9da1}
+      \field{sortinit}{6}
+      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:2004.04509}
+      \field{title}{A Survey on Coarse-Grained Reconfigurable Architectures from a Performance Perspective}
+      \field{year}{2020}
+    \endentry
+    \entry{liu2019survey}{article}{}{}
+      \true{moreauthor}
+      \true{morelabelname}
+      \name{author}{1}{}{%
+        {{hash=cc935127d6a729a0e23b01815e13b36c}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Leibo},
+           giveni={L\bibinitperiod}}}%
+      }
+      \strng{namehash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{fullhash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{fullhashraw}{e786f4061df139479d0613ca1a90d76b}
+      \strng{bibnamehash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{authorbibnamehash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{authornamehash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{authorfullhash}{e786f4061df139479d0613ca1a90d76b}
+      \strng{authorfullhashraw}{e786f4061df139479d0613ca1a90d76b}
+      \field{sortinit}{7}
+      \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{ACM Computing Surveys}
+      \field{title}{A Survey of Coarse-Grained Reconfigurable Architecture}
+      \field{year}{2019}
+    \endentry
+    \entry{gerstner2002spiking}{book}{}{}
+      \name{author}{2}{}{%
+        {{hash=6b2c6d8dbc66b301f2a7077d805f0ba7}{%
+           family={Gerstner},
+           familyi={G\bibinitperiod},
+           given={Wulfram},
+           giveni={W\bibinitperiod}}}%
+        {{hash=c6558e8019511c94733ffe99f3f258e0}{%
+           family={Kistler},
+           familyi={K\bibinitperiod},
+           given={Werner\bibnamedelima M.},
+           giveni={W\bibinitperiod\bibinitdelim M\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {Cambridge University Press}%
+      }
+      \strng{namehash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{fullhash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{fullhashraw}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{bibnamehash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{authorbibnamehash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{authornamehash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{authorfullhash}{225ceca3ae15a3be0c4e961b916dd72d}
+      \strng{authorfullhashraw}{225ceca3ae15a3be0c4e961b916dd72d}
+      \field{sortinit}{9}
+      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{title}{Spiking Neuron Models: Single Neurons, Populations, Plasticity}
+      \field{year}{2002}
+    \endentry
+    \entry{pfeiffer2018deep}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=0f677b59a524a4dfc082d7ba7e800e4f}{%
+           family={Pfeiffer},
+           familyi={P\bibinitperiod},
+           given={Michael},
+           giveni={M\bibinitperiod}}}%
+        {{hash=f9870a0fba395864cb77d4c1a3c72c01}{%
+           family={Pfeil},
+           familyi={P\bibinitperiod},
+           given={Thomas},
+           giveni={T\bibinitperiod}}}%
+      }
+      \strng{namehash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{fullhash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{fullhashraw}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{bibnamehash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{authorbibnamehash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{authornamehash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{authorfullhash}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \strng{authorfullhashraw}{1be5d81828b2dee7a5ebb957d6b6da25}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Frontiers in Neuroscience}
+      \field{title}{Deep Learning With Spiking Neurons: Opportunities and Challenges}
+      \field{volume}{12}
+      \field{year}{2018}
+    \endentry
+    \entry{roy2019towards}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=8d036b970bed6e694fda5f9305df819b}{%
+           family={Roy},
+           familyi={R\bibinitperiod},
+           given={Kaushik},
+           giveni={K\bibinitperiod}}}%
+        {{hash=c47a586dfeb98513634404aca0ed8918}{%
+           family={Jaiswal},
+           familyi={J\bibinitperiod},
+           given={Akhilesh},
+           giveni={A\bibinitperiod}}}%
+        {{hash=ceb5c4b8b4b2a8a978397a1ef03b3c61}{%
+           family={Panda},
+           familyi={P\bibinitperiod},
+           given={Priyadarshini},
+           giveni={P\bibinitperiod}}}%
+      }
+      \strng{namehash}{85be02884ca192ba322933da1765eabc}
+      \strng{fullhash}{678aac7c62f29f3e665c7c68cc94f1af}
+      \strng{fullhashraw}{678aac7c62f29f3e665c7c68cc94f1af}
+      \strng{bibnamehash}{678aac7c62f29f3e665c7c68cc94f1af}
+      \strng{authorbibnamehash}{678aac7c62f29f3e665c7c68cc94f1af}
+      \strng{authornamehash}{85be02884ca192ba322933da1765eabc}
+      \strng{authorfullhash}{678aac7c62f29f3e665c7c68cc94f1af}
+      \strng{authorfullhashraw}{678aac7c62f29f3e665c7c68cc94f1af}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Nature}
+      \field{title}{Towards Spike-Based Machine Intelligence with Neuromorphic Computing}
+      \field{volume}{575}
+      \field{year}{2019}
+      \field{pages}{607\bibrangedash 617}
+      \range{pages}{11}
+    \endentry
+    \entry{neftci2019surrogate}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=88cf13347d7da3123c7a8facb3d6e8ad}{%
+           family={Neftci},
+           familyi={N\bibinitperiod},
+           given={Emre\bibnamedelima O.},
+           giveni={E\bibinitperiod\bibinitdelim O\bibinitperiod}}}%
+        {{hash=9286c3d402cf69c335bdc1e1e5bcc0bf}{%
+           family={Mostafa},
+           familyi={M\bibinitperiod},
+           given={Hesham},
+           giveni={H\bibinitperiod}}}%
+        {{hash=66d087faecbe3130433c5e4462dde623}{%
+           family={Zenke},
+           familyi={Z\bibinitperiod},
+           given={Friedemann},
+           giveni={F\bibinitperiod}}}%
+      }
+      \strng{namehash}{1a4faf92ede1113bc7038ba373ef1639}
+      \strng{fullhash}{0ed622ee427c61464ab8aa346570a06d}
+      \strng{fullhashraw}{0ed622ee427c61464ab8aa346570a06d}
+      \strng{bibnamehash}{0ed622ee427c61464ab8aa346570a06d}
+      \strng{authorbibnamehash}{0ed622ee427c61464ab8aa346570a06d}
+      \strng{authornamehash}{1a4faf92ede1113bc7038ba373ef1639}
+      \strng{authorfullhash}{0ed622ee427c61464ab8aa346570a06d}
+      \strng{authorfullhashraw}{0ed622ee427c61464ab8aa346570a06d}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:1901.09948}
+      \field{title}{Surrogate Gradient Learning in Spiking Neural Networks}
+      \field{year}{2019}
+    \endentry
+    \entry{lecun1998gradient}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=6a1aa6b7eab12b931ca7c7e3f927231d}{%
+           family={LeCun},
+           familyi={L\bibinitperiod},
+           given={Yann},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=ac762f2592005edf6bad58f566967c6c}{%
+           family={Bottou},
+           familyi={B\bibinitperiod},
+           given={Léon},
+           giveni={L\bibinitperiod}}}%
+        {{hash=40a8e4774982146adc2688546f54efb2}{%
+           family={Bengio},
+           familyi={B\bibinitperiod},
+           given={Yoshua},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=844e183692f08a63f99285330fcf90cc}{%
+           family={Haffner},
+           familyi={H\bibinitperiod},
+           given={Patrick},
+           giveni={P\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {Ieee}%
+      }
+      \strng{namehash}{9e4c6012409dc8dd9b2aa198a2059804}
+      \strng{fullhash}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \strng{fullhashraw}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \strng{bibnamehash}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \strng{authorbibnamehash}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \strng{authornamehash}{9e4c6012409dc8dd9b2aa198a2059804}
+      \strng{authorfullhash}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \strng{authorfullhashraw}{c397b2e6efe8e5c6ca906410fc9e0ff9}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Proceedings of the IEEE}
+      \field{number}{11}
+      \field{title}{Gradient-based learning applied to document recognition}
+      \field{volume}{86}
+      \field{year}{1998}
+      \field{pages}{2278\bibrangedash 2324}
+      \range{pages}{47}
+    \endentry
+    \entry{snntorch2021}{online}{}{}
+      \name{author}{1}{}{%
+        {{hash=2684b9a5b52efe69cf7945bbe1318537}{%
+           family={Eshraghian},
+           familyi={E\bibinitperiod},
+           given={Jason\bibnamedelima K.},
+           giveni={J\bibinitperiod\bibinitdelim K\bibinitperiod}}}%
+      }
+      \strng{namehash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{fullhash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{fullhashraw}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{bibnamehash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{authorbibnamehash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{authornamehash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{authorfullhash}{2684b9a5b52efe69cf7945bbe1318537}
+      \strng{authorfullhashraw}{2684b9a5b52efe69cf7945bbe1318537}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Electronic Resource / Source Code}
+      \field{title}{snnTorch: Deep Learning with Spiking Neural Networks}
+      \field{year}{2021}
+      \verb{urlraw}
+      \verb https://github.com/jeshraghian/snntorch
+      \endverb
+      \verb{url}
+      \verb https://github.com/jeshraghian/snntorch
+      \endverb
+    \endentry
+    \entry{cgra_project_code}{misc}{}{}
+      \name{author}{2}{}{%
+        {{hash=efa6b4e35701d4cb1a0c4f704465ba76}{%
+           family={Anh\bibnamedelima Duy},
+           familyi={A\bibinitperiod\bibinitdelim D\bibinitperiod},
+           given={Huynh},
+           giveni={H\bibinitperiod}}}%
+        {{hash=52b59903ea099adb329ef72e01caea82}{%
+           family={Thanh\bibnamedelima Vinh},
+           familyi={T\bibinitperiod\bibinitdelim V\bibinitperiod},
+           given={Trieu},
+           giveni={T\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {GitHub}%
+      }
+      \strng{namehash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{fullhash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{fullhashraw}{94a9f71966095511f6fe6b9a95204170}
+      \strng{bibnamehash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{authorbibnamehash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{authornamehash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{authorfullhash}{94a9f71966095511f6fe6b9a95204170}
+      \strng{authorfullhashraw}{94a9f71966095511f6fe6b9a95204170}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://github.com/vinniny/CGRA_project}}
+      \field{journaltitle}{GitHub repository}
+      \field{note}{Source Code}
+      \field{title}{Scalable Hybrid I/O CGRA with Multicast Routing}
+      \field{year}{2026}
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+

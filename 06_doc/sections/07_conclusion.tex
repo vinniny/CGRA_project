@@ -1,0 +1,15 @@
+\section{Conclusion and Future Directions}
+
+\subsection{Summary of Contributions}
+{\sloppy
+This research successfully develops a Coarse\-Grained Reconfigurable Architecture (CGRA) tailored for sparse SNN inference. By integrating multicast routing, hardware-accelerated LIF updates, and high-performance DMA, the architecture addresses the core bottlenecks of event-driven neural computation. The 100\% pass rate in verification and successful timing closure at 213 MHz prove the feasibility and robustness of the design. The full hardware/software implementation is available as open-source documentation \cite{cgra_project_code}.
+}
+
+\subsection{Future Directions}
+While the current architecture provides a solid baseline for SNN inference, several areas for future development are identified:
+\begin{enumerate}
+    \item \textbf{On-chip Learning:} Integration of unsupervised learning rules such as Spike-Timing-Dependent Plasticity (STDP) directly into the PE datapath.
+    \item \textbf{Scalability:} Extending the 4×4 mesh to larger configurations (e.g., 8×8 or 16×16) and evaluating hierarchical interconnect strategies.
+    \item \textbf{Configurable Precision:} Supporting mixed-precision levels (e.g., 4-bit, 8-bit, 16-bit) to allow trading off accuracy for throughput and energy efficiency.
+    \item \textbf{Compiler Toolchain:} Development of an automated mapping tool that translates SNN models from high-level frameworks (PyTorch, SNN-lib) to CGRA configuration streams.
+\end{enumerate}

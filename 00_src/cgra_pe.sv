@@ -18,7 +18,7 @@
 //   - 4-direction mesh broadcast (32-bit full precision)
 //   - LIF neuron for neuromorphic computing (spiking)
 //
-// ISA (19 Operations - ALL VERIFIED ✓):
+// ISA (21 Operations including LPR/ANN extensions):
 //   Op | Name       | Operation              | Latency
 //   ---|------------|------------------------|--------
 //   0  | NOP        | No operation           | 1 cycle
@@ -40,6 +40,8 @@
 //  16  | PASS0      | Pass operand A         | 1 cycle
 //  17  | PASS1      | Pass operand B         | 1 cycle
 //  18  | LIF        | Leaky Integrate-Fire   | 1 cycle
+//  19  | RELU       | max(0, A)              | 1 cycle
+//  20  | MAX        | max(A, B) signed       | 1 cycle
 //
 // OPERAND SOURCES (src0_sel, src1_sel):
 //   0 = Register File    4 = West neighbor (Tile Memory)
@@ -47,7 +49,7 @@
 //   2 = East neighbor    6 = 16-bit Immediate
 //   3 = South neighbor
 //
-// VERIFICATION: 141/141 tests passed - SILICON READY
+// VERIFICATION: 141/141 tests passed (base ISA) + LPR extensions pending
 // ==============================================================================
 
 module cgra_pe #(
@@ -81,10 +83,12 @@ module cgra_pe #(
     input  logic [DATA_WIDTH-1:0] data_in_e,
     input  logic [DATA_WIDTH-1:0] data_in_s,
     input  logic [DATA_WIDTH-1:0] data_in_w,
-    input  logic                  valid_in_n,  // Unused: mesh always broadcasts (ASSIGN-10)
-    input  logic                  valid_in_e,
-    input  logic                  valid_in_s,
-    input  logic                  valid_in_w,
+    /* verilator lint_off UNUSEDSIGNAL */
+    input  logic                  valid_in_n,  // Unused: mesh broadcast mode — data always available (ASSIGN-10)
+    input  logic                  valid_in_e,  // Unused: kept for interface compatibility & future flow-control
+    input  logic                  valid_in_s,  // Unused: tile.sv bypasses router, feeds PE direct from neighbors
+    input  logic                  valid_in_w,  // Unused: tile memory valid comes via edge_valid_in_w instead
+    /* verilator lint_on UNUSEDSIGNAL */
     
     // Routing outputs (to N/E/S/W neighbors)
     output logic [DATA_WIDTH-1:0] data_out_n,
@@ -158,6 +162,13 @@ module cgra_pe #(
     // - config_valid=0: Use config RAM (multi-context mode with context_pc addressing)
     assign active_config = config_valid ? config_frame : config_ram_data;
 
+    // FIX: config_active is true whenever PE has valid configuration
+    // In single-config mode: config_valid=1 from parent
+    // In multi-context mode: config_ram_valid=1 after 1-cycle BSG read latency
+    // This replaces the incorrect use of config_valid alone which broke multi-context
+    logic config_active;
+    assign config_active = config_valid || config_ram_valid;
+
     // =========================================================================
     // Stall Logic
     // =========================================================================
@@ -194,11 +205,15 @@ module cgra_pe #(
     logic                  spm_we;
     
     always_ff @(posedge clk) begin
-        if (spm_we && !stall) begin
-            spm_mem[spm_addr] <= spm_wdata;
-        end
-        if (!stall) begin
-            spm_rdata <= spm_mem[spm_addr];
+        if (!rst_n) begin
+            spm_rdata <= '0;
+        end else begin
+            if (spm_we && !stall) begin
+                spm_mem[spm_addr] <= spm_wdata;
+            end
+            if (!stall) begin
+                spm_rdata <= spm_mem[spm_addr];
+            end
         end
     end
     
@@ -297,7 +312,6 @@ module cgra_pe #(
     logic                  predicate_flag;
     logic signed [39:0]    op0_ext;
     logic signed [39:0]    op1_ext;
-    logic signed [31:0]    mult_result;
     logic signed [39:0]    mult_ext;
     logic signed [39:0]    lif_next_v;
     logic signed [39:0]    add_result;
@@ -336,6 +350,8 @@ module cgra_pe #(
     localparam OP_PASS0 = 6'd16;
     localparam OP_PASS1 = 6'd17;
     localparam OP_LIF   = 6'd18;
+    localparam OP_RELU  = 6'd19;  // ReLU: max(0, A) for ANN activation
+    localparam OP_MAX   = 6'd20;  // MAX: max(A, B) signed for pooling
     
     always_comb begin
         op0_ext = {{(40-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0};
@@ -359,8 +375,6 @@ module cgra_pe #(
             else                       mult_ext = -40'sd549755813888; // MIN_NEG (-2^39)
         end
         
-        mult_result = mult_full[31:0]; // Low 32 bits for regular MUL
-
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
         lif_next_v = accumulator + op0_ext - LIF_LEAK;
@@ -410,11 +424,28 @@ module cgra_pe #(
         end
     end
     
+    // =========================================================================
+    // Predicate Execution Logic (must precede ALU for Xcelium forward-ref)
+    // =========================================================================
+    logic execute_enable;
+    
+    always_comb begin
+        if (pred_en) begin
+            execute_enable = pred_inv ? ~predicate_flag : predicate_flag;
+        end else begin
+            execute_enable = 1'b1;
+        end
+    end
+    
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             accumulator <= '0;
             predicate_flag <= 1'b0;
-        end else if (!stall) begin  // Execute when not stalled (config_ram is always valid)
+            // NOTE: alu_result intentionally NOT reset here.
+            // run_cgra() stops execution via soft_reset which triggers pe_reset_n → 0.
+            // If alu_result were reset, the computed result would be wiped before
+            // the testbench reads it. First NOP cycle sets it to 0 naturally.
+        end else if (config_active && !stall && execute_enable) begin  // FIX: Predicate gates ALL ALU side-effects (accumulator, predicate_flag, alu_result)
             unique case (op_code)
                 OP_NOP: begin
                     alu_result <= '0;
@@ -428,7 +459,9 @@ module cgra_pe #(
                     alu_result <= sub_result_sat;
                 end
                 OP_MUL: begin
-                    alu_result <= operand0 * operand1;
+                    // FIX: Reuse mult_full (already computed above) instead of
+                    // inferring a second 32×32 multiplier per PE.
+                    alu_result <= mult_full[31:0];
                 end
                 OP_MAC: begin
                     accumulator <= mac_sum;
@@ -450,12 +483,12 @@ module cgra_pe #(
                     alu_result <= $signed(operand0) >>> operand1[4:0];  // Arithmetic shift right
                 end
                 OP_CMP_GT: begin
-                    predicate_flag <= (operand0 > operand1);
-                    alu_result <= (operand0 > operand1) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0) > $signed(operand1));
+                    alu_result <= ($signed(operand0) > $signed(operand1)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_LT: begin
-                    predicate_flag <= (operand0 < operand1);
-                    alu_result <= (operand0 < operand1) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0) < $signed(operand1));
+                    alu_result <= ($signed(operand0) < $signed(operand1)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_EQ: begin
                     predicate_flag <= (operand0 == operand1);
@@ -488,23 +521,19 @@ module cgra_pe #(
                         alu_result <= 32'd0;
                     end
                 end
+                OP_RELU: begin
+                    // ReLU activation: max(0, A) — used by ANN/LPR layers
+                    // Treats operand0 as signed; clamps negative to zero
+                    alu_result <= ($signed(operand0) > 0) ? operand0 : 32'd0;
+                end
+                OP_MAX: begin
+                    // Signed maximum: max(A, B) — used for max-pooling layers
+                    alu_result <= ($signed(operand0) > $signed(operand1)) ? operand0 : operand1;
+                end
                 default: begin
                     alu_result <= '0;
                 end
             endcase
-        end
-    end
-    
-    // =========================================================================
-    // Predicate Execution Logic
-    // =========================================================================
-    logic execute_enable;
-    
-    always_comb begin
-        if (pred_en) begin
-            execute_enable = pred_inv ? ~predicate_flag : predicate_flag;
-        end else begin
-            execute_enable = 1'b1;
         end
     end
     
@@ -520,7 +549,7 @@ module cgra_pe #(
         spm_addr = operand1[$clog2(SPM_DEPTH)-1:0];
         spm_wdata = operand0;
         
-        if (config_valid && execute_enable && !stall) begin
+        if (config_active && execute_enable && !stall) begin  // FIX: config_active for multi-context
             unique case (op_code)
                 OP_STORE_SPM: begin
                     spm_we = 1'b1;
@@ -530,7 +559,11 @@ module cgra_pe #(
                 end
                 OP_ADD, OP_SUB, OP_MUL, OP_MAC, OP_AND, OP_OR, OP_XOR,
                 OP_SHL, OP_SHR, OP_CMP_GT, OP_CMP_LT, OP_CMP_EQ,
-                OP_PASS0, OP_PASS1: begin
+                OP_PASS0, OP_PASS1, OP_LIF, OP_RELU, OP_MAX: begin
+                    // FIX: Added OP_LIF — LIF produces spike result (0/1)
+                    // that should be written to RF like other result-producing ops.
+                    // Without this, LIF output was only available via the routing
+                    // network, not the register file, preventing downstream RF use.
                     rf_we = 1'b1;
                 end
                 default: begin
@@ -550,13 +583,16 @@ module cgra_pe #(
     // Bypass Network / Routing
     // =========================================================================
     logic [DATA_WIDTH-1:0] output_data;
-    logic [PAYLOAD_WIDTH-1:0] output_payload;
     logic                  output_valid;
     
     always_comb begin
-        output_payload = alu_result[PAYLOAD_WIDTH-1:0];
-        output_data = {cfg_multicast, cfg_dest_x, cfg_dest_y, {RESERVED_WIDTH{1'b0}}, output_payload};
-        output_valid = config_valid && execute_enable;
+        // FIX: Output full 32-bit ALU result instead of 16-bit truncated payload
+        // Previous code packed {multicast, dest_x, dest_y, reserved, payload[15:0]}
+        // which lost upper 16 bits of computation. Since the PE array uses direct
+        // broadcast (not XY routing), full 32-bit precision is required.
+        output_data = alu_result;
+        // FIX: Gate output_valid with !stall to prevent re-consumption of stale data
+        output_valid = config_active && execute_enable && !stall;
     end
     
     // Route mask: [4] = local, [3] = N, [2] = E, [1] = S, [0] = W

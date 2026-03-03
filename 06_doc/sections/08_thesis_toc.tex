@@ -1,0 +1,26 @@
+\section{Tentative Thesis Outline}
+
+The following outline provides the proposed structural breakdown for the final Master's thesis.
+
+\begin{description}
+    \item[Chapter 1: Introduction] \hfill \\
+    Background on neuromorphic computing and Spiking Neural Networks (SNN). Motivation for specialized hardware. Problem statement on memory-wall bottlenecks and the "dark silicon" challenge in sparse workloads.
+    
+    \item[Chapter 2: Literature Review and Theoretical Foundation] \hfill \\
+    Survey of state-of-the-art CGRAs (e.g., ADRES, Plasticine). Theoretical analysis of Leaky Integrate-and-Fire (LIF) models. Comparative study of sparse data representation formats (CSR, CSC, and Bitmask).
+    
+    \item[Chapter 3: Proposed System Architecture] \hfill \\
+    Analysis of the novel \textbf{Hybrid I/O} architecture for decoupling control and data planes. Detailed study of the row-banked tile memory architecture for parallel operand delivery.
+    
+    \item[Chapter 4: Micro-Architecture Design and NoC Design] \hfill \\
+    Cycle-accurate design of the Processing Element (PE). Design and analysis of the \textbf{dynamic multicast-enabled NoC fabric} for efficient spike propagation. Implementation of the Bi-Directional DMA with backpressure handling.
+    
+    \item[Chapter 5: Verification Methodology and Environment] \hfill \\
+    Layered Class-based Verification (SV/UVM). Constrained-random stimulus generation. Functional coverage modeling for ISA and NoC routing patterns. Golden model bit-accurate comparison.
+    
+    \item[Chapter 6: Synthesis and FPGA Implementation] \hfill \\
+    Xilinx Zynq UltraScale+ implementation flow. Resource-to-performance trade-off analysis. Power modeling and thermal estimation. Critical path analysis and timing closure at 200+ MHz.
+    
+    \item[Chapter 7: Conclusion and Future Work] \hfill \\
+    Summary of accomplishments. Discussion on scaling to multi-chip systems and support for on-chip training via Spike-Timing-Dependent Plasticity (STDP).
+\end{description}

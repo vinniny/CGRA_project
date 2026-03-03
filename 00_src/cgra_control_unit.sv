@@ -49,7 +49,14 @@ module cgra_control_unit #(
     // =========================================================================
     // Configuration
     // =========================================================================
-    input  logic [31:0] max_cycles_i    // Timeout limit (0 = no limit)
+    input  logic [31:0] max_cycles_i,   // Timeout limit (0 = no limit)
+    
+    // =========================================================================
+    // Hardware Loop Configuration (Zero-Overhead Loops)
+    // =========================================================================
+    input  logic [15:0] loop_start_pc_i, // Loop start address (context PC)
+    input  logic [15:0] loop_end_pc_i,   // Loop end address (inclusive)
+    input  logic [15:0] loop_count_i     // Loop iteration count (0 = disabled)
 );
 
     // =========================================================================
@@ -67,12 +74,18 @@ module cgra_control_unit #(
     // Internal Registers
     // =========================================================================
     logic [31:0] cycle_counter;
+    logic [31:0] wall_counter;   // FIX: Wall-clock counter (counts all cycles in RUN, even stalled)
     logic        timeout_reached;
     
+    // Hardware Loop Registers
+    logic [15:0] loop_count_reg;  // Remaining loop iterations (internal counter)
+    logic [PC_WIDTH-1:0] loop_start_reg;  // FIX: Latched loop start PC (prevents mid-run corruption)
+    logic [PC_WIDTH-1:0] loop_end_reg;    // FIX: Latched loop end PC
+    
     // =========================================================================
-    // Timeout Detection
+    // Timeout Detection — uses wall_counter for DMA-hang protection
     // =========================================================================
-    assign timeout_reached = (max_cycles_i != 32'd0) && (cycle_counter >= max_cycles_i);
+    assign timeout_reached = (max_cycles_i != 32'd0) && (wall_counter >= max_cycles_i);
     
     // =========================================================================
     // FSM Sequential Logic
@@ -116,38 +129,86 @@ module cgra_control_unit #(
     end
     
     // =========================================================================
-    // Cycle Counter
+    // Context PC Counter (Multi-context scheduling with Hardware Loops)
     // =========================================================================
+    // CRITICAL: Declare pc_counter here, before Cycle Counter block references it
+    logic [PC_WIDTH-1:0] pc_counter;
+    
+    // =========================================================================
+    // Cycle Counter + Loop Counter Management
+    // =========================================================================
+    // CRITICAL: Consolidate all loop_count_reg updates here to avoid multiple drivers
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             cycle_counter <= 32'd0;
+            wall_counter <= 32'd0;
+            loop_count_reg <= 16'd0;
+            loop_start_reg <= '0;
+            loop_end_reg   <= '0;
         end else begin
-            if (state == STATE_IDLE && start_i) begin
-                // Reset counter on new start
+            if (state == STATE_IDLE && start_i && !soft_reset_i) begin
+                // FIX: Match FSM guard - reload only when actually transitioning to RUN
                 cycle_counter <= 32'd0;
+                wall_counter  <= 32'd0;
+                // FIX: Latch all loop parameters on RUN entry to prevent mid-run corruption
+                loop_count_reg <= loop_count_i;
+                loop_start_reg <= loop_start_pc_i[PC_WIDTH-1:0];
+                loop_end_reg   <= loop_end_pc_i[PC_WIDTH-1:0];
             end else if (state == STATE_RUN) begin
-                // Increment during execution
-                cycle_counter <= cycle_counter + 32'd1;
+                // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
+                wall_counter <= wall_counter + 32'd1;
+                // FIX: Only count cycles when PEs actually execute (not stalled by DMA)
+                if (!global_stall_o)
+                    cycle_counter <= cycle_counter + 32'd1;
+                
+                // CRITICAL: Decrement loop counter when PC matches end address
+                // This is the ONLY place loop_count_reg is decremented
+                // FIX: Use latched loop_end_reg instead of live input
+                if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0) && 
+                    (pe_enable && !global_stall_o)) begin
+                    loop_count_reg <= loop_count_reg - 16'd1;
+                end
             end
         end
     end
     
     // =========================================================================
-    // Context PC Counter (Multi-context scheduling)
+    // Context PC Counter Sequential Logic (Multi-context scheduling with Hardware Loops)
     // =========================================================================
-    logic [PC_WIDTH-1:0] pc_counter;
+    // Hardware Loop Logic:
+    //   - If PC reaches loop_end_pc AND loop_count_reg > 0:
+    //       * Jump back to loop_start_pc
+    //       * Decrement loop_count_reg
+    //   - Else: Normal increment with wrap-around
+    //
+    // This enables zero-overhead loops for repeated kernel execution.
+    // Example: Repeat contexts 2-7 for 101 total iterations:
+    //   loop_start_pc = 2, loop_end_pc = 7, loop_count = 100
+    //   (1 base pass + 100 extra = 101 total; use loop_count=N-1 for N iterations)
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             pc_counter <= '0;
         end else if (soft_reset_i) begin
             pc_counter <= '0;
+        end else if (state == STATE_IDLE && start_i && !soft_reset_i) begin
+            // FIX: Clear pc_counter on new RUN to prevent stale start address
+            pc_counter <= '0;
         end else if (pe_enable && !global_stall_o) begin
             // Increment PC only when running and not stalled
-            if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1))  // FIX: Cast to PC_WIDTH bits
-                pc_counter <= '0;  // Wrap around
-            else
+            
+            // FIX: Use latched loop registers instead of live inputs
+            if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0)) begin
+                // Loop active and at end address - jump back to start
+                // NOTE: loop_count_reg is decremented in Cycle Counter block
+                pc_counter <= loop_start_reg;
+            end else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1)) begin
+                // Natural wrap-around at context depth boundary
+                pc_counter <= '0;
+            end else begin
+                // Normal increment
                 pc_counter <= pc_counter + 1'b1;
+            end
         end
     end
     
@@ -159,9 +220,11 @@ module cgra_control_unit #(
     // Stall the PE array when:
     //   1. DMA is active (prevent data hazards during load)
     //   2. PE is not enabled (prevent spurious execution before/after run)
-    // This fixes the MAC accumulator bug where PEs executed between reset
-    // release and start, causing accumulator to accumulate garbage.
-    assign global_stall_o = dma_busy_i || !pe_enable;
+    //   3. FSM is not in RUN state (prevent extra execution during FINISH)
+    //      pe_enable is registered and lags FSM by 1 cycle, so during FINISH
+    //      pe_enable is still HIGH. Without the state check, PEs execute an
+    //      extra cycle with a stale/wrapped context_pc.
+    assign global_stall_o = dma_busy_i || !pe_enable || (state != STATE_RUN);
     
     // =========================================================================
     // Output Assignments
@@ -171,13 +234,14 @@ module cgra_control_unit #(
             busy_o <= 1'b0;
             done_o <= 1'b0;
             pe_enable <= 1'b0;
-            pe_reset_n <= 1'b1;
+            pe_reset_n <= 1'b1;  // PEs not in reset after hard reset (global_stall prevents execution)
         end else begin
             // Busy when running
             busy_o <= (state == STATE_RUN);
             
-            // Done pulse when finishing
-            done_o <= (state == STATE_FINISH);
+            // Done pulse when finishing (suppress on soft-reset abort to avoid
+            // spurious CU Done IRQ — software cannot distinguish abort from completion)
+            done_o <= (state == STATE_FINISH) && !soft_reset_i;
             
             // Enable array during RUN state
             pe_enable <= (state == STATE_RUN);
@@ -189,5 +253,27 @@ module cgra_control_unit #(
     
     // Cycle count - always show running value
     assign cycle_count_o = cycle_counter;
+
+    // =========================================================================
+    // SAFETY ASSERTIONS (synthesis translate_off)
+    // =========================================================================
+    // synthesis translate_off
+    logic [15:0] prev_loop_count;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            prev_loop_count <= 16'd0;
+        end else begin
+            prev_loop_count <= loop_count_reg;
+            
+            // FIX: Detect loop_count_reg underflow (wrap from 0 to 65535).
+            // The "loop_count_reg > 16'd0" guard in the decrement logic prevents this,
+            // but this assertion catches regressions if the guard is accidentally removed.
+            if (rst_n && state == STATE_RUN) begin
+                if (prev_loop_count == 16'd0 && loop_count_reg == 16'hFFFF)
+                    $error("[CU] loop_count_reg underflow detected! Wrapped from 0 to 65535 @ %0t", $time);
+            end
+        end
+    end
+    // synthesis translate_on
 
 endmodule

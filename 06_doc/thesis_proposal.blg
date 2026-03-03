@@ -1,0 +1,15 @@
+[0] Config.pm:328> INFO - This is Biber 2.21
+[0] Config.pm:331> INFO - Logfile is 'thesis_proposal.blg'
+[37] biber:342> INFO - === Fri Jan 30, 2026, 15:44:30
+[50] Biber.pm:421> INFO - Reading 'thesis_proposal.bcf'
+[86] Biber.pm:1002> INFO - Found 14 citekeys in bib section 0
+[93] Biber.pm:4487> INFO - Processing section 0
+[99] Biber.pm:4678> INFO - Looking for bibtex file 'references.bib' for section 0
+[103] bibtex.pm:1713> INFO - LaTeX decoding ...
+[109] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
+[173] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[173] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[174] Biber.pm:4307> INFO - Sorting list 'none/global//global/global/global' of type 'entry' with template 'none' and locale 'en-US'
+[174] Biber.pm:4313> INFO - No sort tailoring available for locale 'en-US'
+[184] bbl.pm:676> INFO - Writing 'thesis_proposal.bbl' with encoding 'UTF-8'
+[196] bbl.pm:779> INFO - Output to thesis_proposal.bbl

@@ -1,3 +1,5 @@
+`ifndef TB_SUITE_FABRIC_SVH
+`define TB_SUITE_FABRIC_SVH
 // ============================================================================
 // SUITE: FABRIC STRESS (CRV Philosophy)
 // ============================================================================
@@ -218,3 +220,5 @@ task automatic test_routing_sweep;
     else
         fail("ROUTE_SWEEP", $sformatf("%0d failures", fail_count));
 endtask
+
+`endif

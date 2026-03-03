@@ -1,3 +1,5 @@
+`ifndef TB_SCENARIO_GEN_SVH
+`define TB_SCENARIO_GEN_SVH
 // ==============================================================================
 // tb_scenario_gen.svh - Verilator-Native Stimulus Generator
 // ==============================================================================
@@ -25,7 +27,6 @@ int cov_max_burst     = 0;
 int cov_4kb_boundary  = 0;
 int cov_stress_cycles = 0;
 int cov_reset_tests   = 0;
-int cov_overlap_txn   = 0;
 
 // ============================================================================
 // RANDOM ADDRESS GENERATORS
@@ -88,7 +89,8 @@ task automatic print_coverage_report();
     $display("║    4KB Boundary Tests:      %6d hits                      ║", cov_4kb_boundary);
     $display("║    Stress Cycles:           %6d hits                      ║", cov_stress_cycles);
     $display("║    Reset Recovery Tests:    %6d hits                      ║", cov_reset_tests);
-    $display("║    Overlap Transactions:    %6d hits                      ║", cov_overlap_txn);
     $display("╚══════════════════════════════════════════════════════════════╝");
     $display("");
 endtask
+
+`endif

@@ -1,3 +1,5 @@
+`ifndef TB_PROTOCOL_CHECKERS_SVH
+`define TB_PROTOCOL_CHECKERS_SVH
 // ==============================================================================
 // tb_protocol_checkers.svh - Verilator-Native Protocol Monitors
 // ==============================================================================
@@ -14,6 +16,8 @@ logic        aw_pending = 1'b0;
 logic [31:0] aw_addr_lock = '0;
 logic        w_pending = 1'b0;
 logic [31:0] w_data_lock = '0;
+logic        w_last_lock = 1'b0;   // FIX: WLAST stability tracking
+logic [3:0]  w_strb_lock = '0;     // FIX: WSTRB stability tracking
 
 // ============================================================================
 // TRANSACTION COUNTERS & TRACE LOGGING
@@ -70,7 +74,8 @@ always @(posedge clk) begin
             end
             ar_stall_cycles = ar_stall_cycles + 1;
             if (ar_stall_cycles >= STALL_THRESHOLD) begin
-                $warning("[AXI] AR channel stalled for %0d cycles", ar_stall_cycles);
+                $error("[AXI] AR channel stalled for %0d cycles @ %0t", ar_stall_cycles, $time);
+                assertion_errors = assertion_errors + 1;
             end
         end
         
@@ -92,13 +97,12 @@ always @(posedge clk) begin
             
             // Compare page boundaries: [31:12] is the 4KB page address
             if (burst_end_addr[31:12] != axi_araddr[31:12]) begin
-                // Burst CROSSES a 4KB boundary
-                // In normal operation, DMA splits at 4KB boundaries, so we shouldn't
-                // see cross-boundary bursts. This counter tracks boundary-crossing
-                // transactions for verification purposes.
+                // Burst CROSSES a 4KB boundary — this is an AXI protocol violation.
+                // DMA engine should split at 4KB boundaries; a cross means a bug.
                 axi_read_reqs_split_at_4kb = axi_read_reqs_split_at_4kb + 1;
-                $display("[4KB_BOUNDARY_DETECTED] Read crosses page boundary: Addr=0x%08h, Len=%0d, End=0x%08h", 
-                         axi_araddr, axi_arlen, burst_end_addr);
+                $error("[AXI] Read burst crosses 4KB boundary: Addr=0x%08h, Len=%0d, End=0x%08h @ %0t", 
+                       axi_araddr, axi_arlen, burst_end_addr, $time);
+                assertion_errors = assertion_errors + 1;
             end
         end
         
@@ -115,6 +119,10 @@ always @(posedge clk) begin
                 assertion_errors = assertion_errors + 1;
             end
             aw_stall_cycles = aw_stall_cycles + 1;
+            if (aw_stall_cycles >= STALL_THRESHOLD) begin
+                $error("[AXI] AW channel stalled for %0d cycles @ %0t", aw_stall_cycles, $time);
+                assertion_errors = assertion_errors + 1;
+            end
         end
         
         if (axi_awvalid && !axi_awready && !aw_pending) begin
@@ -133,7 +141,7 @@ always @(posedge clk) begin
             if (axi_awaddr[31:28] == 4'h2) begin
                 axi_config_writes = axi_config_writes + 1;
                 config_pe_id   = axi_awaddr[11:8];
-                config_slot_id = axi_awaddr[7:4];
+                config_slot_id = axi_awaddr[6:3];  // FIX: Match TB slot<<3 encoding (bits [6:3])
                 config_offset  = axi_awaddr[2:0];
                 
                 if (config_offset == 3'h0) begin
@@ -142,6 +150,21 @@ always @(posedge clk) begin
                 end else if (config_offset == 3'h4) begin
                     $display("[CONFIG_TRACE] Write to PE%0d Slot%0d High (offset 0x04): Addr=0x%08h", 
                              config_pe_id, config_slot_id, axi_awaddr);
+                end
+            end
+            
+            // ================================================================
+            // 4KB BOUNDARY DETECTION (WRITE CHANNEL)
+            // ================================================================
+            begin
+                logic [31:0] w_beat_count_calc;
+                logic [31:0] w_burst_end_addr;
+                w_beat_count_calc = axi_awlen + 1;
+                w_burst_end_addr = axi_awaddr + (w_beat_count_calc * (1 << axi_awsize)) - 1;
+                if (w_burst_end_addr[31:12] != axi_awaddr[31:12]) begin
+                    $error("[AXI] Write burst crosses 4KB boundary: Addr=0x%08h, Len=%0d, End=0x%08h @ %0t",
+                           axi_awaddr, axi_awlen, w_burst_end_addr, $time);
+                    assertion_errors = assertion_errors + 1;
                 end
             end
         end
@@ -158,12 +181,28 @@ always @(posedge clk) begin
                 $error("[AXI] WDATA unstable @ %0t", $time);
                 assertion_errors = assertion_errors + 1;
             end
+            // FIX: Check WLAST stability during W-channel stalls (AXI spec A3.2.1)
+            if (axi_wlast !== w_last_lock) begin
+                $error("[AXI] WLAST unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            // FIX: Check WSTRB stability during W-channel stalls
+            if (axi_wstrb !== w_strb_lock) begin
+                $error("[AXI] WSTRB unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
             w_stall_cycles = w_stall_cycles + 1;
+            if (w_stall_cycles >= STALL_THRESHOLD) begin
+                $error("[AXI] W channel stalled for %0d cycles @ %0t", w_stall_cycles, $time);
+                assertion_errors = assertion_errors + 1;
+            end
         end
         
         if (axi_wvalid && !axi_wready && !w_pending) begin
             w_pending = 1'b1;
             w_data_lock = axi_wdata;
+            w_last_lock = axi_wlast;   // FIX: Also lock WLAST for stability check
+            w_strb_lock = axi_wstrb;   // FIX: Also lock WSTRB for stability check
             w_stall_cycles = 0;
         end else if (axi_wvalid && axi_wready) begin
             w_pending = 1'b0;
@@ -219,3 +258,5 @@ task automatic print_protocol_stats();
     $display("╚══════════════════════════════════════════════════════════════╝");
     $display("");
 endtask
+
+`endif

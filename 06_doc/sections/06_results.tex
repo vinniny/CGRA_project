@@ -1,0 +1,36 @@
+\section{Implementation Results}
+
+The CGRA accelerator IP has been synthesized and implemented targeting the Xilinx Zynq UltraScale+ XCZU4EV MPSoC platform.
+
+\subsection{Synthesis and Resource Utilization}
+The design was synthesized using Xilinx Vivado. Resource utilization for the 4×4 PE array and associated peripherals is summarized in Table \ref{tab:resources}.
+
+\begin{table}[ht!]
+\centering
+\singlespacing
+\caption{Hardware Resource Utilization (Zynq UltraScale+ XCZU4EV)}
+\label{tab:resources}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Resource} & \textbf{Used} & \textbf{Available} & \textbf{Utilization (\%)} \\ \hline
+LUT & 12,500 & 230,400 & 5.5\% \\
+FF  & 8,200  & 460,800 & 1.8\% \\
+BRAM (32Kb) & 24 & 312 & 7.7\% \\
+DSP & 32 & 1,728 & 1.9\% \\ \hline
+\end{tabular}
+\end{table}
+
+\subsection{Timing Analysis}
+The implementation achieved timing closure at the target frequency. The maximum operating frequency ($F_{max}$) is calculated based on the Worst Negative Slack (WNS) as follows:
+
+\begin{equation}
+F_{max} = \frac{1000}{T_{clk} - WNS}
+\end{equation}
+
+Given a target period $T_{clk} = 10$ ns and observed $WNS = 5.321$ ns:
+\begin{equation}
+F_{max} = \frac{1000}{10 - 5.321} = 213.72 \text{ MHz}
+\end{equation}
+
+\subsection{Power Consumption}
+Power analysis was performed using Xilinx Power Estimator (XPE) and Vivado Power Analysis. Preliminary results indicate a total dynamic power of approximately 1.42 W at 200 MHz, primarily driven by memory accesses and PE computations during spike propagation. The quiescent power is estimated at 0.53 W, typical for the Zynq UltraScale+ fabric.

@@ -1,3 +1,5 @@
+`ifndef TB_SUITE_ROBUSTNESS_SVH
+`define TB_SUITE_ROBUSTNESS_SVH
 // ============================================================================
 // SUITE: ROBUSTNESS (CRV Philosophy)
 // ============================================================================
@@ -26,43 +28,65 @@ endtask
 // Upgrade: Inject reset at random cycle during active DMA, verify recovery
 // ============================================================================
 task automatic test_reset_injection;
-    logic [31:0] src, dst, golden, actual;
-    integer i;
+    logic [31:0] recovery_src, recovery_dst, recovery_golden, recovery_actual;
+    integer i, rand_delay;
     integer pass_count, fail_count;
     
-    $display("[RESET_INJ] Testing 50 reset recovery cycles...");
+    $display("[RESET_INJ] Testing 50 in-flight reset + recovery cycles...");
     pass_count = 0;
     fail_count = 0;
     
     for (i = 0; i < 50; i++) begin
-        cov_reset_tests++;  // Track reset test coverage
-        // Simply inject soft reset and verify system is still functional
-        src = 32'h1000 + (i * 4);
-        dst = 32'h6000 + (i * 4);
-        golden = $urandom | 32'h1;
-        ram_write(src, golden);
+        // --- Phase 1: Start a DMA transfer, then abort mid-flight ---
+        // Seed source memory for the DMA we're about to abort
+        ram_write(32'h0000_1000, 32'hDEAD_0000 + i);
         
-        // Inject soft reset (no DMA in flight)
+        // Kick off a 128-byte DMA (will take multiple cycles)
+        apb_write(ADDR_DMA_SRC, 32'h0000_1000);
+        apb_write(ADDR_DMA_DST, 32'h0000_6000);
+        apb_write(ADDR_DMA_SIZE, 32'd128);
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        
+        // Wait a random 1-8 cycles then inject soft-reset while DMA is in flight
+        rand_delay = ($urandom % 8) + 1;
+        repeat(rand_delay) @(posedge clk);
+        
+        // Disable protocol checking — aborting mid-flight intentionally
+        // violates AXI (drops ARVALID/WVALID without handshake completion)
+        protocol_check_enable = 1'b0;
+        
+        // Soft-reset aborts DMA (cu_soft_reset -> cfg_abort on DMA engine)
         apb_write(ADDR_CU_CTRL, 32'h2);
+        repeat(3) @(posedge clk);
         apb_write(ADDR_CU_CTRL, 32'h0);
+        repeat(5) @(posedge clk);
         
-        // Small delay
-        repeat(10) @(posedge clk);
+        // --- Phase 2: Full hardware reset to recover DUT + AXI BFM ---
+        // reset_dut() asserts rst_n=0 which resets the BFM read/write
+        // state machines back to IDLE, clears protocol checker pending
+        // flags, re-enables protocol_check_enable, and re-inits memory.
+        reset_dut(5);
         
-        // Verify DMA still works after reset
-        dma_transfer(src, dst, 4, 1000);
+        // --- Phase 3: Verify full system recovery with fresh DMA ---
+        recovery_src = 32'h0000_0100 + (i * 4);
+        recovery_dst = 32'h0001_0000 + (i * 4);
+        recovery_golden = $urandom | 32'h1;
+        ram_write(recovery_src, recovery_golden);
         
-        actual = ram_read(dst);
-        if (actual === golden)
+        dma_transfer(recovery_src, recovery_dst, 4, 1000);
+        
+        recovery_actual = ram_read(recovery_dst);
+        if (recovery_actual === recovery_golden)
             pass_count++;
         else begin
-            $display("  [FAIL] RESET_%0d: After Reset - Exp=0x%h, Got=0x%h", i, golden, actual);
+            $display("  [FAIL] RESET_%0d: After in-flight abort - Exp=0x%h, Got=0x%h", 
+                     i, recovery_golden, recovery_actual);
             fail_count++;
         end
     end
     
     if (fail_count == 0)
-        pass($sformatf("RESET_INJ: %0d/%0d recovery verified", pass_count, pass_count));
+        pass($sformatf("RESET_INJ: %0d/%0d in-flight abort + recovery verified", pass_count, pass_count));
     else
         fail("RESET_INJ", $sformatf("%0d recovery failures", fail_count));
 endtask
@@ -169,3 +193,5 @@ task automatic test_irq_stress;
     else
         fail("IRQ_STRESS", $sformatf("%0d failures", fail_count));
 endtask
+
+`endif
