@@ -377,19 +377,26 @@ task automatic test_dma_axi_write_handshake;
         // -------------------------------------------------------------------------
         // Step 6: Verify all words arrived correctly
         // -------------------------------------------------------------------------
-        for (i = 0; i < NUM_WORDS; i++) begin
-            actual = ram_read(dst_base + (i * 4));
-            if (actual !== golden_data[i]) begin
-                $display("    [FAIL] Word %0d: Expected=0x%08h, Got=0x%08h",
-                         i, golden_data[i], actual);
-                fail_count++;
-            end else begin
-                pass_count++;
+        begin
+            integer level_fails;
+            level_fails = 0;
+            for (i = 0; i < NUM_WORDS; i++) begin
+                actual = ram_read(dst_base + (i * 4));
+                if (actual !== golden_data[i]) begin
+                    $display("    [FAIL] Word %0d: Expected=0x%08h, Got=0x%08h",
+                             i, golden_data[i], actual);
+                    level_fails++;
+                    fail_count++;
+                end else begin
+                    pass_count++;
+                end
             end
+            // FIX: Per-level pass/fail report (was cumulative — hid which level failed)
+            if (level_fails == 0)
+                $display("    [PASS] All %0d words verified (stress=%0d%%)", NUM_WORDS, stress_levels[j]);
+            else
+                $display("    [FAIL] %0d/%0d words failed (stress=%0d%%)", level_fails, NUM_WORDS, stress_levels[j]);
         end
-        
-        if (fail_count == 0)
-            $display("    [PASS] All %0d words verified", NUM_WORDS);
     end
     
     // -------------------------------------------------------------------------

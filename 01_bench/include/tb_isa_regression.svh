@@ -98,6 +98,18 @@ task automatic run_suite_AD_isa_regression;
                     // For regression: Clear accumulator before each MAC test
                     // to verify the multiplication/saturation part primarily.
                     // NOTE: b is already sign-extended from 16-bit by the fix at line 65
+                    //
+                    // KNOWN LIMITATION (Session 9 audit):
+                    // config_valid=cu_busy forces single-context mode, so
+                    // the PE executes MAC on EVERY context_pc cycle during
+                    // run_cgra(2), accumulating N × sat40(a*b) where N≈3-4.
+                    // The golden below computes 1 × (a*b).
+                    // This is masked by saturation: for random 32×16 signed
+                    // products, |a*b| >> 2^31 in >99.99% of cases, so
+                    // sat32(N × sat40(a*b)) == sat32(a*b).
+                    // A mismatch can only occur when |a*b| < ~715M.
+                    // True fix requires either single-cycle CU timeout
+                    // or multi-context mode (config_valid decoupled from cu_busy).
                     4: begin
                         // MAC: Acc(0) + A * B (both signed, B is sign-extended 16-bit)
                         temp_sum = (a_s * b_s);

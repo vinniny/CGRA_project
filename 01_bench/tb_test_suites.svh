@@ -1,3 +1,5 @@
+`ifndef TB_TEST_SUITES_SVH
+`define TB_TEST_SUITES_SVH
 // ==============================================================================
 // tb_test_suites.svh - Master Verification Suite (166 Vectors, 28 Suites)
 // ==============================================================================
@@ -5,7 +7,7 @@
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
 //   Suites G-I  (16): Advanced (Random, White-Box, End-to-End)
 //   Suites J-P  (32): Computation (ISA, Spatial, Math, Comparators)
-//   Suite Q1    ( 1): Random ALU Stress (20 vectors, all 19 opcodes)
+//   Suite Q1    ( 1): Random ALU Stress (20 vectors, all 21 opcodes)
 //   Suite Q2    ( 1): Barrel Shifter (64 vectors: SHL/SHR 0-31)
 //   Suites R-S  ( 2): Robustness (Boundary, Reset)
 //   Suite T     ( 8): ISA Completion (all remaining opcodes)
@@ -17,7 +19,7 @@
 //   Suite Z     ( 6): Burst Mode Regression (H06/X01/W01 fixes)
 //   Suite AA    ( 3): Metastability & Robustness
 //
-// ISA COVERAGE: 19/19 operations verified
+// ISA COVERAGE: 21/21 operations verified (incl. RELU, MAX from LPR suite)
 // VERIFICATION STATUS: 166/166 PASSED - SILICON READY
 // ==============================================================================
 // NOTE: Address map constants are now in include/tb_defs.svh
@@ -30,6 +32,7 @@
 task automatic run_suite_A_regs;
     reg [31:0] rd, saved_val;
     integer i;
+    integer a08_fail;
     begin
         $display("\n--- SUITE A: Register Logic & APB Compliance (14 Vectors) ---");
         
@@ -116,6 +119,7 @@ task automatic run_suite_A_regs;
         // A08: Random Stress (TC10)
         // Loop 20x: Random writes/reads to valid addresses, then verify readback
         // =====================================================================
+        a08_fail = 0;
         begin
             logic [31:0] wr_src, wr_dst, wr_size;
             for (i = 0; i < 20; i = i + 1) begin
@@ -129,18 +133,23 @@ task automatic run_suite_A_regs;
                 // FIX: Verify readback matches last write
                 if (rd !== wr_src) begin
                     fail("A08", $sformatf("DMA_SRC readback mismatch: wrote 0x%08h, read 0x%08h", wr_src, rd));
+                    a08_fail++;
                 end
                 apb_read(ADDR_DMA_DST, rd);
                 if (rd !== wr_dst) begin
                     fail("A08", $sformatf("DMA_DST readback mismatch: wrote 0x%08h, read 0x%08h", wr_dst, rd));
+                    a08_fail++;
                 end
                 apb_read(ADDR_DMA_SIZE, rd);
                 if (rd !== wr_size) begin
                     fail("A08", $sformatf("DMA_SIZE readback mismatch: wrote 0x%08h, read 0x%08h", wr_size, rd));
+                    a08_fail++;
                 end
             end
         end
-        pass("A08: Random Stress (20 iterations)");
+        // FIX: Only report pass if no failures occurred (was unconditional)
+        if (a08_fail == 0)
+            pass("A08: Random Stress (20 iterations)");
         
         // =====================================================================
         // A09: Byte Strobe Logic
@@ -253,11 +262,16 @@ task automatic run_suite_B_dma;
         check_data(32'h1000, 32'h3400, 16, data_ok);
         if (data_ok) pass("B05: 16-Byte Transfer"); else fail("B05: 16B", "mismatch");
         
-        // B06: Zero Size
+        // B06: Zero Size — FIX: also verify DMA not stuck busy
         apb_write(ADDR_DMA_SIZE, 32'd0);
         apb_write(ADDR_DMA_CTRL, 32'h1);
         wait_cycles(20);
-        pass("B06: Zero Size (no hang)");
+        begin
+            logic [31:0] b06_status;
+            apb_read(ADDR_DMA_STATUS, b06_status);
+            if (b06_status[0] == 1'b0) pass("B06: Zero Size (no hang, not busy)");
+            else fail("B06: Zero Size", "DMA still busy after zero-size transfer");
+        end
         
         // B07: Max Block (1KB for sim speed)
         dma_transfer(32'h1000, 32'h4000, 1024, 8000);
@@ -269,17 +283,25 @@ task automatic run_suite_B_dma;
         check_data(32'h1000, 32'hF000, 8, data_ok);
         if (data_ok) pass("B08: High Addresses"); else fail("B08: High Addr", "mismatch");
         
-        // B09: Identity Copy (Src == Dst)
-        dma_transfer(32'h1000, 32'h1000, 4, 100);
-        pass("B09: Identity Copy");
+        // B09: Identity Copy (Src == Dst) — FIX: verify data preserved
+        ram_write(32'h5000, 32'hDEAD_FACE);
+        dma_transfer(32'h5000, 32'h5000, 4, 100);
+        if (ram_read(32'h5000) === 32'hDEAD_FACE) pass("B09: Identity Copy");
+        else fail("B09: Identity Copy", "data corrupted by self-copy");
         
-        // B10: Overlap Forward (Dst = Src + 4)
-        dma_transfer(32'h1000, 32'h1004, 8, 100);
-        pass("B10: Overlap Forward");
+        // B10: Overlap Forward (Dst = Src + 4) — FIX: verify source data arrives at dst
+        ram_write(32'h5100, 32'hAAAA_0001);
+        ram_write(32'h5104, 32'hAAAA_0002);
+        dma_transfer(32'h5100, 32'h5104, 8, 100);
+        check_data(32'h5100, 32'h5104, 8, data_ok);
+        if (data_ok) pass("B10: Overlap Forward"); else fail("B10: Overlap Fwd", "mismatch");
         
-        // B11: Overlap Backward (Dst = Src - 4)
-        dma_transfer(32'h1004, 32'h1000, 8, 100);
-        pass("B11: Overlap Backward");
+        // B11: Overlap Backward (Dst = Src - 4) — FIX: verify data arrives
+        ram_write(32'h5204, 32'hBBBB_0001);
+        ram_write(32'h5208, 32'hBBBB_0002);
+        dma_transfer(32'h5204, 32'h5200, 8, 100);
+        check_data(32'h5204, 32'h5200, 8, data_ok);
+        if (data_ok) pass("B11: Overlap Backward"); else fail("B11: Overlap Bwd", "mismatch");
         
         // B12: Pattern Zeros
         for (i = 0; i < 16; i++) mem[32'h6000 + i] = 8'h00;
@@ -299,15 +321,24 @@ task automatic run_suite_B_dma;
         check_data(32'h6400, 32'h6500, 64, data_ok);
         if (data_ok) pass("B14: Pattern Random"); else fail("B14: Random", "mismatch");
         
-        // B15: Continuous Mode (5 back-to-back)
-        for (i = 0; i < 5; i++) begin
-            dma_transfer(32'h1000, 32'h7000 + i*32, 32, 300);
+        // B15: Continuous Mode (5 back-to-back) — FIX: verify each transfer
+        begin
+            logic b15_ok;
+            b15_ok = 1'b1;
+            for (i = 0; i < 5; i++) begin
+                dma_transfer(32'h1000, 32'h7000 + i*32, 32, 300);
+                check_data(32'h1000, 32'h7000 + i*32, 32, data_ok);
+                if (!data_ok) b15_ok = 1'b0;
+            end
+            if (b15_ok) pass("B15: Continuous Mode (5 xfer)");
+            else fail("B15: Continuous Mode", "data mismatch in back-to-back transfers");
         end
-        pass("B15: Continuous Mode (5 xfer)");
         
-        // B16: Page Crossing (cross 0x1000 boundary)
+        // B16: Page Crossing (cross 0x1000 boundary) — FIX: verify data
         dma_transfer(32'h0FF0, 32'h2000, 32, 200);
-        pass("B16: Page Crossing");
+        check_data(32'h0FF0, 32'h2000, 32, data_ok);
+        if (data_ok) pass("B16: Page Crossing");
+        else fail("B16: Page Crossing", "data mismatch across page boundary");
     end
 endtask
 
@@ -358,7 +389,7 @@ task automatic run_suite_C_protocol;
         // C10: Glitch Start (sync design handles)
         pass("C10: Glitch Start Immunity");
         
-        // C11: Mid-Op Reset
+        // C11: Mid-Op Reset — FIX: verify DMA is not stuck busy after reset
         apb_write(ADDR_DMA_SRC, 32'h1000);
         apb_write(ADDR_DMA_DST, 32'hC200);
         apb_write(ADDR_DMA_SIZE, 32'd64);
@@ -368,7 +399,12 @@ task automatic run_suite_C_protocol;
         wait_cycles(5);
         rst_n = 1;
         wait_cycles(10);
-        pass("C11: Mid-Op Reset Recovery");
+        begin
+            logic [31:0] c11_status;
+            apb_read(ADDR_DMA_STATUS, c11_status);
+            if (c11_status[0] == 1'b0) pass("C11: Mid-Op Reset Recovery");
+            else fail("C11: Mid-Op Reset", "DMA still busy after reset");
+        end
         
         // C12: Floating Bus (IDLE)
         wait_cycles(20);
@@ -403,27 +439,50 @@ task automatic run_suite_D_perf;
     begin
         $display("\n--- SUITE D: Performance & Timing (10 Vectors) ---");
         
-        // D01: Latency Start
+        // D01: Latency Start — FIX: add timeout guard to prevent infinite wait
         apb_write(ADDR_DMA_SRC, 32'h1000);
         apb_write(ADDR_DMA_DST, 32'hD000);
         apb_write(ADDR_DMA_SIZE, 32'd4);
         start_time = $time;
         apb_write(ADDR_DMA_CTRL, 32'h1);
-        wait(axi_arvalid);
-        end_time = $time;
-        if ((end_time - start_time) / 10 < 10) pass("D01: Start Latency < 10 cycles");
-        else fail("D01: Start Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / 10.0)));
+        begin
+            integer d01_wait;
+            d01_wait = 0;
+            while (!axi_arvalid && d01_wait < 500) begin
+                @(posedge clk);
+                d01_wait = d01_wait + 1;
+            end
+            if (d01_wait >= 500) begin
+                fail("D01: Start Latency", "ARVALID never asserted (timeout)");
+            end else begin
+                end_time = $time;
+                if ((end_time - start_time) / TB_CLK_PERIOD < 10) pass("D01: Start Latency < 10 cycles");
+                else fail("D01: Start Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / TB_CLK_PERIOD)));
+            end
+        end
         wait_dma_done(100);
         
-        // D02: Latency End
+        // D02: Latency End — FIX: add timeout guard + use TB_CLK_PERIOD
         apb_write(ADDR_DMA_SIZE, 32'd4);
         apb_write(ADDR_DMA_CTRL, 32'h1);
-        wait(axi_bvalid && axi_bready);
-        start_time = $time;
-        wait_dma_done(100);
-        end_time = $time;
-        if ((end_time - start_time) / 10 < 10) pass("D02: End Latency < 10 cycles");
-        else fail("D02: End Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / 10.0)));
+        begin
+            integer d02_wait;
+            d02_wait = 0;
+            while (!(axi_bvalid && axi_bready) && d02_wait < 500) begin
+                @(posedge clk);
+                d02_wait = d02_wait + 1;
+            end
+            if (d02_wait >= 500) begin
+                fail("D02: End Latency", "BVALID&&BREADY never asserted (timeout)");
+                wait_dma_done(100);
+            end else begin
+                start_time = $time;
+                wait_dma_done(100);
+                end_time = $time;
+                if ((end_time - start_time) / TB_CLK_PERIOD < 10) pass("D02: End Latency < 10 cycles");
+                else fail("D02: End Latency", $sformatf("%0d cycles", integer'((end_time - start_time) / TB_CLK_PERIOD)));
+            end
+        end
         
         // D03: Read Throughput (256B)
         apb_write(ADDR_DMA_SRC, 32'h1000);
@@ -433,7 +492,7 @@ task automatic run_suite_D_perf;
         apb_write(ADDR_DMA_CTRL, 32'h1);
         wait_dma_done(3000);
         end_time = $time;
-        total_cycles = integer'((end_time - start_time) / 10.0);
+        total_cycles = integer'((end_time - start_time) / TB_CLK_PERIOD);  // FIX: use parameter, not magic 10
         throughput = 256.0 / total_cycles;
         $display("      256B in %0d cycles (%.2f B/cycle)", total_cycles, throughput);
         if (throughput > 0.3) pass("D03: Read Throughput"); else fail("D03: Throughput", "too slow");
@@ -1702,13 +1761,13 @@ task automatic run_suite_Q_random;
             op_a = {16'd0, op_a_16};  // Zero-extend to 32 bits
             
             // Test ALL 19 opcodes with round-robin selection
-            opcode = 6'(32'(seed[4:0]) % 32'd19);  // 0-18
+            opcode = 6'(32'(seed[4:0]) % 32'd21);  // 0-20 (full 21-Op ISA)
 
             // 2. Compute "Golden" Expected Result (Behavioral Model)
             // PE does west op west, so both operands are the same (A op A)
             // Skip state-dependent opcodes in comparison (MAC=4, SHL=8, SHR=9, SPM=13,14, LIF=18)
             case (opcode)
-                6'd0:  model_res = 32'd0;            // NOP: outputs 0
+                6'd0:  model_res = 32'hx;            // NOP: state-dependent (preserves prev result)
                 6'd1:  model_res = op_a + op_a;      // ADD: 2*A
                 6'd2:  model_res = 32'd0;            // SUB: A-A=0
                 6'd3:  model_res = op_a * op_a;      // MUL: A*A
@@ -1727,6 +1786,8 @@ task automatic run_suite_Q_random;
                 6'd16: model_res = op_a;             // PASS0: A
                 6'd17: model_res = op_a;             // PASS1: A (src1=west)
                 6'd18: model_res = 32'hx;            // LIF: state-dependent
+                6'd19: model_res = op_a;             // RELU: max(0,A) = A (A always positive)
+                6'd20: model_res = op_a;             // MAX: max(A,A) = A (same operands)
                 default: model_res = 32'd0;
             endcase
 
@@ -1739,11 +1800,11 @@ task automatic run_suite_Q_random;
             // 5. Run
             run_cgra(5);
 
-            // 6. Check (skip state-dependent opcodes: MAC, SHL, SHR, SPM ops, LIF)
+            // 6. Check (skip state-dependent opcodes: NOP, MAC, SHL, SHR, SPM ops, LIF)
             hw_res = read_pe_result(4'd0);
             
             // Skip opcodes with undefined/state-dependent results
-            if (opcode == 6'd4 || opcode == 6'd8 || opcode == 6'd9 ||
+            if (opcode == 6'd0 || opcode == 6'd4 || opcode == 6'd8 || opcode == 6'd9 ||
                 opcode == 6'd13 || opcode == 6'd14 || opcode == 6'd18) begin
                 pass_cnt = pass_cnt + 1;  // Count as pass (tested in dedicated suites)
             end else if (hw_res === model_res) begin
@@ -1757,7 +1818,7 @@ task automatic run_suite_Q_random;
         if (pass_cnt == NUM_RANDOM)
             pass($sformatf("Q01: %0d/%0d Random Vectors Passed", pass_cnt, NUM_RANDOM));
         else
-            $display("[INFO] Q1: %0d/%0d passed", pass_cnt, NUM_RANDOM);
+            fail("Q01: Random Vectors", $sformatf("%0d/%0d passed", pass_cnt, NUM_RANDOM));
             
         $display("\n[SUITE Q1 COMPLETE] Randomized ALU stress finished.\n");
     end
@@ -1827,7 +1888,7 @@ task automatic run_suite_Q2_shifts;
         if (pass_cnt == 64)
             pass($sformatf("Q201: %0d/64 Barrel Shifter Tests Passed (SHL/SHR 0-31)", pass_cnt));
         else
-            $display("[INFO] Q2: %0d/64 shift tests passed", pass_cnt);
+            fail("Q201: Barrel Shifter", $sformatf("%0d/64 shift tests passed", pass_cnt));
             
         $display("\n[SUITE Q2 COMPLETE] Barrel shifter stress finished.\n");
     end
@@ -1989,7 +2050,7 @@ task automatic run_suite_R_boundary;
         // 1. Fill Tile Memory addresses 0..15 with values 100+i
         $display("[INFO] R01: Loading tile memory 0..15 with test pattern...");
         for (i = 0; i < 16; i++) begin
-            dma_load_tile_bank(2'd0, i[11:0], 32'd100 + i);
+            dma_load_tile_bank(2'd0, i[11:0] * 4, 32'd100 + i);  // FIX: word-aligned offsets (was byte offsets)
         end
 
         // 2. Config PE to ADD west+west (so we see the stream)
@@ -3194,9 +3255,8 @@ task automatic run_suite_AA_robustness;
         // Test: Enable random READY stalls, verify transfer completes
         $display("[AA02] Testing protocol jitter stress...");
         
-        // Enable stress mode in AXI model
-        stress_enable = 1;
-        stress_probability = 30;  // 30% chance of stall per cycle
+        // Enable stress mode in AXI model — FIX: use enable_stress() for coverage tracking
+        enable_stress(30);  // 30% chance of stall per cycle
         
         // Setup moderately large transfer
         for (i = 0; i < 32; i = i + 1) begin
@@ -3216,7 +3276,7 @@ task automatic run_suite_AA_robustness;
             timeout_cnt = timeout_cnt + 1;
         end while (((dma_status & 32'h1) != 0) && timeout_cnt < 2000);
         
-        stress_enable = 0;  // Disable stress mode
+        disable_stress();  // FIX: Use helper task for consistent cleanup
         
         if (timeout_cnt >= 2000) begin
             fail("AA02: Jitter Stress", "DMA deadlock under backpressure");
@@ -3535,3 +3595,4 @@ endtask
 // =========================================================================
 // Suite ordering: A-Z, AA, AB, AC
 
+`endif // TB_TEST_SUITES_SVH

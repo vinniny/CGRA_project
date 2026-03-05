@@ -57,7 +57,15 @@ task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    while (!pready) @(posedge clk); // FIX: Wait for pready (costs nothing when always 1)
+    // FIX: Bounded pready wait — prevents infinite hang if slave stalls
+    begin : apb_wr_wait
+        int pready_cnt = 0;
+        while (!pready && pready_cnt < 1000) begin
+            @(posedge clk);
+            pready_cnt++;
+        end
+        if (!pready) $error("[APB] PREADY timeout on write to 0x%08h", addr);
+    end
     
     if (pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
     
@@ -80,7 +88,15 @@ task automatic apb_read(input logic [31:0] addr, output logic [31:0] data);
     penable = 1'b1;
     
     @(posedge clk);
-    while (!pready) @(posedge clk); // FIX: Wait for pready (costs nothing when always 1)
+    // FIX: Bounded pready wait — prevents infinite hang if slave stalls
+    begin : apb_rd_wait
+        int pready_cnt = 0;
+        while (!pready && pready_cnt < 1000) begin
+            @(posedge clk);
+            pready_cnt++;
+        end
+        if (!pready) $error("[APB] PREADY timeout on read from 0x%08h", addr);
+    end
     
     if (pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
     
@@ -111,7 +127,7 @@ endtask
 task automatic apb_check_nonzero(input logic [31:0] addr, input string msg);
     logic [31:0] rd;
     apb_read(addr, rd);
-    if (rd > 0) begin
+    if (rd !== '0) begin
         $display("  [PASS] %s (value=%0d)", msg, rd);
         pass_count++;
     end else begin
@@ -171,7 +187,9 @@ task automatic wait_dma_done(input int timeout);
         if (status[1]) return;
         wait_cycles(1);
     end
-    $warning("[DMA] Timeout after %0d cycles", timeout);
+    // FIX: Promote timeout from $warning to $error so it counts as a real failure
+    $error("[DMA] Timeout after %0d cycles — DMA did not complete", timeout);
+    assertion_errors = assertion_errors + 1;
 endtask
 
 task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst, 
@@ -439,36 +457,133 @@ task automatic check_pe_result(
     input string       test_name
 );
     logic [31:0] actual;
-    logic [31:0] pe0_alu;
-    logic [31:0] pe0_op0, pe0_op1;
-    logic [5:0]  pe0_opcode;
-    logic signed [39:0] pe0_acc;
+    logic [31:0] dbg_alu;
+    logic [31:0] dbg_op0, dbg_op1;
+    logic [5:0]  dbg_opcode;
+    logic signed [39:0] dbg_acc;
     
-    // Debug: capture PE0 internals
-    pe0_alu = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
-    pe0_op0 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand0;
-    pe0_op1 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand1;
-    pe0_opcode = tb_top.u_dut.u_array.u_tile_00.u_pe.op_code;
-    pe0_acc = tb_top.u_dut.u_array.u_tile_00.u_pe.accumulator;
+    // FIX: Debug capture uses read_pe_result for ALL PEs (was hardcoded to PE0)
+    actual = read_pe_result(pe_id);
     
-    // Direct probe for PE 0 to avoid function issues
-    if (pe_id == 4'd0)
-        actual = pe0_alu;
-    else
-        actual = read_pe_result(pe_id);
+    // Capture debug internals for the ACTUAL PE under test
+    case (pe_id)
+        4'd0: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_00.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_00.u_pe.accumulator;
+        end
+        4'd1: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_01.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_01.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_01.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_01.u_pe.accumulator;
+        end
+        4'd2: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_02.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_02.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_02.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_02.u_pe.accumulator;
+        end
+        4'd3: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_03.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_03.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_03.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_03.u_pe.accumulator;
+        end
+        4'd4: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_10.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_10.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_10.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_10.u_pe.accumulator;
+        end
+        4'd5: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_11.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_11.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_11.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_11.u_pe.accumulator;
+        end
+        4'd6: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_12.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_12.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_12.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_12.u_pe.accumulator;
+        end
+        4'd7: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_13.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_13.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_13.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_13.u_pe.accumulator;
+        end
+        4'd8: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_20.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_20.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_20.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_20.u_pe.accumulator;
+        end
+        4'd9: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_21.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_21.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_21.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_21.u_pe.accumulator;
+        end
+        4'd10: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_22.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_22.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_22.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_22.u_pe.accumulator;
+        end
+        4'd11: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_23.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_23.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_23.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_23.u_pe.accumulator;
+        end
+        4'd12: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_30.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_30.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_30.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_30.u_pe.accumulator;
+        end
+        4'd13: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_31.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_31.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_31.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_31.u_pe.accumulator;
+        end
+        4'd14: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_32.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_32.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_32.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_32.u_pe.accumulator;
+        end
+        4'd15: begin
+            dbg_op0 = tb_top.u_dut.u_array.u_tile_33.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.u_tile_33.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.u_tile_33.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.u_tile_33.u_pe.accumulator;
+        end
+        default: begin
+            dbg_op0 = 32'hDEAD_BEEF;
+            dbg_op1 = 32'hDEAD_BEEF;
+            dbg_opcode = 6'h3F;
+            dbg_acc = 40'hDEAD_BEEF;
+        end
+    endcase
+    dbg_alu = actual;
     
     // Debug output gated by TB_VERBOSE (only print on mismatch in quiet mode)
     `ifndef TB_QUIET
     if (actual !== expected) begin
         $display("  [DEBUG-FAIL] pe_id=%0d, opcode=%0d, op0=0x%h, op1=0x%h, acc=0x%h", 
-                 pe_id, pe0_opcode, pe0_op0, pe0_op1, pe0_acc);
-        $display("  [DEBUG-FAIL] pe0_alu=0x%h, actual=0x%h, expected=0x%h", 
-                 pe0_alu, actual, expected);
+                 pe_id, dbg_opcode, dbg_op0, dbg_op1, dbg_acc);
+        $display("  [DEBUG-FAIL] alu=0x%h, actual=0x%h, expected=0x%h", 
+                 dbg_alu, actual, expected);
     end
     `else
     if (actual !== expected) begin
         $display("  [DEBUG-FAIL] pe_id=%0d, opcode=%0d, op0=0x%h, op1=0x%h, acc=0x%h", 
-                 pe_id, pe0_opcode, pe0_op0, pe0_op1, pe0_acc);
+                 pe_id, dbg_opcode, dbg_op0, dbg_op1, dbg_acc);
     end
     `endif
     
@@ -527,17 +642,26 @@ endtask
 // Check AXI write burst protocol (WLAST)
 task automatic check_write_burst_protocol();
     int beat_count;
+    int timeout_cycles;
     beat_count = 0;
-    // Wait for write transaction start
-    while (!axi_wvalid) @(posedge clk);
+    timeout_cycles = 0;
+    // Wait for write transaction start (with timeout)
+    while (!axi_wvalid && timeout_cycles < 5000) begin
+        @(posedge clk);
+        timeout_cycles++;
+    end
+    if (timeout_cycles >= 5000) begin
+        fail("Write burst", "Timed out waiting for WVALID");
+        return;
+    end
     
-    // Monitor burst
-    while (!axi_wlast && beat_count < 256) begin
+    // Monitor burst - FIX: Check full handshake+WLAST, not just WLAST alone
+    while (!(axi_wvalid && axi_wready && axi_wlast) && beat_count < 256) begin
         if (axi_wvalid && axi_wready) beat_count++;
         @(posedge clk);
     end
     
-    if (axi_wlast && axi_wvalid) pass("Write burst WLAST asserted");
+    if (axi_wvalid && axi_wready && axi_wlast) pass("Write burst WLAST asserted");
     else fail("Write burst", "WLAST not asserted or timeout");
 endtask
 

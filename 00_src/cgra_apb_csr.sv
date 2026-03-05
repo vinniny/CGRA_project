@@ -130,27 +130,28 @@ module cgra_apb_csr #(
     // Done Bit Latching - Sticky until next start
     // =========================================================================
     // W1C wire: APB write to IRQ_STATUS clears individual done latches
-    wire irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
+    logic irq_w1c;
+    assign irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             dma_done_latch <= 1'b0;
             cu_done_latch <= 1'b0;
         end else begin
-            // DMA done latch: start-clear wins to prevent stale done on back-to-back ops
-            // Priority: start-clear > W1C-clear > done-set  (last assignment wins)
-            if (dma_done_i)
-                dma_done_latch <= 1'b1;          // done sets
+            // DMA done latch: done-set wins over W1C-clear to prevent lost events
+            // Priority: start-clear > done-set > W1C-clear  (last assignment wins)
             if (irq_w1c && pwdata[0])
                 dma_done_latch <= 1'b0;          // W1C clears
+            if (dma_done_i)
+                dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
             if (dma_start)
                 dma_done_latch <= 1'b0;          // start clears (wins)
             
-            // CU done latch: start-clear wins
-            if (cu_done_i)
-                cu_done_latch <= 1'b1;
+            // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
                 cu_done_latch <= 1'b0;
+            if (cu_done_i)
+                cu_done_latch <= 1'b1;           // FIX: done-set AFTER W1C
             if (cu_start)
                 cu_done_latch <= 1'b0;
         end

@@ -1,7 +1,7 @@
 // ==============================================================================
 // CGRA DMA Engine - Pipelined Producer-Consumer Architecture - v2.4
 // ==============================================================================
-// AXI4-Lite master for data/config transfers between external RAM and CGRA.
+// AXI4 Full master for data/config transfers between external RAM and CGRA.
 //
 // CHANGELOG (v2.4 - January 2026):
 //   - Fixed burst length calculation (WIDTHEXPAND)
@@ -102,6 +102,12 @@ module cgra_dma_engine #(
 
     localparam BYTES_PER_WORD = DATA_WIDTH / 8;
     localparam FIFO_ADDR_BITS = $clog2(FIFO_DEPTH);
+
+    // FIX: FIFO pointer wrap relies on power-of-2 depth. Enforce at elaboration.
+    initial begin
+        if ((FIFO_DEPTH & (FIFO_DEPTH - 1)) != 0)
+            $fatal(1, "[DMA] FIFO_DEPTH=%0d is not a power of 2 — pointer wrap broken", FIFO_DEPTH);
+    end
     
     // =========================================================================
     // 1. FIFO Buffer (Decoupling between Read and Write engines)
@@ -116,10 +122,12 @@ module cgra_dma_engine #(
     // =========================================================================
     // Address Decoding (0x0=External AXI, 0x1=Tile Memory, 0x2=Config)
     // =========================================================================
-    // Use cfg_dst for destination type (base address determines routing)
-    wire dst_is_axi    = (cfg_dst[31:28] == 4'h0);
-    wire dst_is_tile   = (cfg_dst[31:28] == 4'h1);
-    wire dst_is_config = (cfg_dst[31:28] == 4'h2);
+    // FIX: Latched destination type - prevents mid-transfer routing corruption
+    // if CSR DMA_DST is written while a transfer is active. Latched in W_IDLE
+    // on cfg_start alongside write_addr.
+    logic dst_is_axi;
+    logic dst_is_tile;
+    logic dst_is_config;
     
     // Local write trigger (for tile/config - single cycle writes)
     logic local_write_en;
@@ -135,13 +143,18 @@ module cgra_dma_engine #(
     wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
     wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full);
     
-    // FIFO data output (registered read)
+    // FIFO data output (combinational read - async LUTRAM style)
     logic [DATA_WIDTH-1:0] fifo_rdata;
     assign fifo_rdata = fifo_mem[r_ptr];
     
     // FIFO logic
     always_ff @(posedge clk) begin
         if (!rst_n) begin
+            w_ptr <= '0;
+            r_ptr <= '0;
+            count <= '0;
+        end else if (cfg_abort) begin
+            // FIX: Clear stale FIFO data on abort (defensive hardening)
             w_ptr <= '0;
             r_ptr <= '0;
             count <= '0;
@@ -334,14 +347,26 @@ module cgra_dma_engine #(
     // AXI4 Write Burst Configuration (constant signals)
     assign m_axi_awsize  = 3'b010;  // 4 bytes per beat
     assign m_axi_awburst = 2'b01;   // INCR burst type
-    assign m_axi_wstrb   = 4'hF;    // Always full word writes
+    assign m_axi_wstrb   = {(DATA_WIDTH/8){1'b1}};    // FIX: Parameterized full-word strobe (was hardcoded 4'hF)
     
-    // FIX: Write-burst boundary variables moved to module scope for synthesis tool compat
-    // (IEEE 1364 / some synth tools reject variable declarations inside always_ff blocks)
+    // FIX: Write-burst boundary variables computed in always_comb for proper synthesis
+    // (blocking = inside always_ff causes sim/synth mismatch with some tools)
     logic [11:0] write_addr_offset;
     logic [31:0] words_to_write_boundary;
     logic [31:0] len_limit_fifo_write;
     logic [31:0] words_this_write_burst;
+
+    always_comb begin
+        write_addr_offset       = write_addr[11:0];
+        words_to_write_boundary = (32'd4096 - {20'd0, write_addr_offset}) >> 2;
+        len_limit_fifo_write    = (write_words_remaining > MAX_BURST_WORDS)
+                                  ? MAX_BURST_WORDS
+                                  : write_words_remaining;
+        words_this_write_burst  = (len_limit_fifo_write > words_to_write_boundary)
+                                  ? words_to_write_boundary
+                                  : len_limit_fifo_write;
+        if (words_this_write_burst == '0) words_this_write_burst = 32'd1;
+    end
     
     // Dynamic signals driven by FSM
     // m_axi_awlen, m_axi_wlast - driven in FSM based on burst tracking
@@ -352,6 +377,9 @@ module cgra_dma_engine #(
             write_addr <= '0;
             write_words_remaining <= '0;
             write_complete <= 1'b0;
+            dst_is_axi <= 1'b0;
+            dst_is_tile <= 1'b0;
+            dst_is_config <= 1'b0;
             write_data_reg <= '0;
             write_data_reg_valid <= 1'b0;
             local_write_en <= 1'b0;
@@ -371,6 +399,9 @@ module cgra_dma_engine #(
         end else if (cfg_abort) begin  // FIX: Abort forces write FSM to IDLE
             w_state <= W_IDLE;
             write_complete <= 1'b0;
+            dst_is_axi <= 1'b0;
+            dst_is_tile <= 1'b0;
+            dst_is_config <= 1'b0;
             write_data_reg_valid <= 1'b0;  // FIX: Clear pipeline register on abort
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
@@ -395,6 +426,10 @@ module cgra_dma_engine #(
                     if (cfg_start && cfg_size != '0 && !status_busy) begin
                         write_addr <= cfg_dst;
                         write_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+                        // FIX: Latch destination type from cfg_dst at start time
+                        dst_is_axi    <= (cfg_dst[31:28] == 4'h0);
+                        dst_is_tile   <= (cfg_dst[31:28] == 4'h1);
+                        dst_is_config <= (cfg_dst[31:28] == 4'h2);
                         w_state <= W_WAIT;
                     end
                 end
@@ -412,26 +447,8 @@ module cgra_dma_engine #(
                     
                     if (!fifo_empty && write_words_remaining != '0) begin
                         if (dst_is_axi) begin
-                            // Calculate burst size with 4KB boundary protection
-                            // Max burst = min(FIFO_DEPTH, write_words_remaining, words_to_4KB_boundary)
-                            
-                            write_addr_offset = write_addr[11:0];
-                            words_to_write_boundary = (32'd4096 - {20'd0, write_addr_offset}) >> 2;
-                            
-                            // Step 1: Clamp to FIFO depth or remaining words
-                            len_limit_fifo_write = (write_words_remaining > MAX_BURST_WORDS) 
-                                                   ? MAX_BURST_WORDS 
-                                                   : write_words_remaining;
-                            
-                            // Step 2: Clamp to 4KB boundary
-                            words_this_write_burst = (len_limit_fifo_write > words_to_write_boundary)
-                                                     ? words_to_write_boundary
-                                                     : len_limit_fifo_write;
-                            
-                            // FIX: Guard against zero (same as read path)
-                            if (words_this_write_burst == '0) words_this_write_burst = 32'd1;
-                            
-                            // Set burst parameters
+                            // FIX: Burst size now computed in always_comb above (was blocking = here)
+                            // Set burst parameters from combinationally-computed values
                             write_burst_len <= words_this_write_burst[7:0] - 8'd1;  // AWLEN is N-1
                             write_burst_words <= words_this_write_burst;
                             write_beat_counter <= '0;
@@ -627,11 +644,17 @@ module cgra_dma_engine #(
             status_done <= 1'b0;
             irq_done <= 1'b0;
             
-            if (cfg_start && cfg_size != '0 && !status_busy) begin
-                // Start new transfer
-                transfer_active <= 1'b1;
-                transfer_started <= 1'b0;  // Will be set next cycle
-                status_busy <= 1'b1;
+            if (cfg_start && !status_busy) begin
+                if (cfg_size != '0) begin
+                    // Start new transfer
+                    transfer_active <= 1'b1;
+                    transfer_started <= 1'b0;  // Will be set next cycle
+                    status_busy <= 1'b1;
+                end else begin
+                    // FIX: Zero-length transfer → nothing to do, immediately done
+                    status_done <= 1'b1;
+                    irq_done    <= 1'b1;
+                end
             end else if (transfer_active && !transfer_started) begin
                 // FIX: Wait one cycle for FSMs to leave IDLE before checking engine_idle
                 transfer_started <= 1'b1;
@@ -669,8 +692,8 @@ module cgra_dma_engine #(
         end
     end
     
-    // Deadlock detection counter
-    integer busy_cycle_count;
+    // Deadlock detection counter (unsigned to avoid signed overflow after ~21s)
+    int unsigned busy_cycle_count;
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin

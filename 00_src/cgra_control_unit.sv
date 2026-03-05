@@ -76,6 +76,7 @@ module cgra_control_unit #(
     logic [31:0] cycle_counter;
     logic [31:0] wall_counter;   // FIX: Wall-clock counter (counts all cycles in RUN, even stalled)
     logic        timeout_reached;
+    logic [31:0] max_cycles_reg;  // FIX: Latched timeout threshold (prevents mid-run corruption)
     
     // Hardware Loop Registers
     logic [15:0] loop_count_reg;  // Remaining loop iterations (internal counter)
@@ -85,7 +86,8 @@ module cgra_control_unit #(
     // =========================================================================
     // Timeout Detection — uses wall_counter for DMA-hang protection
     // =========================================================================
-    assign timeout_reached = (max_cycles_i != 32'd0) && (wall_counter >= max_cycles_i);
+    // FIX: Compare against latched max_cycles_reg instead of live max_cycles_i
+    assign timeout_reached = (max_cycles_reg != 32'd0) && (wall_counter >= max_cycles_reg);
     
     // =========================================================================
     // FSM Sequential Logic
@@ -142,6 +144,7 @@ module cgra_control_unit #(
         if (!rst_n) begin
             cycle_counter <= 32'd0;
             wall_counter <= 32'd0;
+            max_cycles_reg <= 32'd0;
             loop_count_reg <= 16'd0;
             loop_start_reg <= '0;
             loop_end_reg   <= '0;
@@ -150,7 +153,8 @@ module cgra_control_unit #(
                 // FIX: Match FSM guard - reload only when actually transitioning to RUN
                 cycle_counter <= 32'd0;
                 wall_counter  <= 32'd0;
-                // FIX: Latch all loop parameters on RUN entry to prevent mid-run corruption
+                // FIX: Latch all parameters on RUN entry to prevent mid-run corruption
+                max_cycles_reg <= max_cycles_i;
                 loop_count_reg <= loop_count_i;
                 loop_start_reg <= loop_start_pc_i[PC_WIDTH-1:0];
                 loop_end_reg   <= loop_end_pc_i[PC_WIDTH-1:0];
@@ -191,8 +195,8 @@ module cgra_control_unit #(
             pc_counter <= '0;
         end else if (soft_reset_i) begin
             pc_counter <= '0;
-        end else if (state == STATE_IDLE && start_i && !soft_reset_i) begin
-            // FIX: Clear pc_counter on new RUN to prevent stale start address
+        end else if (state == STATE_IDLE && start_i) begin
+            // FIX: Removed redundant !soft_reset_i — prior else-if already consumed that case
             pc_counter <= '0;
         end else if (pe_enable && !global_stall_o) begin
             // Increment PC only when running and not stalled
@@ -268,9 +272,19 @@ module cgra_control_unit #(
             // FIX: Detect loop_count_reg underflow (wrap from 0 to 65535).
             // The "loop_count_reg > 16'd0" guard in the decrement logic prevents this,
             // but this assertion catches regressions if the guard is accidentally removed.
-            if (rst_n && state == STATE_RUN) begin
+            if (state == STATE_RUN) begin
                 if (prev_loop_count == 16'd0 && loop_count_reg == 16'hFFFF)
                     $error("[CU] loop_count_reg underflow detected! Wrapped from 0 to 65535 @ %0t", $time);
+            end
+            
+            // FIX: Detect loop PC values exceeding CONTEXT_DEPTH (upper bits silently truncated)
+            if (state == STATE_IDLE && start_i && !soft_reset_i) begin
+                if (loop_start_pc_i[15:PC_WIDTH] != '0)
+                    $warning("[CU] loop_start_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d — upper bits truncated!",
+                             loop_start_pc_i, CONTEXT_DEPTH);
+                if (loop_end_pc_i[15:PC_WIDTH] != '0)
+                    $warning("[CU] loop_end_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d — upper bits truncated!",
+                             loop_end_pc_i, CONTEXT_DEPTH);
             end
         end
     end

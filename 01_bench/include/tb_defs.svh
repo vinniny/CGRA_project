@@ -40,7 +40,7 @@
 
 // Simple assertion - stops on failure
 `define ASSERT(cond, msg) \
-    assert(cond) else $error("[ASSERT] %s at time %0t", msg, $time)
+    assert(cond) else begin $error("[ASSERT] %s at time %0t", msg, $time); assertion_errors++; end
 
 // Assertion with error counter (for non-fatal checks)
 `define CHECK(cond, msg) \
@@ -59,7 +59,7 @@
 
 // Non-zero check
 `define CHECK_NZ(value, msg) \
-    if ((value) == 0) begin \
+    if ((value) === 0) begin \
         $error("[CHECK_NZ FAIL] %s: expected non-zero at time %0t", msg, $time); \
         assertion_errors++; \
     end
@@ -101,6 +101,7 @@ localparam logic [31:0] ADDR_DMA_SIZE   = 32'h10;
 localparam logic [31:0] ADDR_CU_CTRL    = 32'h20;
 localparam logic [31:0] ADDR_CU_STATUS  = 32'h24;
 localparam logic [31:0] ADDR_CU_CYCLES  = 32'h28;
+localparam logic [31:0] ADDR_CU_TIMEOUT = 32'h2C;  // RW: Max cycles (0 = no limit)
 
 // ============================================================================
 // ADDRESS MAP CONSTANTS - IRQ
@@ -143,7 +144,7 @@ localparam logic [31:0] BASE_TILE   = 32'h1000_0000;
 localparam logic [31:0] BASE_CONFIG = 32'h2000_0000;
 
 // ============================================================================
-// PE OPCODE CONSTANTS (19-Op ISA)
+// PE OPCODE CONSTANTS (21-Op ISA)
 // ============================================================================
 localparam logic [5:0] OP_NOP       = 6'd0;
 localparam logic [5:0] OP_ADD       = 6'd1;

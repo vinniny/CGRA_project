@@ -16,7 +16,7 @@
 //   - Synthesis Keeper: OR-reduce of all edge outputs
 //   - Double-Pump Config: 32→64 bit configuration loader
 //   - Mesh Broadcast: PE outputs → all 4 neighbors
-//   - 19-Op ISA: Includes LIF neuron for neuromorphic computing
+//   - 21-Op ISA: Includes LIF neuron, RELU, MAX for neuromorphic/ANN
 //
 // APB REGISTER MAP:
 //   0x00  DMA_CTRL    [0] Start (auto-clear)
@@ -472,7 +472,15 @@ module cgra_top #(
         .ext_rdata(dma_tile_rdata),
         .ext_valid(dma_tile_valid)
     );
-    
+
+    // synopsys translate_off
+    // FIX: Assert DMA tile address is word-aligned (lower 2 bits silently discarded)
+    always @(posedge clk) begin
+        if (rst_n && dma_tile_we && (dma_tile_addr[1:0] != 2'b00))
+            $error("[CGRA_TOP] DMA tile address 0x%08h is not word-aligned!", dma_tile_addr);
+    end
+    // synopsys translate_on
+
     // =========================================================================
     // 5. CGRA Array (4x4 PE Mesh)
     // =========================================================================

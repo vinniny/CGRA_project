@@ -161,6 +161,9 @@ task automatic test_parallel_stress;
             pass_count++;
         else begin
             fail_count++;
+            // FIX: Print diagnostic on failure (was silent, making debugging impossible)
+            $display("  [DIAG] PARA_STRESS iter=%0d PE=%0d op=%0d: expected=0x%h got=0x%h",
+                     i, pe_id, op, expected, actual);
         end
     end
     

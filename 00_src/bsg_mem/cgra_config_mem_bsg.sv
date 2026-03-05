@@ -44,12 +44,14 @@ module cgra_config_mem_bsg #(
     // ------------------------------------------------
     // Instantiate BaseJump STL Memory
     // ------------------------------------------------
-    // read_write_same_addr_p=1: Allows read and write to same address
-    // (write data is forwarded to read port on same cycle)
+    // read_write_same_addr_p=1: Allows simultaneous read/write to same address
+    // NOTE: This only suppresses BSG's collision assertion — it does NOT implement
+    // write-forwarding. On a same-address R/W collision, the read port returns the
+    // OLD (pre-write) value. True write-through requires an external bypass mux.
     bsg_mem_1r1w_sync #(
         .width_p(DATA_WIDTH),
         .els_p(DEPTH),
-        .read_write_same_addr_p(1)  // Enable write-through to prevent X on hazard
+        .read_write_same_addr_p(1)  // Suppress collision assertion (no actual bypass)
     ) mem_inst (
         .clk_i   (clk),
         .reset_i (~rst_n),        // BSG uses active-high reset

@@ -12,10 +12,19 @@
 // ============================================================================
 logic        ar_pending = 1'b0;
 logic [31:0] ar_addr_lock = '0;
+logic [7:0]  ar_len_lock  = '0;   // FIX: Lock ARLEN for stability check
+logic [2:0]  ar_size_lock = '0;   // FIX: Lock ARSIZE for stability check
+logic [1:0]  ar_burst_lock = '0;  // FIX: Lock ARBURST for stability check
 logic        aw_pending = 1'b0;
 logic [31:0] aw_addr_lock = '0;
+logic [7:0]  aw_len_lock  = '0;   // FIX: Lock AWLEN for stability check
+logic [2:0]  aw_size_lock = '0;   // FIX: Lock AWSIZE for stability check
+logic [1:0]  aw_burst_lock = '0;  // FIX: Lock AWBURST for stability check
 logic        w_pending = 1'b0;
 logic [31:0] w_data_lock = '0;
+logic        r_pending = 1'b0;      // FIX: R-channel stability tracking
+logic [31:0] r_data_lock = '0;
+logic        r_last_lock = 1'b0;
 logic        w_last_lock = 1'b0;   // FIX: WLAST stability tracking
 logic [3:0]  w_strb_lock = '0;     // FIX: WSTRB stability tracking
 
@@ -27,6 +36,7 @@ int aw_txn_count = 0;
 int r_txn_count = 0;
 int w_txn_count = 0;
 int b_txn_count = 0;
+int wlast_txn_count = 0;              // FIX: Count completed write bursts (WLAST seen)
 int axi_read_reqs_split_at_4kb = 0;  // Track 4KB boundary splits
 int axi_config_writes = 0;           // Track config space writes
 
@@ -34,7 +44,6 @@ int axi_config_writes = 0;           // Track config space writes
 // 4KB BOUNDARY DETECTION VARIABLES
 // ============================================================================
 logic [31:0] burst_end_addr;
-logic [11:0] start_page, end_page;
 int beat_count;
 
 // ============================================================================
@@ -50,6 +59,9 @@ logic [2:0] config_offset;
 int ar_stall_cycles = 0;
 int aw_stall_cycles = 0;
 int w_stall_cycles = 0;
+logic ar_stall_reported = 1'b0;  // FIX: Prevent repeat-fire of stall error
+logic aw_stall_reported = 1'b0;
+logic w_stall_reported = 1'b0;
 localparam int STALL_THRESHOLD = 1000;
 
 // ============================================================================
@@ -72,21 +84,40 @@ always @(posedge clk) begin
                        ar_addr_lock, axi_araddr, $time);
                 assertion_errors = assertion_errors + 1;
             end
+            // FIX: Check ARLEN/ARSIZE/ARBURST stability (AXI spec A3.2.1)
+            if (axi_arlen !== ar_len_lock) begin
+                $error("[AXI] ARLEN unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_arsize !== ar_size_lock) begin
+                $error("[AXI] ARSIZE unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_arburst !== ar_burst_lock) begin
+                $error("[AXI] ARBURST unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
             ar_stall_cycles = ar_stall_cycles + 1;
-            if (ar_stall_cycles >= STALL_THRESHOLD) begin
+            if (ar_stall_cycles >= STALL_THRESHOLD && !ar_stall_reported) begin
                 $error("[AXI] AR channel stalled for %0d cycles @ %0t", ar_stall_cycles, $time);
                 assertion_errors = assertion_errors + 1;
+                ar_stall_reported = 1'b1;  // FIX: Report only once per stall event
             end
         end
         
         if (axi_arvalid && !axi_arready && !ar_pending) begin
             ar_pending = 1'b1;
             ar_addr_lock = axi_araddr;
+            ar_len_lock  = axi_arlen;    // FIX: Lock burst signals
+            ar_size_lock = axi_arsize;
+            ar_burst_lock = axi_arburst;
             ar_stall_cycles = 0;
+            ar_stall_reported = 1'b0;
         end else if (axi_arvalid && axi_arready) begin
             ar_pending = 1'b0;
             ar_txn_count = ar_txn_count + 1;
             ar_stall_cycles = 0;
+            ar_stall_reported = 1'b0;
             
             // ================================================================
             // 4KB BOUNDARY DETECTION (CRITICAL FEATURE TEST)
@@ -118,24 +149,43 @@ always @(posedge clk) begin
                 $error("[AXI] AWADDR unstable @ %0t", $time);
                 assertion_errors = assertion_errors + 1;
             end
+            // FIX: Check AWLEN/AWSIZE/AWBURST stability (AXI spec A3.2.1)
+            if (axi_awlen !== aw_len_lock) begin
+                $error("[AXI] AWLEN unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_awsize !== aw_size_lock) begin
+                $error("[AXI] AWSIZE unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_awburst !== aw_burst_lock) begin
+                $error("[AXI] AWBURST unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
             aw_stall_cycles = aw_stall_cycles + 1;
-            if (aw_stall_cycles >= STALL_THRESHOLD) begin
+            if (aw_stall_cycles >= STALL_THRESHOLD && !aw_stall_reported) begin
                 $error("[AXI] AW channel stalled for %0d cycles @ %0t", aw_stall_cycles, $time);
                 assertion_errors = assertion_errors + 1;
+                aw_stall_reported = 1'b1;
             end
         end
         
         if (axi_awvalid && !axi_awready && !aw_pending) begin
             aw_pending = 1'b1;
             aw_addr_lock = axi_awaddr;
+            aw_len_lock  = axi_awlen;    // FIX: Lock burst signals
+            aw_size_lock = axi_awsize;
+            aw_burst_lock = axi_awburst;
             aw_stall_cycles = 0;
+            aw_stall_reported = 1'b0;
         end else if (axi_awvalid && axi_awready) begin
             aw_pending = 1'b0;
             aw_txn_count = aw_txn_count + 1;
             aw_stall_cycles = 0;
+            aw_stall_reported = 1'b0;
             
             // ================================================================
-            // CONFIG DOUBLEUMP DETECTION (CRITICAL FEATURE TEST)
+            // CONFIG DOUBLE-PUMP DETECTION (CRITICAL FEATURE TEST)
             // ================================================================
             // Detect writes to config space (0x2000_0000 - 0x2FFF_FFFF)
             if (axi_awaddr[31:28] == 4'h2) begin
@@ -192,9 +242,10 @@ always @(posedge clk) begin
                 assertion_errors = assertion_errors + 1;
             end
             w_stall_cycles = w_stall_cycles + 1;
-            if (w_stall_cycles >= STALL_THRESHOLD) begin
+            if (w_stall_cycles >= STALL_THRESHOLD && !w_stall_reported) begin
                 $error("[AXI] W channel stalled for %0d cycles @ %0t", w_stall_cycles, $time);
                 assertion_errors = assertion_errors + 1;
+                w_stall_reported = 1'b1;
             end
         end
         
@@ -204,16 +255,39 @@ always @(posedge clk) begin
             w_last_lock = axi_wlast;   // FIX: Also lock WLAST for stability check
             w_strb_lock = axi_wstrb;   // FIX: Also lock WSTRB for stability check
             w_stall_cycles = 0;
+            w_stall_reported = 1'b0;
         end else if (axi_wvalid && axi_wready) begin
             w_pending = 1'b0;
-            w_txn_count = w_txn_count + 1;
-            w_stall_cycles = 0;
+            w_txn_count = w_txn_count + 1;            // FIX: Track completed write bursts (WLAST marks end of burst)
+            if (axi_wlast)
+                wlast_txn_count = wlast_txn_count + 1;            w_stall_cycles = 0;
         end
         
         // ================================================================
-        // R Channel: Count read data beats
+        // R Channel: RVALID/RDATA/RLAST stability + beat counting
+        // FIX: Added stability checks (was missing per AXI spec A3.2.1)
         // ================================================================
-        if (axi_rvalid && axi_rready) begin
+        if (r_pending && !axi_rready) begin
+            if (axi_rvalid !== 1'b1) begin
+                $error("[AXI] RVALID dropped before RREADY @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_rdata !== r_data_lock) begin
+                $error("[AXI] RDATA unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+            if (axi_rlast_reg !== r_last_lock) begin
+                $error("[AXI] RLAST unstable during stall @ %0t", $time);
+                assertion_errors = assertion_errors + 1;
+            end
+        end
+
+        if (axi_rvalid && !axi_rready && !r_pending) begin
+            r_pending = 1'b1;
+            r_data_lock = axi_rdata;
+            r_last_lock = axi_rlast_reg;
+        end else if (axi_rvalid && axi_rready) begin
+            r_pending = 1'b0;
             r_txn_count = r_txn_count + 1;
         end
         
@@ -228,9 +302,13 @@ always @(posedge clk) begin
         ar_pending = 1'b0;
         aw_pending = 1'b0;
         w_pending = 1'b0;
+        r_pending = 1'b0;
         ar_stall_cycles = 0;
         aw_stall_cycles = 0;
         w_stall_cycles = 0;
+        ar_stall_reported = 1'b0;
+        aw_stall_reported = 1'b0;
+        w_stall_reported = 1'b0;
     end
 end
 

@@ -15,6 +15,7 @@ module cgra_protocol_monitor (
     // AXI Write Address Channel
     // =========================================================================
     input  logic [31:0] awaddr,
+    input  logic [7:0]  awlen,      // FIX: Added for independent WLAST beat counter
     input  logic        awvalid,
     input  logic        awready,
     
@@ -46,6 +47,7 @@ module cgra_protocol_monitor (
     input  logic [31:0] rdata,
     input  logic        rvalid,
     input  logic        rready,
+    input  logic        rlast,      // FIX: Added for RLAST stability SVA
     
     // =========================================================================
     // APB Slave Interface (for Hybrid I/O verification)
@@ -218,9 +220,84 @@ module cgra_protocol_monitor (
     // =========================================================================
     // AXI4 Write Channel: SVA Property Definitions
     // =========================================================================
-    // Peek into DUT's internal DMA signals for burst verification
+    // Peek into DUT's internal DMA signals for burst verification (legacy)
     wire [7:0] mon_write_beat_counter = tb_top.u_dut.u_dma.write_beat_counter;
     wire [7:0] mon_write_burst_len    = tb_top.u_dut.u_dma.write_burst_len;
+
+    // =========================================================================
+    // FIX: Independent WLAST Beat Counter (does NOT use DUT internals)
+    // =========================================================================
+    // Tracks AW handshakes to capture AWLEN, then independently counts W beats.
+    // This detects DMA beat-counter bugs that XMR-based checks would miss.
+    logic [7:0] ind_awlen_fifo [0:15];   // Small FIFO for outstanding AWLEN values
+    logic [3:0] ind_aw_wptr, ind_aw_rptr;
+    logic [7:0] ind_expected_burst_len;   // AWLEN for current write burst
+    logic [7:0] ind_w_beat_count;         // Independent W-beat counter
+    logic       ind_burst_active;         // Tracking a write burst
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            ind_aw_wptr         <= 4'd0;
+            ind_aw_rptr         <= 4'd0;
+            ind_expected_burst_len <= 8'd0;
+            ind_w_beat_count    <= 8'd0;
+            ind_burst_active    <= 1'b0;
+        end else begin
+            // Capture AWLEN on every AW handshake (from port, not XMR)
+            if (awvalid && awready) begin
+                ind_awlen_fifo[ind_aw_wptr] <= awlen;
+                ind_aw_wptr <= ind_aw_wptr + 4'd1;
+            end
+
+            // Start tracking a new burst when W data arrives and no burst active.
+            // FIX: Use if/else to handle beat 0 during the activation cycle.
+            // The old code used two independent `if` blocks: the activation
+            // block set ind_burst_active<=1 (NBA, next cycle), while the
+            // counting block required ind_burst_active==1 (current cycle).
+            // When wready was high during activation, beat 0 was missed.
+            if (!ind_burst_active && wvalid) begin
+                if (ind_aw_rptr != ind_aw_wptr) begin
+                    // Pop AWLEN from FIFO (use local ref for same-cycle checks)
+                    ind_expected_burst_len <= ind_awlen_fifo[ind_aw_rptr];
+                    ind_aw_rptr <= ind_aw_rptr + 4'd1;
+
+                    if (wready) begin
+                        // Beat 0 handshake happens THIS cycle
+                        if (wlast) begin
+                            // Single-beat burst complete — AWLEN must be 0
+                            if (ind_awlen_fifo[ind_aw_rptr] != 8'd0) begin
+                                $error("[PROTOCOL MONITOR] INDEPENDENT WLAST CHECK: single-beat WLAST but AWLEN(%0d) != 0!",
+                                       ind_awlen_fifo[ind_aw_rptr]);
+                            end
+                            ind_burst_active <= 1'b0;
+                            ind_w_beat_count <= 8'd0;
+                        end else begin
+                            // Multi-beat burst, beat 0 already counted
+                            ind_w_beat_count <= 8'd1;
+                            ind_burst_active <= 1'b1;
+                        end
+                    end else begin
+                        // wvalid but no wready — beat 0 not yet handshaked
+                        ind_w_beat_count <= 8'd0;
+                        ind_burst_active <= 1'b1;
+                    end
+                end
+            end else if (ind_burst_active && wvalid && wready) begin
+                // Count W beats for an already-active burst
+                if (wlast) begin
+                    // Burst complete — check beat count matches AWLEN
+                    // AWLEN = N-1, so final beat should be at count == AWLEN
+                    if (ind_w_beat_count != ind_expected_burst_len) begin
+                        $error("[PROTOCOL MONITOR] INDEPENDENT WLAST CHECK: beat_count(%0d) != expected AWLEN(%0d) on WLAST!",
+                               ind_w_beat_count, ind_expected_burst_len);
+                    end
+                    ind_burst_active <= 1'b0;
+                end else begin
+                    ind_w_beat_count <= ind_w_beat_count + 8'd1;
+                end
+            end
+        end
+    end
     
     // -------------------------------------------------------------------------
     // Property: AWVALID must not drop before AWREADY
@@ -236,7 +313,55 @@ module cgra_protocol_monitor (
     
     cover property (p_sticky_awvalid)
         $display("[PROTOCOL MONITOR] ✓ AWVALID sticky behavior verified");
-    
+
+    // -------------------------------------------------------------------------
+    // Property: ARVALID must not drop before ARREADY
+    // AXI4 spec: Once VALID is asserted, it must remain asserted until READY
+    // FIX: Was missing SVA — only had always_ff check
+    // -------------------------------------------------------------------------
+    property p_sticky_arvalid;
+        @(posedge clk) disable iff (!rst_n)
+            (arvalid && !arready) |=> arvalid;
+    endproperty
+
+    assert property (p_sticky_arvalid)
+        else $error("[PROTOCOL MONITOR] AXI VIOLATION: ARVALID dropped before ARREADY! (SVA)");
+
+    cover property (p_sticky_arvalid)
+        $display("[PROTOCOL MONITOR] ✓ ARVALID sticky behavior verified");
+
+    // -------------------------------------------------------------------------
+    // Property: RVALID must not drop before RREADY
+    // AXI4 spec: Once VALID is asserted, it must remain asserted until READY
+    // FIX: Was missing SVA — only had always_ff check
+    // -------------------------------------------------------------------------
+    property p_sticky_rvalid;
+        @(posedge clk) disable iff (!rst_n)
+            (rvalid && !rready) |=> rvalid;
+    endproperty
+
+    assert property (p_sticky_rvalid)
+        else $error("[PROTOCOL MONITOR] AXI VIOLATION: RVALID dropped before RREADY! (SVA)");
+
+    cover property (p_sticky_rvalid)
+        $display("[PROTOCOL MONITOR] ✓ RVALID sticky behavior verified");
+
+    // -------------------------------------------------------------------------
+    // Property: RLAST must remain stable while RVALID && !RREADY
+    // AXI4 spec: All signals must be stable during stall
+    // FIX: Added — was missing (no rlast port existed previously)
+    // -------------------------------------------------------------------------
+    property p_rlast_stability;
+        @(posedge clk) disable iff (!rst_n)
+            (rvalid && !rready) |=> (rlast == $past(rlast));
+    endproperty
+
+    assert property (p_rlast_stability)
+        else $error("[PROTOCOL MONITOR] AXI VIOLATION: RLAST changed during R-channel stall!");
+
+    cover property (p_rlast_stability)
+        $display("[PROTOCOL MONITOR] ✓ RLAST stability during stall verified");
+
     // -------------------------------------------------------------------------
     // Property: WVALID must not drop before WREADY
     // AXI4 spec: Once VALID is asserted, it must remain asserted until READY
@@ -280,6 +405,22 @@ module cgra_protocol_monitor (
         else $error("[PROTOCOL MONITOR] AXI VIOLATION: WLAST not asserted but beat_counter(%0d) == burst_len(%0d)!",
                     mon_write_beat_counter, mon_write_burst_len);
     
+    // -------------------------------------------------------------------------
+    // Property: BVALID must not drop before BREADY
+    // AXI4 spec: Once VALID is asserted, it must remain asserted until READY
+    // FIX: Was missing — all other 4 channels had sticky checks except B
+    // -------------------------------------------------------------------------
+    property p_sticky_bvalid;
+        @(posedge clk) disable iff (!rst_n)
+            (bvalid && !bready) |=> bvalid;
+    endproperty
+
+    assert property (p_sticky_bvalid)
+        else $error("[PROTOCOL MONITOR] AXI VIOLATION: BVALID dropped before BREADY!");
+
+    cover property (p_sticky_bvalid)
+        $display("[PROTOCOL MONITOR] ✓ BVALID sticky behavior verified");
+
     // -------------------------------------------------------------------------
     // Property: Deadlock Prevention - BREADY must follow WLAST handshake
     // After wvalid & wready & wlast handshake, bready must assert within N cycles

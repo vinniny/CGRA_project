@@ -113,8 +113,8 @@ task automatic test_stall_injection;
         golden = $urandom | 32'hFF00_0000; // High bits set
         ram_write(src, golden);
         
-        // Random stall probability (0-100%)
-        stall_prob = $urandom % 101;
+        // Random stall probability (0-99%) — FIX: cap at 99 to prevent total deadlock
+        stall_prob = $urandom % 100;
         enable_stress(stall_prob);
         
         // Execute transfer with stress

@@ -17,7 +17,7 @@
 module cgra_router #(
     parameter DATA_WIDTH = 32,
     parameter COORD_WIDTH = 4,
-    parameter PAYLOAD_WIDTH = 16,
+    parameter PAYLOAD_WIDTH = 16,  // NOTE: Unused — kept for interface compatibility
     parameter X_COORD = 0,
     parameter Y_COORD = 0
 )(
@@ -159,17 +159,17 @@ module cgra_router #(
     logic [COORD_WIDTH-1:0] dx_w, dy_w;
     logic [COORD_WIDTH-1:0] dx_l, dy_l;
 
-    // Header Extraction
-    assign dx_n = b_data_n[31:28];
-    assign dy_n = b_data_n[27:24];
-    assign dx_e = b_data_e[31:28];
-    assign dy_e = b_data_e[27:24];
-    assign dx_s = b_data_s[31:28];
-    assign dy_s = b_data_s[27:24];
-    assign dx_w = b_data_w[31:28];
-    assign dy_w = b_data_w[27:24];
-    assign dx_l = b_data_l[31:28];
-    assign dy_l = b_data_l[27:24];
+    // Header Extraction — parameterized for DATA_WIDTH and COORD_WIDTH
+    assign dx_n = b_data_n[DATA_WIDTH-1 -: COORD_WIDTH];
+    assign dy_n = b_data_n[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
+    assign dx_e = b_data_e[DATA_WIDTH-1 -: COORD_WIDTH];
+    assign dy_e = b_data_e[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
+    assign dx_s = b_data_s[DATA_WIDTH-1 -: COORD_WIDTH];
+    assign dy_s = b_data_s[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
+    assign dx_w = b_data_w[DATA_WIDTH-1 -: COORD_WIDTH];
+    assign dy_w = b_data_w[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
+    assign dx_l = b_data_l[DATA_WIDTH-1 -: COORD_WIDTH];
+    assign dy_l = b_data_l[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
 
     // Request Vector Generation
     // req_from_X[4:0] -> {Local, West, South, East, North}

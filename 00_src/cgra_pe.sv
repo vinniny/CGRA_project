@@ -1,7 +1,7 @@
 // ==============================================================================
 // CGRA Processing Element (PE) - v2.4
 // ==============================================================================
-// A configurable processing element supporting 19 ALU operations, 16-entry
+// A configurable processing element supporting 21 ALU operations, 16-entry
 // register file, 256×32-bit scratchpad, and 16-context configuration RAM.
 //
 // CHANGELOG (v2.4 - January 2026):
@@ -18,12 +18,12 @@
 //   - 4-direction mesh broadcast (32-bit full precision)
 //   - LIF neuron for neuromorphic computing (spiking)
 //
-// ISA (21 Operations including LPR/ANN extensions):
+// ISA (21 Operations, opcodes 0-20, including LPR/ANN extensions):
 //   Op | Name       | Operation              | Latency
 //   ---|------------|------------------------|--------
 //   0  | NOP        | No operation           | 1 cycle
-//   1  | ADD        | A + B (saturating)     | 1 cycle
-//   2  | SUB        | A - B (saturating)     | 1 cycle
+//   1  | ADD        | A + B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
+//   2  | SUB        | A - B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
 //   3  | MUL        | A × B (32-bit)         | 1 cycle
 //   4  | MAC        | Acc += A × B           | 1 cycle
 //   5  | AND        | A & B                  | 1 cycle
@@ -137,7 +137,7 @@ module cgra_pe #(
     
     logic [63:0] config_ram_data;
     logic [63:0] active_config;
-    logic        config_ram_valid;  // Not used but must be connected
+    logic        config_ram_valid;  // Used in config_active OR gate below
     
     cgra_config_mem_bsg #(
         .DATA_WIDTH(64),
@@ -324,6 +324,7 @@ module cgra_pe #(
     logic [31:0] mac_result_sat;
     logic signed [39:0] mac_sum;
     logic signed [40:0] mac_sum_temp;
+    logic signed [40:0] lif_sum_temp;   // FIX: 41-bit intermediate for LIF overflow saturation
     logic signed [63:0] mult_full;
     
     // Saturation constants
@@ -377,7 +378,22 @@ module cgra_pe #(
         
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
-        lif_next_v = accumulator + op0_ext - LIF_LEAK;
+        
+        // ========================================================================
+        // LIF SATURATION FIX — January 2026
+        // ========================================================================
+        // Problem: lif_next_v = accumulator + op0_ext - LIF_LEAK could overflow
+        //          the 40-bit signed range if accumulator is near saturation.
+        // Solution: Use 41-bit intermediate (lif_sum_temp) to detect overflow,
+        //           then saturate to 40-bit MAX_POS/MIN_NEG, matching MAC pattern.
+        // ========================================================================
+        lif_sum_temp = {accumulator[39], accumulator} + {op0_ext[39], op0_ext} - {{1{LIF_LEAK[39]}}, LIF_LEAK};
+        if (lif_sum_temp > 41'sd549755813887)
+            lif_next_v = 40'sd549755813887;   // MAX_POS_40 = 2^39 - 1
+        else if (lif_sum_temp < -41'sd549755813888)
+            lif_next_v = -40'sd549755813888;  // MIN_NEG_40 = -2^39
+        else
+            lif_next_v = lif_sum_temp[39:0];
         
         // ========================================================================
         // MULTIPLY-ACCUMULATE (MAC) SATURATION FIX - January 2026
@@ -444,11 +460,13 @@ module cgra_pe #(
             // NOTE: alu_result intentionally NOT reset here.
             // run_cgra() stops execution via soft_reset which triggers pe_reset_n → 0.
             // If alu_result were reset, the computed result would be wiped before
-            // the testbench reads it. First NOP cycle sets it to 0 naturally.
+            // the testbench reads it. NOP preserves alu_result (no-op).
         end else if (config_active && !stall && execute_enable) begin  // FIX: Predicate gates ALL ALU side-effects (accumulator, predicate_flag, alu_result)
             unique case (op_code)
                 OP_NOP: begin
-                    alu_result <= '0;
+                    // FIX: NOP preserves alu_result (no-op means no change).
+                    // Previously zeroed alu_result, which destroyed routed data
+                    // mid-pipeline in multi-context execution scenarios.
                 end
                 OP_ADD: begin
                     accumulator <= add_result;

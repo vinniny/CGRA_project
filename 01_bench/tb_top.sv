@@ -180,7 +180,8 @@ module tb_top;
                         mem[r_addr_reg[16:0] + 0]};
     
     // RLAST is purely combinational - asserts on final beat
-    assign axi_rlast_reg = (r_state == R_DATA) && (r_beat_count == r_burst_len);
+    // FIX: Gate on rvalid — RLAST must only be meaningful when RVALID=1 (AXI spec)
+    assign axi_rlast_reg = axi_rvalid_reg && (r_state == R_DATA) && (r_beat_count == r_burst_len);
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -257,10 +258,12 @@ module tb_top;
                 axi_waddr_next <= axi_waddr_next + 32'd4;
             end
             
-            // FIX: Gate WLAST clear with !new_AW to prevent race: simultaneous AW for
-            // next burst + WLAST for current burst would clear received flag, losing
-            // the new burst's base address (last NBA wins in same always block).
-            if (axi_wvalid && axi_wready_reg && axi_wlast && !(axi_awvalid && axi_awready_reg))
+            // FIX: Clear waddr_received on WLAST, but NOT when a new AW handshake
+            // is arriving simultaneously (back-to-back bursts). In that case the AW
+            // handler above already sets axi_waddr_received=1 with the new address;
+            // clearing it here would lose the new burst's address context.
+            if (axi_wvalid && axi_wready_reg && axi_wlast
+                && !(axi_awvalid && axi_awready_reg))
                 axi_waddr_received <= 1'b0;
         end
     end
@@ -331,6 +334,7 @@ module tb_top;
         
         // AXI Write Address Channel
         .awaddr(axi_awaddr),
+        .awlen(axi_awlen),         // FIX: Wire AWLEN for independent WLAST counter
         .awvalid(axi_awvalid),
         .awready(axi_awready),
         
@@ -354,6 +358,7 @@ module tb_top;
         .rdata(axi_rdata),
         .rvalid(axi_rvalid),
         .rready(axi_rready),
+        .rlast(axi_rlast_reg),    // FIX: Connect RLAST for protocol SVA
         
         // APB Signals (for Hybrid I/O verification)
         .psel(psel),
@@ -457,8 +462,22 @@ module tb_top;
         $display("    R  beats      : %0d", r_txn_count);
         $display("    AW handshakes : %0d", aw_txn_count);
         $display("    W  beats      : %0d", w_txn_count);
+        $display("    W  bursts     : %0d (WLAST count)", wlast_txn_count);
         $display("    B  responses  : %0d", b_txn_count);
         $display("    4KB splits    : %0d", axi_read_reqs_split_at_4kb);
+
+        // FIX: AW vs B transaction count consistency check
+        // Completed write bursts (WLAST received) must match B responses.
+        // AW handshakes may exceed WLAST count due to DMA abort abandoning
+        // in-flight bursts — this is expected and reported as informational.
+        if (wlast_txn_count != b_txn_count) begin
+            $error("[EOS] WLAST/B mismatch: %0d completed bursts but %0d B responses", wlast_txn_count, b_txn_count);
+            assertion_errors = assertion_errors + 1;
+        end
+        if (aw_txn_count != wlast_txn_count) begin
+            $display("    NOTE: %0d AW handshakes abandoned by DMA abort (%0d AW - %0d WLAST)",
+                     aw_txn_count - wlast_txn_count, aw_txn_count, wlast_txn_count);
+        end
 
         // Section 3: Coverage Summary
         $display("");
