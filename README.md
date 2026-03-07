@@ -144,9 +144,9 @@ make clean              # Clean build artifacts
                         │                                             │
     ┌─────────┐         │  ┌──────────────────────────────────────┐  │
     │   CPU   │◄────────┼──┤         APB Control Interface        │  │
-    │  (Host) │  APB    │  │  • 20 Registers (11 RW, 9 RO)       │  │
+    │  (Host) │  APB    │  │  • 20 Registers (10 RW, 1 W1C, 9 RO) │  │
     └─────────┘         │  │  • DMA, CU, IRQ, Loop, Result CSRs  │  │
-                        │  │  • 4KB-aligned, 32-bit access        │  │
+                        │  │  • 256B address space, 32-bit access │  │
                         │  └────────────────┬─────────────────────┘  │
                         │                   │                         │
                         │  ┌────────────────┴─────────────────────┐  │
@@ -159,7 +159,7 @@ make clean              # Clean build artifacts
     ┌─────────┐         │  ┌────────────────┴─────────────────────┐  │
     │ External│◄────────┼──┤         Pipelined DMA Engine         │  │
     │   RAM   │  AXI4   │  │  • Read/Write state machines         │  │
-    └─────────┘ (Burst) │  │  • 8-entry async FIFO                │  │
+    └─────────┘ (Burst) │  │  • 8-entry synchronous FIFO          │  │
                         │  │  • AXI4 burst (up to 8 beats/req)    │  │
                         │  │  • 4KB boundary protection           │  │
                         │  └────────────────┬─────────────────────┘  │
@@ -235,7 +235,7 @@ make clean              # Clean build artifacts
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
-| 0x00 | DMA_CTRL | RW | 0x0 | [0] Start (auto-clear), [1] Write mode |
+| 0x00 | DMA_CTRL | RW | 0x0 | [0] Start (auto-clear) |
 | 0x04 | DMA_STATUS | RO | 0x0 | [0] Busy, [1] Done |
 | 0x08 | DMA_SRC | RW | 0x0 | Source address (32-bit) |
 | 0x0C | DMA_DST | RW | 0x0 | Destination address (32-bit) |
@@ -283,11 +283,11 @@ make clean              # Clean build artifacts
 
 ### DMA Address Decode
 
-| Address Prefix | Target | Format |
-|----------------|--------|--------|
+| Address Prefix | Target | Bit Fields |
+|----------------|--------|------------|
 | 0x0XXX_XXXX | External AXI | Direct pass-through |
-| 0x1XXX_XBOO | Tile Memory | B=Bank[1:0], O=Offset[11:0] |
-| 0x2PPP_SSHH | Config RAM | P=PE[3:0], S=Slot[3:0], H=Hi/Lo |
+| 0x1XXX_XXXX | Tile Memory | [13:12]=Bank, [11:0]=Byte offset |
+| 0x2XXX_XXXX | Config RAM | [11:8]=PE, [6:3]=Slot, [2]=Hi/Lo |
 
 ---
 
@@ -332,7 +332,7 @@ Bit Position:
 
 | Field | Bits | Range | Description |
 |-------|------|-------|-------------|
-| opcode | [5:0] | 0-18 | ALU operation code |
+| opcode | [5:0] | 0-20 | ALU operation code |
 | src0_sel | [9:6] | 0-6 | Operand A source |
 | src1_sel | [13:10] | 0-6 | Operand B source |
 | dst_sel | [17:14] | 0-15 | RF write address |
@@ -432,30 +432,42 @@ cgra_top #(
     .pready       (apb_pready),
     .pslverr      (apb_pslverr),
     
-    // AXI4 Master Interface
+    // AXI4 Master Interface (Burst-Capable)
     .m_axi_awaddr (axi_awaddr),
+    .m_axi_awlen  (axi_awlen),      // Burst length
+    .m_axi_awsize (axi_awsize),     // Beat size
+    .m_axi_awburst(axi_awburst),    // Burst type (INCR)
     .m_axi_awvalid(axi_awvalid),
     .m_axi_awready(axi_awready),
     .m_axi_wdata  (axi_wdata),
     .m_axi_wstrb  (axi_wstrb),
+    .m_axi_wlast  (axi_wlast),      // Last beat in burst
     .m_axi_wvalid (axi_wvalid),
     .m_axi_wready (axi_wready),
-    .m_axi_bresp  (axi_bresp),
     .m_axi_bvalid (axi_bvalid),
     .m_axi_bready (axi_bready),
     .m_axi_araddr (axi_araddr),
+    .m_axi_arlen  (axi_arlen),      // Burst length
+    .m_axi_arsize (axi_arsize),     // Beat size
+    .m_axi_arburst(axi_arburst),    // Burst type (INCR)
     .m_axi_arvalid(axi_arvalid),
     .m_axi_arready(axi_arready),
     .m_axi_rdata  (axi_rdata),
-    .m_axi_rresp  (axi_rresp),
+    .m_axi_rlast  (axi_rlast),      // Last beat in burst
     .m_axi_rvalid (axi_rvalid),
     .m_axi_rready (axi_rready),
     
     // Interrupt
     .irq          (cgra_interrupt),
     
-    // Debug
-    .synthesis_keep(synthesis_keep_signal)
+    // Synthesis Keeper & Debug
+    .synthesis_keep(synthesis_keep_signal),
+    .dbg_dma_busy (/* optional ILA probe */),
+    .dbg_dma_read_state (),
+    .dbg_dma_write_state(),
+    .dbg_dma_fifo_full  (),
+    .dbg_dma_fifo_empty (),
+    .dbg_dma_write_words_remaining()
 );
 ```
 
@@ -463,7 +475,7 @@ cgra_top #(
 
 | Signal | Requirement |
 |--------|-------------|
-| clk | 50-200 MHz, 50% duty cycle ±5% |
+| clk | 10-200 MHz, 50% duty cycle ±5% (Fmax 213 MHz) |
 | rst_n | Synchronous, active-low, min 2 cycles |
 
 ---
@@ -477,7 +489,7 @@ cgra_top #(
 #define CGRA_BASE     0x40000000  // Configure for your SoC
 
 // Register offsets
-#define DMA_CTRL      0x00    // [0]=start, [1]=wr_mode
+#define DMA_CTRL      0x00    // [0]=start (auto-clear)
 #define DMA_STATUS    0x04    // [0]=busy, [1]=done
 #define DMA_SRC       0x08
 #define DMA_DST       0x0C
@@ -486,7 +498,7 @@ cgra_top #(
 #define CU_STATUS     0x24    // [0]=busy, [1]=done
 #define CU_CYCLES     0x28
 #define CU_TIMEOUT    0x2C
-#define IRQ_STATUS    0x30    // W1C: [0]=done, [1]=dma_done
+#define IRQ_STATUS    0x30    // W1C: [0]=dma_done, [1]=cu_done
 #define IRQ_MASK      0x34
 #define RESULT_DATA   0x40    // PE[15] output (global_result)
 #define RESULT_STATUS 0x44    // [0]=result_valid
