@@ -1,13 +1,16 @@
 // ==============================================================================
-// CGRA Router - 5-Port XY Routing with Flow Control
+// CGRA Router - 5-Port Unicast/Multicast Routing with Flow Control
 // ==============================================================================
-// Dimension-ordered (XY) router with 5 ports: N, E, S, W, Local.
+// Hybrid router with 5 ports: N, E, S, W, Local.
+//
+// PACKET HEADER (in-band, bit [31] selects mode):
+//   Unicast  (bit 31 = 0): [30:28]=DX, [27:24]=DY  -> XY dimension-ordered
+//   Multicast(bit 31 = 1): [30:26]=mask {L,W,S,E,N} -> fan-out to masked ports
 //
 // FEATURES:
-//   - In-band destination header: [31:28]=DX, [27:24]=DY
-//   - XY routing: X first (E/W), then Y (N/S)
-//   - Single-cycle input buffers per port
-//   - Priority arbitration (Local > W > S > E > N)
+//   - Single-cycle skid buffers per port
+//   - Stateful "served" tracking prevents duplicate multicast delivery
+//   - Fixed-priority arbitration (Local > W > S > E > N)
 //   - Backpressure via ready/valid handshake
 //
 // NOTE: In mesh broadcast mode (cgra_tile), router outputs are overridden
@@ -72,6 +75,16 @@ module cgra_router #(
     // Stall Signals (Computed later)
     logic stall_n, stall_e, stall_s, stall_w, stall_l;
 
+    // Served Registers — tracks which output ports already delivered (multicast)
+    logic [4:0] served_n, served_e, served_s, served_w, served_l;
+
+    // Per-input grant transpose: "which outputs was I granted this cycle?"
+    logic [4:0] igrant_n, igrant_e, igrant_s, igrant_w, igrant_l;
+
+    // Downstream ready vector (same for all inputs): {Local, W, S, E, N}
+    logic [4:0] rdy_vec;
+    assign rdy_vec = {ready_in_local, ready_in_w, ready_in_s, ready_in_e, ready_in_n};
+
     // =========================================================================
     // 1. INPUT BUFFER MANAGEMENT (Skid Buffers)
     // =========================================================================
@@ -81,13 +94,16 @@ module cgra_router #(
     assign ready_out_n = !b_val_n || !stall_n;
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            b_val_n <= 1'b0;
+            b_val_n  <= 1'b0;
             b_data_n <= '0;
+            served_n <= 5'b0;
         end else begin
             if (ready_out_n) begin
-                // Ready to accept: Load new data if valid, or clear valid if not
                 b_val_n <= valid_in_n;
                 if (valid_in_n) b_data_n <= data_in_n;
+                served_n <= 5'b0;
+            end else if (b_val_n) begin
+                served_n <= served_n | (req_n & igrant_n & rdy_vec);
             end
         end
     end
@@ -96,12 +112,16 @@ module cgra_router #(
     assign ready_out_e = !b_val_e || !stall_e;
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            b_val_e <= 1'b0;
+            b_val_e  <= 1'b0;
             b_data_e <= '0;
+            served_e <= 5'b0;
         end else begin
             if (ready_out_e) begin
                 b_val_e <= valid_in_e;
                 if (valid_in_e) b_data_e <= data_in_e;
+                served_e <= 5'b0;
+            end else if (b_val_e) begin
+                served_e <= served_e | (req_e & igrant_e & rdy_vec);
             end
         end
     end
@@ -110,12 +130,16 @@ module cgra_router #(
     assign ready_out_s = !b_val_s || !stall_s;
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            b_val_s <= 1'b0;
+            b_val_s  <= 1'b0;
             b_data_s <= '0;
+            served_s <= 5'b0;
         end else begin
             if (ready_out_s) begin
                 b_val_s <= valid_in_s;
                 if (valid_in_s) b_data_s <= data_in_s;
+                served_s <= 5'b0;
+            end else if (b_val_s) begin
+                served_s <= served_s | (req_s & igrant_s & rdy_vec);
             end
         end
     end
@@ -124,12 +148,16 @@ module cgra_router #(
     assign ready_out_w = !b_val_w || !stall_w;
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            b_val_w <= 1'b0;
+            b_val_w  <= 1'b0;
             b_data_w <= '0;
+            served_w <= 5'b0;
         end else begin
             if (ready_out_w) begin
                 b_val_w <= valid_in_w;
                 if (valid_in_w) b_data_w <= data_in_w;
+                served_w <= 5'b0;
+            end else if (b_val_w) begin
+                served_w <= served_w | (req_w & igrant_w & rdy_vec);
             end
         end
     end
@@ -138,98 +166,116 @@ module cgra_router #(
     assign ready_out_local = !b_val_l || !stall_l;
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            b_val_l <= 1'b0;
+            b_val_l  <= 1'b0;
             b_data_l <= '0;
+            served_l <= 5'b0;
         end else begin
             if (ready_out_local) begin
                 b_val_l <= valid_in_local;
                 if (valid_in_local) b_data_l <= data_in_local;
+                served_l <= 5'b0;
+            end else if (b_val_l) begin
+                served_l <= served_l | (req_l & igrant_l & rdy_vec);
             end
         end
     end
 
     // =========================================================================
-    // 2. ROUTING LOGIC (In-Band Header Extraction)
+    // 2. ROUTING LOGIC (Hybrid Unicast / Multicast)
     // =========================================================================
-    // Format: [31:28 DX][27:24 DY][23:16 RSVD][15:0 PAYLOAD]
-    
-    logic [COORD_WIDTH-1:0] dx_n, dy_n;
-    logic [COORD_WIDTH-1:0] dx_e, dy_e;
-    logic [COORD_WIDTH-1:0] dx_s, dy_s;
-    logic [COORD_WIDTH-1:0] dx_w, dy_w;
-    logic [COORD_WIDTH-1:0] dx_l, dy_l;
+    // Header bit [31] selects mode:
+    //   0 → Unicast  XY:  [30:28]=DX(3b), [27:24]=DY(4b)
+    //   1 → Multicast:    [30:26]=mask {Local, West, South, East, North}
 
-    // Header Extraction — parameterized for DATA_WIDTH and COORD_WIDTH
-    assign dx_n = b_data_n[DATA_WIDTH-1 -: COORD_WIDTH];
-    assign dy_n = b_data_n[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
-    assign dx_e = b_data_e[DATA_WIDTH-1 -: COORD_WIDTH];
-    assign dy_e = b_data_e[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
-    assign dx_s = b_data_s[DATA_WIDTH-1 -: COORD_WIDTH];
-    assign dy_s = b_data_s[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
-    assign dx_w = b_data_w[DATA_WIDTH-1 -: COORD_WIDTH];
-    assign dy_w = b_data_w[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
-    assign dx_l = b_data_l[DATA_WIDTH-1 -: COORD_WIDTH];
-    assign dy_l = b_data_l[DATA_WIDTH-1-COORD_WIDTH -: COORD_WIDTH];
-
-    // Request Vector Generation
-    // req_from_X[4:0] -> {Local, West, South, East, North}
+    // Raw request vectors (before served masking)
+    logic [4:0] raw_req_n, raw_req_e, raw_req_s, raw_req_w, raw_req_l;
+    // Final request vectors (masked by served)
     logic [4:0] req_n, req_e, req_s, req_w, req_l;
 
-    // Routing logic: XY routing - X first, then Y
+    // --- North Input Routing ---
     always_comb begin
-        req_n = 5'b0;
+        raw_req_n = 5'b0;
         if (b_val_n) begin
-            if      (dx_n > X_COORD) req_n[1] = 1; // East
-            else if (dx_n < X_COORD) req_n[3] = 1; // West
-            else if (dy_n > Y_COORD) req_n[2] = 1; // South
-            else if (dy_n < Y_COORD) req_n[0] = 1; // North
-            else                     req_n[4] = 1; // Local (arrived)
+            if (b_data_n[31]) begin                      // Multicast
+                raw_req_n = b_data_n[30:26];
+            end else begin                               // Unicast XY
+                if      (b_data_n[30:28] > X_COORD) raw_req_n[1] = 1; // East
+                else if (b_data_n[30:28] < X_COORD) raw_req_n[3] = 1; // West
+                else if (b_data_n[27:24] > Y_COORD) raw_req_n[2] = 1; // South
+                else if (b_data_n[27:24] < Y_COORD) raw_req_n[0] = 1; // North
+                else                                raw_req_n[4] = 1; // Local
+            end
         end
     end
+    assign req_n = raw_req_n & ~served_n;
 
+    // --- East Input Routing ---
     always_comb begin
-        req_e = 5'b0;
+        raw_req_e = 5'b0;
         if (b_val_e) begin
-            if      (dx_e > X_COORD) req_e[1] = 1;
-            else if (dx_e < X_COORD) req_e[3] = 1;
-            else if (dy_e > Y_COORD) req_e[2] = 1;
-            else if (dy_e < Y_COORD) req_e[0] = 1;
-            else                     req_e[4] = 1;
+            if (b_data_e[31]) begin
+                raw_req_e = b_data_e[30:26];
+            end else begin
+                if      (b_data_e[30:28] > X_COORD) raw_req_e[1] = 1;
+                else if (b_data_e[30:28] < X_COORD) raw_req_e[3] = 1;
+                else if (b_data_e[27:24] > Y_COORD) raw_req_e[2] = 1;
+                else if (b_data_e[27:24] < Y_COORD) raw_req_e[0] = 1;
+                else                                raw_req_e[4] = 1;
+            end
         end
     end
+    assign req_e = raw_req_e & ~served_e;
 
+    // --- South Input Routing ---
     always_comb begin
-        req_s = 5'b0;
+        raw_req_s = 5'b0;
         if (b_val_s) begin
-            if      (dx_s > X_COORD) req_s[1] = 1;
-            else if (dx_s < X_COORD) req_s[3] = 1;
-            else if (dy_s > Y_COORD) req_s[2] = 1;
-            else if (dy_s < Y_COORD) req_s[0] = 1;
-            else                     req_s[4] = 1;
+            if (b_data_s[31]) begin
+                raw_req_s = b_data_s[30:26];
+            end else begin
+                if      (b_data_s[30:28] > X_COORD) raw_req_s[1] = 1;
+                else if (b_data_s[30:28] < X_COORD) raw_req_s[3] = 1;
+                else if (b_data_s[27:24] > Y_COORD) raw_req_s[2] = 1;
+                else if (b_data_s[27:24] < Y_COORD) raw_req_s[0] = 1;
+                else                                raw_req_s[4] = 1;
+            end
         end
     end
+    assign req_s = raw_req_s & ~served_s;
 
+    // --- West Input Routing ---
     always_comb begin
-        req_w = 5'b0;
+        raw_req_w = 5'b0;
         if (b_val_w) begin
-            if      (dx_w > X_COORD) req_w[1] = 1;
-            else if (dx_w < X_COORD) req_w[3] = 1;
-            else if (dy_w > Y_COORD) req_w[2] = 1;
-            else if (dy_w < Y_COORD) req_w[0] = 1;
-            else                     req_w[4] = 1;
+            if (b_data_w[31]) begin
+                raw_req_w = b_data_w[30:26];
+            end else begin
+                if      (b_data_w[30:28] > X_COORD) raw_req_w[1] = 1;
+                else if (b_data_w[30:28] < X_COORD) raw_req_w[3] = 1;
+                else if (b_data_w[27:24] > Y_COORD) raw_req_w[2] = 1;
+                else if (b_data_w[27:24] < Y_COORD) raw_req_w[0] = 1;
+                else                                raw_req_w[4] = 1;
+            end
         end
     end
+    assign req_w = raw_req_w & ~served_w;
 
+    // --- Local Input Routing ---
     always_comb begin
-        req_l = 5'b0;
+        raw_req_l = 5'b0;
         if (b_val_l) begin
-            if      (dx_l > X_COORD) req_l[1] = 1;
-            else if (dx_l < X_COORD) req_l[3] = 1;
-            else if (dy_l > Y_COORD) req_l[2] = 1;
-            else if (dy_l < Y_COORD) req_l[0] = 1;
-            else                     req_l[4] = 1;
+            if (b_data_l[31]) begin
+                raw_req_l = b_data_l[30:26];
+            end else begin
+                if      (b_data_l[30:28] > X_COORD) raw_req_l[1] = 1;
+                else if (b_data_l[30:28] < X_COORD) raw_req_l[3] = 1;
+                else if (b_data_l[27:24] > Y_COORD) raw_req_l[2] = 1;
+                else if (b_data_l[27:24] < Y_COORD) raw_req_l[0] = 1;
+                else                                raw_req_l[4] = 1;
+            end
         end
     end
+    assign req_l = raw_req_l & ~served_l;
 
     // =========================================================================
     // 3. ARBITRATION (Fixed Priority)
@@ -291,6 +337,14 @@ module cgra_router #(
         else if (wants_l[0]) grant_l = 5'b00001;
         else                 grant_l = 5'b00000;
     end
+
+    // Transpose grants: per-input view (which outputs granted to me?)
+    // igrant_X[4:0] = {Local, West, South, East, North} granted to input X
+    assign igrant_n = {grant_l[0], grant_w[0], grant_s[0], grant_e[0], grant_n[0]};
+    assign igrant_e = {grant_l[1], grant_w[1], grant_s[1], grant_e[1], grant_n[1]};
+    assign igrant_s = {grant_l[2], grant_w[2], grant_s[2], grant_e[2], grant_n[2]};
+    assign igrant_w = {grant_l[3], grant_w[3], grant_s[3], grant_e[3], grant_n[3]};
+    assign igrant_l = {grant_l[4], grant_w[4], grant_s[4], grant_e[4], grant_n[4]};
 
     // =========================================================================
     // 4. CROSSBAR (Data Muxing)
