@@ -2945,7 +2945,7 @@ final evaluation.
 
 Verification Test Suites
 
-The verification plan is executed through specialized test suites, totaling 6,010
+The verification plan is executed through specialized test suites, totaling 6,169
 test vectors.
  Suite A-F (Infrastructure): Validates the "plumbing" of the system—register
 read/writes, DMA boundary crossings, and interrupt generation.
@@ -2976,7 +2976,12 @@ Instructor: Assoc.Prof, PhD.Truong Quang Vinh
 
 Verification Results
 The accelerator successfully passed the full regression suite with zero failures.
- Total Tests: 6010
+ Total Tests: 6169 (March 2026)
+ Failures: 0
+ Protocol Violations: 0 (AXI4/APB)
+ Warnings: 83 (all from intentional DMA abort tests - expected)
+ Simulation Cycles: 2,819,189
+ AXI Transactions: 114,664 AR, 116,862 R, 617 AW, 2,740 W, 603 B
  Pass rate: 100%
  Protocol Compliance: Zero AXI4/APB protocol violations detected by
 assertions.
@@ -3061,8 +3066,9 @@ networks.
 3. Seamless Reconfiguration: The double-buffered configuration memory
 enables "hot-swapping" of layers, hiding reconfiguration latency and
 maintaining high PE utilization.
-4. Robust Verification: With 100% pass rate on 6010 test vectors, the IP is robust
-and ready for physical deployment.
+4. Robust Verification: With 100% pass rate on 6169 test vectors (March 2026),
+zero failures, and zero protocol violations, the IP is robust and ready for
+physical deployment.
 7.2.
 
 Development Direction

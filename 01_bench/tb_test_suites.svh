@@ -1,7 +1,7 @@
 `ifndef TB_TEST_SUITES_SVH
 `define TB_TEST_SUITES_SVH
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Suite (166 Vectors, 28 Suites)
+// tb_test_suites.svh - Master Verification Suite (6169 Tests Passed, 38 Suites)
 // ==============================================================================
 // Complete Pre-Silicon Verification:
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
@@ -9,6 +9,8 @@
 //   Suites J-P  (32): Computation (ISA, Spatial, Math, Comparators)
 //   Suite Q1    ( 1): Random ALU Stress (20 vectors, all 21 opcodes)
 //   Suite Q2    ( 1): Barrel Shifter (64 vectors: SHL/SHR 0-31)
+//   Suite Q3    ( 1): MAC Accumulator Stress (sequence testing)
+//   Suite Q4    ( 1): SPM Random R/W Stress
 //   Suites R-S  ( 2): Robustness (Boundary, Reset)
 //   Suite T     ( 8): ISA Completion (all remaining opcodes)
 //   Suite U     ( 3): Diagnostics (hardware characterization)
@@ -18,9 +20,19 @@
 //   Suite Y     ( 7): IRQ Verification
 //   Suite Z     ( 6): Burst Mode Regression (H06/X01/W01 fixes)
 //   Suite AA    ( 3): Metastability & Robustness
+//   Suite AB    ( 3): Advanced Stress Tests (Real-World Accelerator Patterns)
+//   Suite AC    ( 3): Precision ISA Tests (Comprehensive Value Checking)
+//
+// CRV Meta-Suites (in include/):
+//   System Integrity  : Merges A-C, R (400+ randomized vectors)
+//   Fabric Stress     : Merges L, O (300+ randomized vectors)
+//   Robustness        : Merges S, W, AA (300+ randomized vectors)
+//   ISA Regression AD : 500 vectors/opcode (6000+ vectors)
+//   LPR Features      : RELU, MAX, Loop CSRs, East-edge (20+ vectors)
+//   DMA Writeback AE  : AXI Write, Round-trip, Burst (8 tests)
 //
 // ISA COVERAGE: 21/21 operations verified (incl. RELU, MAX from LPR suite)
-// VERIFICATION STATUS: 166/166 PASSED - SILICON READY
+// VERIFICATION STATUS: 6169 TESTS PASSED, 0 FAILED - SILICON READY
 // ==============================================================================
 // NOTE: Address map constants are now in include/tb_defs.svh
 // NOTE: Random functions are now in include/tb_scenario_gen.svh

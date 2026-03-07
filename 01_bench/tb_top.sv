@@ -369,7 +369,7 @@ module tb_top;
     );
 
     // =========================================================================
-    // 8. TEST SUITES (All 28 Suites, 166 Vectors)
+    // 8. TEST SUITES (38 Suites, CRV Architecture)
     // =========================================================================
     // Layer 5d: ISA Regression
     `include "include/tb_isa_regression.svh"

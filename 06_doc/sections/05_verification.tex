@@ -26,19 +26,24 @@ The testbench follows a closed-loop execution flow:
 \end{enumerate}
 
 \subsection{Regression Test Suites}
-The verification plan is executed through specialized suites, totaling 6,010 test vectors:
+The verification plan is executed through 38 specialized suites organized into 6 CRV meta-suites:
 \begin{itemize}
-    \item \textbf{Infrastructure Suites (A-F):} Validates register read/writes, internal bus connectivity, and DMA boundary crossings (4KB page protection).
-    \item \textbf{ISA Regression (Suite AD):} Extensive randomization of every opcode in the ISA. It tests boundary cases such as zero multipliers, maximum positive saturation, and negative underflows.
+    \item \textbf{System Integrity:} Merges Suites A-C and R. Validates APB register access, DMA datapath, protocol compliance, and streaming with 400+ randomized vectors.
+    \item \textbf{Fabric Stress:} Merges Suites L and O. Streams random data through the PE mesh interconnect, verifying pipeline integrity, parallel compute, and routing sweep with 300+ vectors.
+    \item \textbf{Robustness:} Merges Suites S, W, and AA. Random fault injection, reset recovery, stall injection, and IRQ stress testing with 300+ vectors.
+    \item \textbf{ISA Regression (Suite AD):} Extensive randomization of all 21 opcodes with 500 random vectors per opcode, covering boundary cases such as zero multipliers, saturation, and negative underflows.
+    \item \textbf{LPR Features:} Validates RELU (opcode 19), MAX (opcode 20), hardware loop CSR programming, and east-edge result collection for the License Plate Recognition demo.
+    \item \textbf{DMA Writeback (Suite AE):} Validates AXI write channel with round-trip data integrity, burst protocol compliance, 4KB boundary crossing, and concurrent read/write operations.
 \end{itemize}
 
 \subsection{Hardware-Software Co-Verification}
 A critical bridge to physical deployment is the hardware-software co-verification flow. This involves executing cache-coherent C-based drivers on the ARM Cortex-A53 APU within the Zynq ecosystem to validate the full software stack against the FPGA fabric. This ensures that the Hybrid I/O architecture handles interrupt synchronization and DMA descriptor handshakes correctly under realistic OS-driven workloads.
 
 \subsection{Results and Coverage Closure}
-The accelerator achieved a 100\% pass rate over the full regression suite. Advanced verification results show:
+The accelerator achieved a 100\% pass rate over the full regression suite (38 suites). Advanced verification results show:
 \begin{itemize}
-    \item \textbf{No Protocol Violations:} Zero SVA failures detected across 10 million cycles of stress testing.
-    \item \textbf{Functional Coverage:} 100\% closure on ISA opcode combinations and NoC port-to-port routing patterns.
+    \item \textbf{No Protocol Violations:} Zero SVA failures detected across all stress testing cycles, including AXI write-back verification.
+    \item \textbf{ISA Coverage:} 21/21 operations verified including RELU and MAX extensions for ANN/LPR.
+    \item \textbf{Functional Coverage:} 100\% closure on ISA opcode combinations, NoC port-to-port routing patterns, and DMA bi-directional data paths.
 \end{itemize}
-The robust verification environment confirms the IP is ready for physical deployment and large-scale SNN benchmarks.
+The robust verification environment confirms the IP is ready for physical deployment, PYNQ-Z2 integration, and the License Plate Recognition demo.

@@ -38,7 +38,7 @@
 //   0x60  RESULT_ROW2 East-edge result row 2 (RO)  [NEW - LPR]
 //   0x64  RESULT_ROW3 East-edge result row 3 (RO)  [NEW - LPR]
 //
-// VERIFICATION: 173/173 tests pass (25 suites, Silicon Ready)
+// VERIFICATION: All 38 suites pass (21-op ISA, Silicon Ready)
 // ==============================================================================
 
 module cgra_top #(

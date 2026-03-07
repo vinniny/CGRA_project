@@ -4,10 +4,11 @@
 
 **Coarse-Grained Reconfigurable Array IP Core**
 
-*Version 2.5.0 | January 2026*
+*Version 2.6.0 | March 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-6010%2F6010-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-All%20Passing-brightgreen)]()
+[![ISA](https://img.shields.io/badge/ISA-21%20Operations-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -16,16 +17,20 @@
 
 ## Product Overview
 
-High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP designed specifically for **Sparse Spiking Neural Network (SNN) Inference**. Features a 4×4 mesh of processing elements with integrated DMA, APB control interface, and specialized hardware support for **Leaky Integrate-and-Fire (LIF)** neuron dynamics.
+High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP designed for **Sparse Spiking Neural Network (SNN) Inference** and **License Plate Recognition (LPR)**. Features a 4×4 mesh of processing elements with integrated DMA, APB control interface, hardware support for **Leaky Integrate-and-Fire (LIF)** neuron dynamics, and **ANN extensions** (RELU, MAX) for convolutional inference.
 
 ### Key Innovations
 - **Spatially Programmable Mesh**: 4×4 PE array with multicast routing for efficient sparse matrix computation.
 - **Hardware LIF Neurons**: Dedicated state-update logic within each PE for biologically plausible spiking dynamics.
+- **ANN Activation Extensions**: Hardware RELU and MAX operations for convolutional neural network layers.
 - **Double-Buffered Configuration**: Latency-hiding context memory allowing "hot-swap" reconfiguration between network layers.
 - **Row-Banked Memory**: 4-bank interleaved SRAM system to maximize parallel data access.
+- **Bi-Directional DMA**: AXI4 burst master with read and write engines for zero-copy data movement.
+- **Hardware Loop Controller**: Programmable loop start/end/count CSRs for autonomous iteration.
 
 ### Target Applications
 - **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
+- **License Plate Recognition**: Convolutional inference with tiled MatMul offload (PYNQ-Z2 demo)
 - **Sparse Linear Algebra**: Compressed Sparse Column (CSC) matrix operations
 - **Signal Processing**: FIR/IIR filters, FFT acceleration
 - **Edge AI**: Ultra-low latency inference on FPGA
@@ -53,7 +58,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | **Data Width** | 32-bit | Full precision throughout |
 | **Config Width** | 64-bit | Per-context instruction |
 | **Context Depth** | 16 slots/PE | Multi-context switching |
-| **Instruction Set** | 19 operations | All verified |
+| **Instruction Set** | 21 operations | All verified (incl. RELU, MAX) |
 | **Accumulator** | 40-bit signed | Saturating arithmetic |
 
 ### Memory Resources
@@ -101,13 +106,14 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 ## Quick Start
 
 ```bash
-# Run 6010 Constrained Random Verification tests
+# Run full verification (Cadence Xcelium)
 make sim
 
-# Expected output: PASSED: 6010 | FAILED: 0
+# Compile + build + run (split flow)
+make compile && make build && make run
 
-# Run with Cadence Xcelium (commercial)
-make sim TOOL=xcelium
+# Run complete lab test suite (sanity + advanced + benchmark + stress)
+make lab_test
 
 # Interactive GUI mode
 make gui
@@ -192,7 +198,7 @@ make clean
     │                       ▼                 ▼                      │
     │  ┌─────────────────────────────────────────────────────────┐   │
     │  │                   ALU / MAC Unit                         │   │
-    │  │  • 19 Operations (arithmetic, logic, shift, compare)    │   │
+    │  │  • 21 Operations (arithmetic, logic, shift, compare, ANN) │   │
     │  │  • 40-bit saturating accumulator                        │   │
     │  │  • 5-bit barrel shifter (0-31 positions)                │   │
     │  │  • Arithmetic right shift (sign-preserving)             │   │
@@ -220,7 +226,7 @@ make clean
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
-| 0x00 | DMA_CTRL | RW | 0x0 | [0] Start (auto-clear) |
+| 0x00 | DMA_CTRL | RW | 0x0 | [0] Start (auto-clear), [1] Write mode |
 | 0x04 | DMA_STATUS | RO | 0x0 | [0] Busy, [1] Done |
 | 0x08 | DMA_SRC | RW | 0x0 | Source address (32-bit) |
 | 0x0C | DMA_DST | RW | 0x0 | Destination address (32-bit) |
@@ -229,8 +235,17 @@ make clean
 | 0x24 | CU_STATUS | RO | 0x0 | [0] Busy, [1] Done |
 | 0x28 | CU_CYCLES | RO | 0x0 | Execution cycle counter |
 | 0x2C | CU_TIMEOUT | RW | 0x0 | Max cycles (0 = unlimited) |
-| 0x30 | IRQ_STATUS | RO | 0x0 | [0] DMA Done, [1] CU Done |
+| 0x30 | IRQ_STATUS | W1C | 0x0 | [0] DMA Done, [1] CU Done |
 | 0x34 | IRQ_MASK | RW | 0x0 | IRQ enable mask |
+| 0x40 | RESULT_DATA | RO | 0x0 | PE[15] output (global_result) |
+| 0x44 | RESULT_STATUS | RO | 0x0 | [0] result_valid |
+| 0x48 | LOOP_START | RW | 0x0 | Hardware loop start PC [15:0] |
+| 0x4C | LOOP_END | RW | 0x0 | Hardware loop end PC [15:0] |
+| 0x50 | LOOP_COUNT | RW | 0x0 | Hardware loop iteration count [15:0] |
+| 0x58 | RESULT_ROW0 | RO | 0x0 | East-edge result row 0 (PE[0,3]) |
+| 0x5C | RESULT_ROW1 | RO | 0x0 | East-edge result row 1 (PE[1,3]) |
+| 0x60 | RESULT_ROW2 | RO | 0x0 | East-edge result row 2 (PE[2,3]) |
+| 0x64 | RESULT_ROW3 | RO | 0x0 | East-edge result row 3 (PE[3,3]) |
 
 ### DMA Address Decode
 
@@ -244,7 +259,7 @@ make clean
 
 ## Instruction Set Architecture
 
-### Opcode Summary (19 Operations)
+### Opcode Summary (21 Operations)
 
 | Op | Mnemonic | Operation | Flags | Latency |
 |----|----------|-----------|-------|---------|
@@ -267,6 +282,8 @@ make clean
 | 16 | PASS0 | Output = A | - | 1 |
 | 17 | PASS1 | Output = B | - | 1 |
 | 18 | LIF | Spiking neuron | SPIKE | 1 |
+| 19 | RELU | max(0, A) | - | 1 |
+| 20 | MAX | max(A, B) signed | - | 1 |
 
 ### Configuration Frame Format (64-bit)
 
@@ -299,29 +316,56 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 6010 |
-| Passed | 6010 |
-| Failed | 0 |
-| Coverage | 100% functional |
+| Total Tests Executed | **6169 PASS** |
+| Test Failures | **0** |
+| Protocol Violations | **0** |
+| Verification Architecture | Constrained Random Verification (CRV) |
+| Test Suites | 38 suites (A-AC + AD + AE + LPR + 3 meta-suites) |
+| ISA Coverage | 21/21 operations verified |
+| Protocol Compliance | AXI4 + APB assertion-based monitors |
 | Status | **SILICON READY** ✅ |
 
-### Test Suites (Constrained Random Verification)
+### Test Execution Summary
 
-| Suite | Description | Tests |
-|-------|-------------|-------|
-| Suite A-F (Infrastructure) | APB, DMA, Protocol Stress, Streaming Wrap | ~200 |
-| Suite AD (ISA Regression) | Full ALU coverage with 500 random vectors/opcode | 2000 |
-| Fabric Stress | Pipeline, Parallel Compute, Routing Sweep | ~150 |
-| Robustness | Reset Injection, Stall Injection, IRQ Stress | ~150 |
-| **TOTAL** | **ALL SUITES** | **6010** |
+**Latest Simulation Run (March 2026):**
+- **6169 tests PASSED**
+- **0 tests FAILED**
+- **0 protocol errors** (AXI4/APB)
+- **83 warnings** (all from intentional DMA abort tests - expected behavior)
+- **2819189 simulation cycles**
+- **Verdict: PASS** ✅
+
+### CRV Meta-Suites (Restructured Test Architecture)
+
+| Meta-Suite | Merges | Focus | Vectors | Status |
+|------------|--------|-------|---------|--------|
+| System Integrity | A, B, C, R | APB, DMA, Protocol, Streaming | 400+ randomized | ✅ PASS |
+| Fabric Stress | L, O | Pipeline, Parallel, Routing | 300+ randomized | ✅ PASS |
+| Robustness | S, W, AA | Reset, Stall, IRQ injection | 300+ randomized | ✅ PASS |
+| ISA Regression (AD) | M, N, Q, T | 500 random vectors/opcode | 6000+ | ✅ PASS |
+| LPR Features | — | RELU, MAX, Loop CSRs, East-edge | 20+ | ✅ PASS |
+| DMA Writeback (AE) | — | AXI Write, Round-trip, Burst | 8 tests | ✅ PASS |
+
+### Legacy Test Suites (A-AC)
+
+| Suite | Description | Vectors |
+|-------|-------------|---------|
+| A-F | Infrastructure (APB, DMA, Protocol, Stress, System) | ~80 |
+| G-I | Advanced (CRV, Negative, Compute Core) | ~16 |
+| J-P | Computation (ISA, Spatial, Math, Comparators) | ~32 |
+| Q1-Q4 | Random Stress (ALU, Shifter, MAC, SPM) | ~4 |
+| R-S | Robustness (Boundary, Reset) | ~2 |
+| T-V | ISA Completion, Diagnostics, Neuromorphic | ~14 |
+| W-Z | DMA Hang, Advanced Diag, IRQ, Burst Regression | ~22 |
+| AA-AC | Metastability, Advanced Stress, Precision Math | ~9 |
 
 ### Supported Simulators
 
-| Simulator | Version | Status | Runtime |
-|-----------|---------|--------|---------|
-| Verilator | 5.x+ | ✅ Pass | ~40 min |
-| Cadence Xcelium | 24.09+ | ✅ Pass | ~15 min |
-| Synopsys VCS | 2023+ | Untested | - |
+| Simulator | Version | Status | Notes |
+|-----------|---------|--------|-------|
+| Cadence Xcelium | 24.09+ | ✅ Pass | Primary tool |
+| Verilator | 5.x+ | ✅ Pass | CI/local |
+| Synopsys VCS | 2023+ | Untested | — |
 
 ---
 
@@ -393,23 +437,32 @@ cgra_top #(
 ## C Driver API
 
 ```c
-// CGRA Driver API - Version 2.0
+// CGRA Driver API - Version 2.6 (UIO+CMA for PYNQ-Z2)
 #include <stdint.h>
 
 #define CGRA_BASE     0x40000000  // Configure for your SoC
 
 // Register offsets
-#define DMA_CTRL      0x00
-#define DMA_STATUS    0x04
+#define DMA_CTRL      0x00    // [0]=start, [1]=wr_mode
+#define DMA_STATUS    0x04    // [0]=busy, [1]=done
 #define DMA_SRC       0x08
 #define DMA_DST       0x0C
 #define DMA_SIZE      0x10
-#define CU_CTRL       0x20
-#define CU_STATUS     0x24
+#define CU_CTRL       0x20    // [0]=start, [1]=soft_reset
+#define CU_STATUS     0x24    // [0]=busy, [1]=done
 #define CU_CYCLES     0x28
 #define CU_TIMEOUT    0x2C
-#define IRQ_STATUS    0x30
+#define IRQ_STATUS    0x30    // W1C: [0]=done, [1]=dma_done
 #define IRQ_MASK      0x34
+#define RESULT_DATA   0x40    // PE[15] output (global_result)
+#define RESULT_STATUS 0x44    // [0]=result_valid
+#define LOOP_START    0x48    // HW loop start PC
+#define LOOP_END      0x4C    // HW loop end PC
+#define LOOP_COUNT    0x50    // HW loop iteration count
+#define RESULT_ROW0   0x58    // East-edge row 0
+#define RESULT_ROW1   0x5C    // East-edge row 1
+#define RESULT_ROW2   0x60    // East-edge row 2
+#define RESULT_ROW3   0x64    // East-edge row 3
 
 // Register access macro
 #define REG(off) (*(volatile uint32_t*)(CGRA_BASE + (off)))
@@ -444,12 +497,20 @@ void cgra_config_pe(uint32_t pe, uint32_t slot, uint64_t config) {
     // ... write low word via DMA
 }
 
-// Execute with timeout
+// Execute with timeout and hardware loop
 void cgra_run(uint32_t max_cycles) {
     REG(CU_TIMEOUT) = max_cycles;
     REG(CU_CTRL) = 0x2;   // Soft reset
     REG(CU_CTRL) = 0x1;   // Start
     cgra_exec_wait();
+}
+
+// Read east-edge results (4 rows for 4×4 matrix output)
+void cgra_read_results(uint32_t results[4]) {
+    results[0] = REG(RESULT_ROW0);
+    results[1] = REG(RESULT_ROW1);
+    results[2] = REG(RESULT_ROW2);
+    results[3] = REG(RESULT_ROW3);
 }
 
 // Read cycle count
@@ -464,16 +525,63 @@ static inline uint32_t cgra_get_cycles(void) {
 
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
-| cgra_top | cgra_top.sv | ~610 | Top-level integration |
-| cgra_apb_csr | cgra_apb_csr.sv | ~225 | APB register interface |
-| cgra_dma_engine | cgra_dma_engine.sv | ~650 | AXI DMA controller |
-| cgra_control_unit | cgra_control_unit.sv | ~200 | Execution FSM |
-| cgra_tile_memory | cgra_tile_memory.sv | ~150 | 4-bank SRAM |
-| cgra_array_4x4 | cgra_array_4x4.sv | ~1200 | PE mesh instantiation |
-| cgra_tile | cgra_tile.sv | ~220 | PE + Router wrapper |
-| cgra_pe | cgra_pe.sv | ~600 | Processing Element |
-| cgra_router | cgra_router.sv | ~400 | 5-port XY router |
-| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~80 | BSG SRAM wrapper |
+| cgra_top | cgra_top.sv | ~764 | Top-level integration with LPR result registers |
+| cgra_apb_csr | cgra_apb_csr.sv | ~268 | APB register interface (20 registers) |
+| cgra_dma_engine | cgra_dma_engine.sv | ~780 | Bi-directional AXI DMA controller |
+| cgra_control_unit | cgra_control_unit.sv | ~293 | Execution FSM with hardware loop |
+| cgra_tile_memory | cgra_tile_memory.sv | ~280 | 4-bank SRAM with boundary checks |
+| cgra_array_4x4 | cgra_array_4x4.sv | ~1175 | PE mesh instantiation |
+| cgra_tile | cgra_tile.sv | ~224 | PE + Router wrapper |
+| cgra_pe | cgra_pe.sv | ~631 | Processing Element (21-op ISA) |
+| cgra_router | cgra_router.sv | ~417 | 5-port mesh router |
+| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~81 | BSG SRAM wrapper |
+| axi_ram | axi_ram.sv | ~373 | AXI RAM model (simulation) |
+| **Total RTL** | **17 files** | **~5825** | — |
+
+---
+
+## Software Stack (07_sw/)
+
+### Components
+
+| Component | Files | Lines | Description |
+|-----------|-------|-------|-------------|
+| **CGRA Driver** | driver/cgra_driver.{c,h} | ~519 | UIO+CMA Linux driver for PYNQ-Z2 |
+| **Tiler Library** | lib/cgra_tiler.{c,h} | ~340 | Im2Col + CSC conversion for convolution |
+| **LPR Demo** | app/lpr_demo.c | ~426 | License Plate Recognition demo application |
+| **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
+
+### Driver Features (cgra_driver.h)
+- UIO-based register access (userspace I/O)
+- CMA buffer allocation for DMA transfers
+- Full register map API (DMA, CU, IRQ, Loop, Results)
+- Hardware loop configuration (start/end/count)
+- East-edge result readback (4 rows)
+
+### Tiler Library (cgra_tiler.h)
+- `im2col_nhwc()` — Standard Im2Col for convolution layers
+- `im2col_4x4_tile()` — CGRA-aware tiling (4-row chunks for west-edge input)
+- `dense_to_csc()` — Dense matrix → Compressed Sparse Column conversion
+- `csc_spmv_sw()` — Software SpMV reference (validation/fallback)
+
+### LPR Demo Pipeline (lpr_demo.c)
+1. Load pre-extracted character images (28×28 grayscale, int32)
+2. Dense-to-CSC weight conversion
+3. Im2Col tiling for conv layer input
+4. DMA input tiles into CGRA tile memory
+5. Load MatMul config, execute on CGRA (timed)
+6. Read back east-edge results via APB
+7. Software-only MatMul for comparison (timed)
+8. Display latency comparison (HW vs SW)
+
+### Building
+
+```bash
+cd 07_sw
+make all        # Build driver, tiler, LPR demo, and tests
+make test       # Run tiler tests
+make clean      # Clean build artifacts
+```
 
 ---
 
@@ -514,9 +622,17 @@ static inline uint32_t cgra_get_cycles(void) {
 | Predicated Execution | ✅ Implemented | `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ Implemented | 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ Implemented | PE outputs to all 4 neighbors |
-| Self-Checking TB | ✅ Implemented | 6010 CRV tests with golden models |
+| Self-Checking TB | ✅ Implemented | CRV with golden models |
 | BSG Memory Macros | ✅ Implemented | ASIC-ready SRAM wrappers |
 | Double-Buffer Config | ✅ Implemented | Ping-pong config memory |
+| RELU / MAX Operations | ✅ Implemented | ANN/LPR extensions (opcodes 19-20) |
+| Hardware Loop CSRs | ✅ Implemented | Programmable start/end/count |
+| East-Edge Result Capture | ✅ Implemented | 4-row APB-readable registers |
+| Bi-Directional DMA | ✅ Implemented | AXI4 read + write engines |
+| Linux Driver (UIO+CMA) | ✅ Implemented | PYNQ-Z2 ready |
+| Im2Col Tiler Library | ✅ Implemented | CSC + tile-aware conversion |
+| LPR Demo Application | ✅ Implemented | MatMul offload with HW/SW comparison |
+| Protocol Monitor | ✅ Implemented | AXI4 assertion-based verification |
 
 ### Future Enhancements
 

@@ -1,6 +1,6 @@
 \subsection{Instruction Set Architecture (ISA)}
 
-The CGRA operates on a 64-bit Very Long Instruction Word (VLIW) architecture. Each Processing Element (PE) executes one instruction per clock cycle, defined by a 64-bit configuration frame loaded into its local context memory. The ISA supports 19 distinct operations ranging from standard arithmetic to specialized neuromorphic functions.
+The CGRA operates on a 64-bit Very Long Instruction Word (VLIW) architecture. Each Processing Element (PE) executes one instruction per clock cycle, defined by a 64-bit configuration frame loaded into its local context memory. The ISA supports 21 distinct operations ranging from standard arithmetic to specialized neuromorphic and ANN activation functions.
 
 \subsection{Configuration Frame Format}
 The 64-bit configuration word controls the PE's datapath, including operand selection, ALU operation, destination routing, and immediate value generation. The bit mapping is detailed in Table \ref{tab:config_frame}.
@@ -26,7 +26,7 @@ extended & [63:40] & 24 & Reserved for future extensions \\ \hline
 \end{table}
 
 \subsection{Opcode Summary}
-The ALU supports 19 operations categorized into arithmetic, logic, flow control, and neuromorphic updates. All operations execute in a single cycle.
+The ALU supports 21 operations categorized into arithmetic, logic, flow control, neuromorphic, and ANN activation. All operations execute in a single cycle.
 
 \begin{table}[ht!]
 \centering
@@ -47,6 +47,7 @@ The ALU supports 19 operations categorized into arithmetic, logic, flow control,
 6 & OR & A | B (Bitwise OR) & 16 & PASS0 & Output = A \\
 7 & XOR & A $\oplus$ B (Bitwise XOR) & 17 & PASS1 & Output = B \\
 8 & SHL & A $\ll$ B[4:0] (LSL) & 18 & LIF & Spike = LIF(v, i) \\
-9 & SHR & A $\gg$ B[4:0] (ASR) & & & \\ \hline
+9 & SHR & A $\gg$ B[4:0] (ASR) & 19 & RELU & max(0, A) \\
+ &  &  & 20 & MAX & max(A, B) signed \\ \hline
 \end{tabular}
 \end{table}
