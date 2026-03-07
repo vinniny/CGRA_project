@@ -85,6 +85,10 @@ module cgra_router #(
     logic [4:0] rdy_vec;
     assign rdy_vec = {ready_in_local, ready_in_w, ready_in_s, ready_in_e, ready_in_n};
 
+    // Request vectors (declared here, computed in routing section)
+    logic [4:0] raw_req_n, raw_req_e, raw_req_s, raw_req_w, raw_req_l;
+    logic [4:0] req_n, req_e, req_s, req_w, req_l;
+
     // =========================================================================
     // 1. INPUT BUFFER MANAGEMENT (Skid Buffers)
     // =========================================================================
@@ -187,23 +191,19 @@ module cgra_router #(
     //   0 → Unicast  XY:  [30:28]=DX(3b), [27:24]=DY(4b)
     //   1 → Multicast:    [30:26]=mask {Local, West, South, East, North}
 
-    // Raw request vectors (before served masking)
-    logic [4:0] raw_req_n, raw_req_e, raw_req_s, raw_req_w, raw_req_l;
-    // Final request vectors (masked by served)
-    logic [4:0] req_n, req_e, req_s, req_w, req_l;
-
     // --- North Input Routing ---
     always_comb begin
         raw_req_n = 5'b0;
         if (b_val_n) begin
-            if (b_data_n[31]) begin                      // Multicast
+            if (b_data_n[31]) begin                                        // Multicast
                 raw_req_n = b_data_n[30:26];
-            end else begin                               // Unicast XY
-                if      (b_data_n[30:28] > X_COORD) raw_req_n[1] = 1; // East
-                else if (b_data_n[30:28] < X_COORD) raw_req_n[3] = 1; // West
-                else if (b_data_n[27:24] > Y_COORD) raw_req_n[2] = 1; // South
-                else if (b_data_n[27:24] < Y_COORD) raw_req_n[0] = 1; // North
-                else                                raw_req_n[4] = 1; // Local
+            end else begin                                                 // Unicast XY
+                // FIX: Zero-extend 3-bit DX to COORD_WIDTH to avoid synthesis width warnings
+                if      (COORD_WIDTH'({1'b0, b_data_n[30:28]}) > X_COORD[COORD_WIDTH-1:0]) raw_req_n[1] = 1; // East
+                else if (COORD_WIDTH'({1'b0, b_data_n[30:28]}) < X_COORD[COORD_WIDTH-1:0]) raw_req_n[3] = 1; // West
+                else if (b_data_n[27:24] > Y_COORD[COORD_WIDTH-1:0])                       raw_req_n[2] = 1; // South
+                else if (b_data_n[27:24] < Y_COORD[COORD_WIDTH-1:0])                       raw_req_n[0] = 1; // North
+                else                                                                       raw_req_n[4] = 1; // Local
             end
         end
     end
@@ -216,11 +216,11 @@ module cgra_router #(
             if (b_data_e[31]) begin
                 raw_req_e = b_data_e[30:26];
             end else begin
-                if      (b_data_e[30:28] > X_COORD) raw_req_e[1] = 1;
-                else if (b_data_e[30:28] < X_COORD) raw_req_e[3] = 1;
-                else if (b_data_e[27:24] > Y_COORD) raw_req_e[2] = 1;
-                else if (b_data_e[27:24] < Y_COORD) raw_req_e[0] = 1;
-                else                                raw_req_e[4] = 1;
+                if      (COORD_WIDTH'({1'b0, b_data_e[30:28]}) > X_COORD[COORD_WIDTH-1:0]) raw_req_e[1] = 1;
+                else if (COORD_WIDTH'({1'b0, b_data_e[30:28]}) < X_COORD[COORD_WIDTH-1:0]) raw_req_e[3] = 1;
+                else if (b_data_e[27:24] > Y_COORD[COORD_WIDTH-1:0])                       raw_req_e[2] = 1;
+                else if (b_data_e[27:24] < Y_COORD[COORD_WIDTH-1:0])                       raw_req_e[0] = 1;
+                else                                                                       raw_req_e[4] = 1;
             end
         end
     end
@@ -233,11 +233,11 @@ module cgra_router #(
             if (b_data_s[31]) begin
                 raw_req_s = b_data_s[30:26];
             end else begin
-                if      (b_data_s[30:28] > X_COORD) raw_req_s[1] = 1;
-                else if (b_data_s[30:28] < X_COORD) raw_req_s[3] = 1;
-                else if (b_data_s[27:24] > Y_COORD) raw_req_s[2] = 1;
-                else if (b_data_s[27:24] < Y_COORD) raw_req_s[0] = 1;
-                else                                raw_req_s[4] = 1;
+                if      (COORD_WIDTH'({1'b0, b_data_s[30:28]}) > X_COORD[COORD_WIDTH-1:0]) raw_req_s[1] = 1;
+                else if (COORD_WIDTH'({1'b0, b_data_s[30:28]}) < X_COORD[COORD_WIDTH-1:0]) raw_req_s[3] = 1;
+                else if (b_data_s[27:24] > Y_COORD[COORD_WIDTH-1:0])                       raw_req_s[2] = 1;
+                else if (b_data_s[27:24] < Y_COORD[COORD_WIDTH-1:0])                       raw_req_s[0] = 1;
+                else                                                                       raw_req_s[4] = 1;
             end
         end
     end
@@ -250,11 +250,11 @@ module cgra_router #(
             if (b_data_w[31]) begin
                 raw_req_w = b_data_w[30:26];
             end else begin
-                if      (b_data_w[30:28] > X_COORD) raw_req_w[1] = 1;
-                else if (b_data_w[30:28] < X_COORD) raw_req_w[3] = 1;
-                else if (b_data_w[27:24] > Y_COORD) raw_req_w[2] = 1;
-                else if (b_data_w[27:24] < Y_COORD) raw_req_w[0] = 1;
-                else                                raw_req_w[4] = 1;
+                if      (COORD_WIDTH'({1'b0, b_data_w[30:28]}) > X_COORD[COORD_WIDTH-1:0]) raw_req_w[1] = 1;
+                else if (COORD_WIDTH'({1'b0, b_data_w[30:28]}) < X_COORD[COORD_WIDTH-1:0]) raw_req_w[3] = 1;
+                else if (b_data_w[27:24] > Y_COORD[COORD_WIDTH-1:0])                       raw_req_w[2] = 1;
+                else if (b_data_w[27:24] < Y_COORD[COORD_WIDTH-1:0])                       raw_req_w[0] = 1;
+                else                                                                       raw_req_w[4] = 1;
             end
         end
     end
@@ -267,11 +267,11 @@ module cgra_router #(
             if (b_data_l[31]) begin
                 raw_req_l = b_data_l[30:26];
             end else begin
-                if      (b_data_l[30:28] > X_COORD) raw_req_l[1] = 1;
-                else if (b_data_l[30:28] < X_COORD) raw_req_l[3] = 1;
-                else if (b_data_l[27:24] > Y_COORD) raw_req_l[2] = 1;
-                else if (b_data_l[27:24] < Y_COORD) raw_req_l[0] = 1;
-                else                                raw_req_l[4] = 1;
+                if      (COORD_WIDTH'({1'b0, b_data_l[30:28]}) > X_COORD[COORD_WIDTH-1:0]) raw_req_l[1] = 1;
+                else if (COORD_WIDTH'({1'b0, b_data_l[30:28]}) < X_COORD[COORD_WIDTH-1:0]) raw_req_l[3] = 1;
+                else if (b_data_l[27:24] > Y_COORD[COORD_WIDTH-1:0])                       raw_req_l[2] = 1;
+                else if (b_data_l[27:24] < Y_COORD[COORD_WIDTH-1:0])                       raw_req_l[0] = 1;
+                else                                                                       raw_req_l[4] = 1;
             end
         end
     end
@@ -359,6 +359,9 @@ module cgra_router #(
             default:  data_out_n = '0;
         endcase
     end
+    // NOTE: valid_out is intentionally NOT gated on ready_in. In the
+    //       cut-through mesh, valid signals the presence of routed data;
+    //       back-pressure is handled separately via the stall/ready path.
     assign valid_out_n = |grant_n;
 
     always_comb begin

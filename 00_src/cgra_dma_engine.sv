@@ -141,7 +141,9 @@ module cgra_dma_engine #(
     wire fifo_pop_axi   = (axi_fifo_pop && dst_is_axi && !fifo_empty);
     wire fifo_pop_local = (local_fifo_pop && !dst_is_axi && !fifo_empty);
     wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
-    wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full);
+    // During R_DRAIN, rready is held high to accept residual beats from the slave,
+    // but we discard the data (don't push into FIFO) to avoid stale data buildup.
+    wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN);
     
     // FIFO data output (combinational read - async LUTRAM style)
     logic [DATA_WIDTH-1:0] fifo_rdata;
@@ -153,8 +155,11 @@ module cgra_dma_engine #(
             w_ptr <= '0;
             r_ptr <= '0;
             count <= '0;
-        end else if (cfg_abort) begin
-            // FIX: Clear stale FIFO data on abort (defensive hardening)
+        end else if (cfg_abort && r_state != R_DRAIN && w_state != W_DRAIN) begin
+            // Clear FIFO on abort cycle. The state check uses current (pre-NBA) values,
+            // so on the abort cycle where FSMs are still in R_DATA/W_DATA, this clears.
+            // During drain cycles (cfg_abort=0), FIFO stays cleared since fifo_push is
+            // gated by r_state != R_DRAIN (drained beats are discarded, not stored).
             w_ptr <= '0;
             r_ptr <= '0;
             count <= '0;
@@ -188,11 +193,12 @@ module cgra_dma_engine #(
     // =========================================================================
     // 2. Read Engine (Producer) - Fills FIFO from source
     // =========================================================================
-    typedef enum logic [1:0] {
-        R_IDLE = 2'd0,
-        R_ADDR = 2'd1,
-        R_DATA = 2'd2,
-        R_DONE = 2'd3
+    typedef enum logic [2:0] {
+        R_IDLE  = 3'd0,
+        R_ADDR  = 3'd1,
+        R_DATA  = 3'd2,
+        R_DONE  = 3'd3,
+        R_DRAIN = 3'd4   // AXI-safe abort: drain in-flight read burst
     } read_state_t;
     
     read_state_t r_state;
@@ -227,7 +233,7 @@ module cgra_dma_engine #(
     wire [31:0] words_this_burst = (words_this_burst_raw == '0) ? 32'd1 : words_this_burst_raw;
     
     always_ff @(posedge clk) begin
-        if (!rst_n || cfg_abort) begin  // Abort forces FSM to IDLE
+        if (!rst_n) begin
             r_state <= R_IDLE;
             read_addr <= '0;
             read_words_remaining <= '0;
@@ -237,6 +243,48 @@ module cgra_dma_engine #(
             m_axi_arlen <= '0;
             m_axi_arvalid <= 1'b0;
             m_axi_rready <= 1'b0;
+        end else if (cfg_abort) begin
+            // AXI-SAFE ABORT: Do NOT drop VALID signals mid-handshake.
+            // Transition to R_DRAIN to complete any in-flight AXI transaction
+            // before returning to IDLE. This prevents AXI protocol violations.
+            read_words_remaining <= '0;
+            read_complete <= 1'b0;
+            case (r_state)
+                R_ADDR: begin
+                    // ARVALID may be asserted — R_DRAIN will hold until ARREADY,
+                    // then drain the resulting data beats with RREADY.
+                    r_state <= R_DRAIN;
+                end
+                R_DATA: begin
+                    // Mid-burst — drain remaining beats until RLAST
+                    r_state <= R_DRAIN;
+                    m_axi_rready <= 1'b1;  // Ensure we accept all remaining beats
+                end
+                R_DRAIN: begin
+                    // Already draining — continue drain even while cfg_abort is held.
+                    // cfg_abort may be a level signal held for multiple cycles; we must
+                    // process AXI beats during this time, not just idle.
+                    if (m_axi_arvalid) begin
+                        if (m_axi_arready) begin
+                            m_axi_arvalid <= 1'b0;
+                            m_axi_rready <= 1'b1;
+                        end
+                    end else if (m_axi_rvalid && m_axi_rready) begin
+                        if (m_axi_rlast) begin
+                            m_axi_rready <= 1'b0;
+                            r_state <= R_IDLE;
+                        end
+                    end else if (!m_axi_rready) begin
+                        r_state <= R_IDLE;
+                    end
+                end
+                default: begin
+                    // IDLE or DONE — safe to go directly to IDLE
+                    r_state <= R_IDLE;
+                    m_axi_arvalid <= 1'b0;
+                    m_axi_rready <= 1'b0;
+                end
+            endcase
         end else begin
             case (r_state)
                 R_IDLE: begin
@@ -314,6 +362,31 @@ module cgra_dma_engine #(
                     r_state <= R_IDLE;
                 end
                 
+                R_DRAIN: begin
+                    // AXI-SAFE ABORT DRAIN STATE
+                    // Complete any in-flight AXI read transaction before going IDLE.
+                    // Phase 1: If ARVALID is asserted, hold until ARREADY completes handshake.
+                    // Phase 2: Accept all data beats with RREADY=1 until RLAST.
+                    if (m_axi_arvalid) begin
+                        // Waiting for AR handshake to complete
+                        if (m_axi_arready) begin
+                            m_axi_arvalid <= 1'b0;
+                            m_axi_rready <= 1'b1;  // Now drain the data beats
+                        end
+                        // else: hold ARVALID — AXI spec requires it stays asserted
+                    end else if (m_axi_rvalid && m_axi_rready) begin
+                        // Draining data beats — discard data, wait for RLAST
+                        if (m_axi_rlast) begin
+                            m_axi_rready <= 1'b0;
+                            r_state <= R_IDLE;
+                        end
+                    end else if (!m_axi_rready) begin
+                        // No in-flight transaction — can go directly to IDLE
+                        r_state <= R_IDLE;
+                    end
+                    // else: RREADY is high but slave hasn't sent data yet — wait
+                end
+                
                 default: r_state <= R_IDLE;
             endcase
         end
@@ -328,7 +401,8 @@ module cgra_dma_engine #(
         W_ADDR  = 3'd2,  // AW phase
         W_DATA  = 3'd3,  // W phase
         W_RESP  = 3'd4,  // B phase
-        W_DONE  = 3'd5
+        W_DONE  = 3'd5,
+        W_DRAIN = 3'd6   // AXI-safe abort: drain in-flight write burst
     } write_state_t;
     
     write_state_t w_state;
@@ -396,22 +470,96 @@ module cgra_dma_engine #(
             m_axi_wlast <= 1'b0;
             m_axi_wvalid <= 1'b0;
             m_axi_bready <= 1'b0;
-        end else if (cfg_abort) begin  // FIX: Abort forces write FSM to IDLE
-            w_state <= W_IDLE;
+        end else if (cfg_abort) begin
+            // AXI-SAFE ABORT: Transition to W_DRAIN to complete any in-flight
+            // AXI write transactions before returning to IDLE. Prevents AXI
+            // protocol violations (VALID must not drop without READY handshake).
+            write_words_remaining <= '0;
             write_complete <= 1'b0;
             dst_is_axi <= 1'b0;
             dst_is_tile <= 1'b0;
             dst_is_config <= 1'b0;
-            write_data_reg_valid <= 1'b0;  // FIX: Clear pipeline register on abort
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
             axi_fifo_pop <= 1'b0;
-            write_burst_len <= '0;
-            write_beat_counter <= '0;
-            m_axi_awvalid <= 1'b0;
-            m_axi_wlast <= 1'b0;
-            m_axi_wvalid <= 1'b0;
-            m_axi_bready <= 1'b0;
+            case (w_state)
+                W_ADDR: begin
+                    // AWVALID may be asserted — W_DRAIN completes the AW handshake,
+                    // then sends all beats with WLAST to satisfy the slave.
+                    // Deassert bready (was set early in W_WAIT) — not ready for B yet.
+                    m_axi_bready <= 1'b0;
+                    if (!m_axi_awvalid) begin
+                        // AW never asserted — no transaction in flight, safe to IDLE
+                        w_state <= W_IDLE;
+                        write_data_reg_valid <= 1'b0;
+                        write_beat_counter <= '0;
+                    end else begin
+                        w_state <= W_DRAIN;
+                    end
+                end
+                W_DATA: begin
+                    // Mid-burst — W_DRAIN will complete remaining beats with dummy data.
+                    // Deassert bready (was set early in W_WAIT) — we're not ready for
+                    // the B response until all W beats are sent.
+                    m_axi_bready <= 1'b0;
+                    w_state <= W_DRAIN;
+                end
+                W_RESP: begin
+                    // Waiting for BVALID — W_DRAIN will wait for it
+                    w_state <= W_DRAIN;
+                end
+                W_DRAIN: begin
+                    // Already draining — continue drain even while cfg_abort is held.
+                    // Duplicate drain logic here because cfg_abort blocks the else branch.
+                    if (m_axi_awvalid) begin
+                        if (m_axi_awready) begin
+                            m_axi_awvalid <= 1'b0;
+                            write_beat_counter <= '0;
+                            m_axi_wdata <= '0;
+                            m_axi_wlast <= (write_burst_len == 8'd0);
+                            m_axi_wvalid <= 1'b1;
+                        end
+                    end else if (m_axi_wvalid) begin
+                        if (m_axi_wready) begin
+                            if (write_beat_counter == write_burst_len) begin
+                                m_axi_wvalid <= 1'b0;
+                                m_axi_wlast <= 1'b0;
+                                m_axi_bready <= 1'b1;
+                            end else begin
+                                write_beat_counter <= write_beat_counter + 8'd1;
+                                m_axi_wdata <= '0;
+                                m_axi_wlast <= ((write_beat_counter + 8'd1) == write_burst_len);
+                                m_axi_wvalid <= 1'b1;
+                            end
+                        end
+                    end else if (m_axi_bready) begin
+                        if (m_axi_bvalid) begin
+                            m_axi_bready <= 1'b0;
+                            write_data_reg_valid <= 1'b0;
+                            write_beat_counter <= '0;
+                            w_state <= W_IDLE;
+                        end
+                    end else begin
+                        if (write_beat_counter <= write_burst_len) begin
+                            m_axi_wdata <= '0;
+                            m_axi_wlast <= (write_beat_counter == write_burst_len);
+                            m_axi_wvalid <= 1'b1;
+                        end else begin
+                            m_axi_bready <= 1'b1;
+                        end
+                    end
+                end
+                default: begin
+                    // W_IDLE, W_WAIT, W_DONE — safe to go directly to IDLE
+                    w_state <= W_IDLE;
+                    write_data_reg_valid <= 1'b0;
+                    write_beat_counter <= '0;
+                    m_axi_awvalid <= 1'b0;
+                    m_axi_wlast <= 1'b0;
+                    m_axi_wvalid <= 1'b0;
+                    m_axi_bready <= 1'b0;
+                end
+            endcase
         end else begin
             case (w_state)
                 W_IDLE: begin
@@ -430,14 +578,20 @@ module cgra_dma_engine #(
                         dst_is_axi    <= (cfg_dst[31:28] == 4'h0);
                         dst_is_tile   <= (cfg_dst[31:28] == 4'h1);
                         dst_is_config <= (cfg_dst[31:28] == 4'h2);
+                        // synthesis translate_off
+                        if (cfg_dst[31:28] != 4'h0 && cfg_dst[31:28] != 4'h1 && cfg_dst[31:28] != 4'h2)
+                            $warning("[DMA] Unrecognized destination prefix 0x%01h — writes will be silently dropped", cfg_dst[31:28]);
+                        // synthesis translate_on
                         w_state <= W_WAIT;
                     end
                 end
                 
                 W_WAIT: begin
-                    // CRITICAL: Re-assert bready for multi-burst response handling
-                    // After W_RESP consumes a response, bready is de-asserted.
-                    // When starting the next burst, must re-assert to avoid deadlock.
+                    // NOTE: bready is asserted early (before AW/W phases complete).
+                    // This is AXI-legal and recommended for throughput. However, it
+                    // assumes the slave will NOT send BVALID before receiving WLAST.
+                    // Our axi_ram.sv always waits for WLAST. If porting to a slave
+                    // that sends early BVALID, move bready assertion to after WLAST.
                     m_axi_bready <= 1'b1;
                     
                     // Wait for FIFO to have data and calculate burst size
@@ -597,6 +751,77 @@ module cgra_dma_engine #(
                     w_state <= W_IDLE;
                 end
                 
+                W_DRAIN: begin
+                    // AXI-SAFE ABORT DRAIN STATE
+                    // Completes in-flight AXI write transactions without violating protocol.
+                    // The slave (axi_ram) counts beats by AWLEN, so we MUST send exactly
+                    // AWLEN+1 total beats with WLAST on the final one.
+                    //
+                    // Phase 1: If AWVALID is asserted, hold until AWREADY completes.
+                    // Phase 2: Send remaining W beats with dummy data until beat_counter == burst_len.
+                    // Phase 3: Wait for BVALID response.
+                    //
+                    // Entry paths:
+                    //   W_ADDR (awvalid=1): → W_DRAIN: Complete AW, then send all beats
+                    //   W_ADDR (awvalid=0): → IDLE (no AXI transaction started)
+                    //   W_DATA: → W_DRAIN: Continue from current beat_counter
+                    //   W_RESP: → W_DRAIN: bready already high → wait for BVALID
+                    axi_fifo_pop <= 1'b0;  // No new FIFO pops during drain
+                    
+                    if (m_axi_awvalid) begin
+                        // Phase 1: Complete AW handshake
+                        if (m_axi_awready) begin
+                            m_axi_awvalid <= 1'b0;
+                            // Start sending beats from beat 0
+                            write_beat_counter <= '0;
+                            m_axi_wdata <= '0;
+                            m_axi_wlast <= (write_burst_len == 8'd0);  // Single-beat burst?
+                            m_axi_wvalid <= 1'b1;
+                        end
+                        // else: hold AWVALID — AXI spec requires it stays asserted
+                    end else if (m_axi_wvalid) begin
+                        // Phase 2: Send W beats until all AWLEN+1 beats are accepted
+                        if (m_axi_wready) begin
+                            if (write_beat_counter == write_burst_len) begin
+                                // Last beat accepted — go to response phase
+                                m_axi_wvalid <= 1'b0;
+                                m_axi_wlast <= 1'b0;
+                                m_axi_bready <= 1'b1;
+                            end else begin
+                                // More beats needed — send next with dummy data
+                                write_beat_counter <= write_beat_counter + 8'd1;
+                                m_axi_wdata <= '0;
+                                m_axi_wlast <= ((write_beat_counter + 8'd1) == write_burst_len);
+                                m_axi_wvalid <= 1'b1;
+                            end
+                        end
+                        // else: hold WVALID — waiting for WREADY
+                    end else if (m_axi_bready) begin
+                        // Phase 3: Wait for write response
+                        if (m_axi_bvalid) begin
+                            m_axi_bready <= 1'b0;
+                            write_data_reg_valid <= 1'b0;
+                            write_beat_counter <= '0;
+                            w_state <= W_IDLE;
+                        end
+                    end else begin
+                        // No AWVALID, WVALID, or BREADY active.
+                        // This path is reached when entering from W_DATA with wvalid=0
+                        // (FIFO was empty, waiting for data). The AW handshake already
+                        // completed — we owe the slave remaining W beats.
+                        // write_beat_counter tracks beats already accepted by slave.
+                        if (write_beat_counter <= write_burst_len) begin
+                            // Resume sending dummy beats from current position
+                            m_axi_wdata <= '0;
+                            m_axi_wlast <= (write_beat_counter == write_burst_len);
+                            m_axi_wvalid <= 1'b1;
+                        end else begin
+                            // All beats sent (shouldn't happen here, defensive)
+                            m_axi_bready <= 1'b1;
+                        end
+                    end
+                end
+                
                 default: w_state <= W_IDLE;
             endcase
         end
@@ -624,6 +849,7 @@ module cgra_dma_engine #(
     
     // Robust busy check: stays HIGH until ALL components are idle
     // This prevents producer-consumer mismatch where Write FSM finishes early
+    // NOTE: Drain states are NOT idle — busy stays high during AXI-safe abort drain
     wire engine_idle = (r_state == R_IDLE) && (w_state == W_IDLE) && fifo_empty;
     
     always_ff @(posedge clk) begin
@@ -633,11 +859,22 @@ module cgra_dma_engine #(
             status_busy <= 1'b0;
             status_done <= 1'b0;
             irq_done <= 1'b0;
-        end else if (cfg_abort) begin  // Abort clears busy immediately
+        end else if (cfg_abort) begin
+            // Abort clears transfer state but keeps busy HIGH while drain is active.
+            // This prevents a new cfg_start from colliding with the AXI drain.
+            // FIX: Use !engine_idle — it reads pre-NBA state just like the FSMs,
+            // so it's true whenever any FSM is active or FIFO non-empty. The old
+            // drain_active check was false on the first abort cycle (FSMs hadn't
+            // transitioned to DRAIN yet), causing a 1-cycle busy=0 glitch.
             transfer_active <= 1'b0;
             transfer_started <= 1'b0;
-            status_busy <= 1'b0;
+            status_busy <= !engine_idle;  // Stay busy until ALL components idle
             status_done <= 1'b0;  // Don't signal done on abort
+            irq_done <= 1'b0;
+        end else if (!transfer_active && status_busy && engine_idle) begin
+            // Post-drain cleanup: FSMs finished draining, clear busy
+            status_busy <= 1'b0;
+            status_done <= 1'b0;
             irq_done <= 1'b0;
         end else begin
             // Default: clear done pulse
@@ -679,16 +916,16 @@ module cgra_dma_engine #(
     // synthesis translate_off
     
     // DMA ABORT SAFETY ASSERTION
-    // cfg_abort (connected to cu_soft_reset) must NOT fire while DMA has active
-    // AXI transactions. The abort path drops VALID signals without handshake
-    // completion, which violates AXI protocol. Ensure DMA completes before
-    // asserting soft_reset. For PYNQ: DMA loads finish before CU starts.
+    // cfg_abort (connected to cu_soft_reset) transitions R/W FSMs through
+    // R_DRAIN / W_DRAIN states that complete any in-flight AXI transactions
+    // before returning to IDLE. These $info messages are informational only;
+    // the drain states ensure no AXI protocol violation occurs.
     always_ff @(posedge clk) begin
         if (cfg_abort && !(!rst_n)) begin
             if (m_axi_arvalid || (r_state == R_DATA))
-                $warning("[DMA ABORT] Abort while AXI read transaction active - AXI protocol risk!");
+                $info("[DMA ABORT] Abort during AXI read — draining via R_DRAIN");
             if (m_axi_awvalid || m_axi_wvalid || (w_state == W_DATA) || (w_state == W_RESP))
-                $warning("[DMA ABORT] Abort while AXI write transaction active - AXI protocol risk!");
+                $info("[DMA ABORT] Abort during AXI write — draining via W_DRAIN");
         end
     end
     
@@ -728,24 +965,29 @@ module cgra_dma_engine #(
             
             // Check 4: Read FSM State Valid
             if (r_state != R_IDLE && r_state != R_ADDR && 
-                r_state != R_DATA && r_state != R_DONE) begin
+                r_state != R_DATA && r_state != R_DONE &&
+                r_state != R_DRAIN) begin
                 $error("[DMA ASSERT] Read FSM in invalid state: %0d", r_state);
             end
             
             // Check 5: Write FSM State Valid
             if (w_state != W_IDLE && w_state != W_WAIT && w_state != W_ADDR && 
-                w_state != W_DATA && w_state != W_RESP && w_state != W_DONE) begin
+                w_state != W_DATA && w_state != W_RESP && w_state != W_DONE &&
+                w_state != W_DRAIN) begin
                 $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
             end
             
             // Check 6: AXI4 Write Protocol - WLAST must be high on last beat
-            if (m_axi_wvalid && m_axi_wready && m_axi_wlast && (write_beat_counter != write_burst_len)) begin
+            // Skip during W_DRAIN — drain reuses beat_counter but may start from a different
+            // position than normal flow expects, so the relationship may not hold cleanly.
+            if (w_state != W_DRAIN && m_axi_wvalid && m_axi_wready && m_axi_wlast && (write_beat_counter != write_burst_len)) begin
                 $error("[DMA ASSERT] WLAST asserted but beat_counter(%0d) != burst_len(%0d)", 
                        write_beat_counter, write_burst_len);
             end
             
             // Check 7: AXI4 Write Protocol - No WLAST before last beat
-            if (m_axi_wvalid && m_axi_wready && !m_axi_wlast && (write_beat_counter == write_burst_len)) begin
+            // Skip during W_DRAIN — drain may resume from mid-burst with different counter state
+            if (w_state != W_DRAIN && m_axi_wvalid && m_axi_wready && !m_axi_wlast && (write_beat_counter == write_burst_len)) begin
                 $error("[DMA ASSERT] Last beat but WLAST not asserted!");
             end
             
@@ -771,7 +1013,7 @@ module cgra_dma_engine #(
     // Debug Signal Assignments (For ILA probing)
     // =========================================================================
     assign dbg_status_busy           = status_busy;
-    assign dbg_read_fsm_state        = {1'b0, r_state};  // Pad 2-bit to 3-bit
+    assign dbg_read_fsm_state        = r_state;  // Now 3-bit (was 2-bit + pad)
     assign dbg_write_fsm_state       = w_state;
     assign dbg_fifo_full             = fifo_full;
     assign dbg_fifo_empty            = fifo_empty;

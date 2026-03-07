@@ -232,7 +232,7 @@ module cgra_apb_csr #(
             ADDR_LOOP_START: prdata = reg_loop_start;
             ADDR_LOOP_END:   prdata = reg_loop_end;
             ADDR_LOOP_COUNT: prdata = reg_loop_count;
-            default:         prdata = 32'hDEAD_BEEF;  // Undefined address
+            default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
     
