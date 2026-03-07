@@ -105,24 +105,31 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ## Quick Start
 
+### Simulation
+
 ```bash
-# Run full verification (Cadence Xcelium)
-make sim
+# Run full verification suite (Cadence Xcelium 24.09+)
+make sim                # Compile, elaborate, simulate (6169 tests)
 
-# Compile + build + run (split flow)
-make compile && make build && make run
+# Split flow for debugging
+make compile            # Compile RTL + TB sources
+make build              # Elaborate design
+make run                # Run simulation
 
-# Run complete lab test suite (sanity + advanced + benchmark + stress)
-make lab_test
-
-# Interactive GUI mode
-make gui
-
-# View simulation waveforms
-make wave
+# Interactive GUI mode  
+make gui                # Launch SimVision waveform viewer
 
 # Clean build artifacts
-make clean
+make clean              # Remove logs and compiled databases
+```
+
+### Building Software
+
+```bash
+cd 07_sw
+make all                # Build driver + tiler + LPR demo
+make test               # Run tiler unit tests
+make clean              # Clean build artifacts
 ```
 
 ---
@@ -137,9 +144,9 @@ make clean
                         │                                             │
     ┌─────────┐         │  ┌──────────────────────────────────────┐  │
     │   CPU   │◄────────┼──┤         APB Control Interface        │  │
-    │  (Host) │  APB    │  │  • 12 Registers (6 RW, 6 RO)        │  │
-    └─────────┘         │  │  • DMA configuration                 │  │
-                        │  │  • Execution control                 │  │
+    │  (Host) │  APB    │  │  • 20 Registers (11 RW, 9 RO)       │  │
+    └─────────┘         │  │  • DMA, CU, IRQ, Loop, Result CSRs  │  │
+                        │  │  • 4KB-aligned, 32-bit access        │  │
                         │  └────────────────┬─────────────────────┘  │
                         │                   │                         │
                         │  ┌────────────────┴─────────────────────┐  │
@@ -222,7 +229,9 @@ make clean
 
 ## Register Map
 
-### APB Address Space
+### APB Address Space (20 Registers)
+
+**DMA Engine Control (5 registers):**
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
@@ -231,17 +240,42 @@ make clean
 | 0x08 | DMA_SRC | RW | 0x0 | Source address (32-bit) |
 | 0x0C | DMA_DST | RW | 0x0 | Destination address (32-bit) |
 | 0x10 | DMA_SIZE | RW | 0x0 | Transfer size in bytes |
+
+**Control Unit (4 registers):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
 | 0x20 | CU_CTRL | RW | 0x0 | [0] Start, [1] Soft Reset |
 | 0x24 | CU_STATUS | RO | 0x0 | [0] Busy, [1] Done |
 | 0x28 | CU_CYCLES | RO | 0x0 | Execution cycle counter |
 | 0x2C | CU_TIMEOUT | RW | 0x0 | Max cycles (0 = unlimited) |
+
+**Interrupt Control (2 registers):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
 | 0x30 | IRQ_STATUS | W1C | 0x0 | [0] DMA Done, [1] CU Done |
 | 0x34 | IRQ_MASK | RW | 0x0 | IRQ enable mask |
+
+**Global Result Capture (2 registers):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
 | 0x40 | RESULT_DATA | RO | 0x0 | PE[15] output (global_result) |
 | 0x44 | RESULT_STATUS | RO | 0x0 | [0] result_valid |
+
+**Hardware Loop Control (3 registers):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
 | 0x48 | LOOP_START | RW | 0x0 | Hardware loop start PC [15:0] |
 | 0x4C | LOOP_END | RW | 0x0 | Hardware loop end PC [15:0] |
 | 0x50 | LOOP_COUNT | RW | 0x0 | Hardware loop iteration count [15:0] |
+
+**LPR Row Results (4 registers - East-edge output capture):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
 | 0x58 | RESULT_ROW0 | RO | 0x0 | East-edge result row 0 (PE[0,3]) |
 | 0x5C | RESULT_ROW1 | RO | 0x0 | East-edge result row 1 (PE[1,3]) |
 | 0x60 | RESULT_ROW2 | RO | 0x0 | East-edge result row 2 (PE[2,3]) |
