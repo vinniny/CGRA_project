@@ -488,19 +488,45 @@ module cgra_dma_engine #(
                         write_data_reg_valid <= 1'b0;
                         write_beat_counter <= '0;
                     end else begin
+                        // FIX: If AW handshake completes on abort cycle, clear awvalid
+                        // so W_DRAIN doesn't re-attempt the address phase (would deadlock
+                        // since slave already consumed the address).
+                        if (m_axi_awready) begin
+                            m_axi_awvalid <= 1'b0;
+                        end
                         w_state <= W_DRAIN;
                     end
                 end
                 W_DATA: begin
                     // Mid-burst — W_DRAIN will complete remaining beats with dummy data.
-                    // Deassert bready (was set early in W_WAIT) — we're not ready for
-                    // the B response until all W beats are sent.
+                    // Deassert bready (was set early in W_WAIT) — not ready for B yet.
                     m_axi_bready <= 1'b0;
+                    // FIX: If a W beat handshake completes on the same cycle as abort,
+                    // the slave accepted this beat. Account for it before entering drain
+                    // to prevent the drain from re-sending it (extra beat → WLAST error).
+                    if (m_axi_wvalid && m_axi_wready) begin
+                        write_beat_counter <= write_beat_counter + 8'd1;
+                        m_axi_wvalid <= 1'b0;
+                        m_axi_wlast <= 1'b0;
+                    end
+                    // If wvalid=1 && wready=0: leave wvalid asserted (AXI compliance:
+                    // VALID must hold until READY). W_DRAIN will handle the pending beat.
                     w_state <= W_DRAIN;
                 end
                 W_RESP: begin
-                    // Waiting for BVALID — W_DRAIN will wait for it
-                    w_state <= W_DRAIN;
+                    // FIX: If B response handshake completes on abort cycle,
+                    // the burst is fully done — go directly to IDLE.
+                    // Without this, W_DRAIN would see bready=1 and wait for
+                    // a second BVALID that will never arrive (deadlock).
+                    if (m_axi_bvalid && m_axi_bready) begin
+                        m_axi_bready <= 1'b0;
+                        write_data_reg_valid <= 1'b0;
+                        write_beat_counter <= '0;
+                        w_state <= W_IDLE;
+                    end else begin
+                        // Still waiting for BVALID — W_DRAIN will handle it
+                        w_state <= W_DRAIN;
+                    end
                 end
                 W_DRAIN: begin
                     // Already draining — continue drain even while cfg_abort is held.

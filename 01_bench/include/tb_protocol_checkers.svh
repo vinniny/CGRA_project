@@ -259,8 +259,10 @@ always @(posedge clk) begin
         end else if (axi_wvalid && axi_wready) begin
             w_pending = 1'b0;
             w_txn_count = w_txn_count + 1;            // FIX: Track completed write bursts (WLAST marks end of burst)
-            if (axi_wlast)
-                wlast_txn_count = wlast_txn_count + 1;            w_stall_cycles = 0;
+            if (axi_wlast) begin
+                wlast_txn_count = wlast_txn_count + 1;
+            end
+            w_stall_cycles = 0;
         end
         
         // ================================================================

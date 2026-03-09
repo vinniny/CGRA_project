@@ -272,12 +272,14 @@ module cgra_protocol_monitor (
                             ind_burst_active <= 1'b0;
                             ind_w_beat_count <= 8'd0;
                         end else begin
-                            // Multi-beat burst, beat 0 already counted
+                            // Multi-beat burst, beat 0 just handshaked — counter tracks beats SENT
+                            // After beat 0, we've sent 1 beat, so counter = 1
                             ind_w_beat_count <= 8'd1;
                             ind_burst_active <= 1'b1;
                         end
                     end else begin
                         // wvalid but no wready — beat 0 not yet handshaked
+                        // Counter = 0 means "zero beats sent so far"
                         ind_w_beat_count <= 8'd0;
                         ind_burst_active <= 1'b1;
                     end
@@ -286,7 +288,9 @@ module cgra_protocol_monitor (
                 // Count W beats for an already-active burst
                 if (wlast) begin
                     // Burst complete — check beat count matches AWLEN
-                    // AWLEN = N-1, so final beat should be at count == AWLEN
+                    // Counter = number of beats handshaked BEFORE this WLAST beat.
+                    // For AWLEN=N (N+1 total beats): activation counts beat 0 as 1,
+                    // subsequent N-1 beats increment to N, WLAST at count==N==AWLEN.
                     if (ind_w_beat_count != ind_expected_burst_len) begin
                         $error("[PROTOCOL MONITOR] INDEPENDENT WLAST CHECK: beat_count(%0d) != expected AWLEN(%0d) on WLAST!",
                                ind_w_beat_count, ind_expected_burst_len);

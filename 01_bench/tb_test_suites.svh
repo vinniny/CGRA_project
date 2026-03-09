@@ -566,8 +566,8 @@ task automatic test_D05_pipeline_overlap;
             if ((u_dut.u_dma.r_state != 0) && (u_dut.u_dma.w_state != 0)) begin
                 overlap_count++;
             end
-            // Exit if done
-            if (u_dut.u_dma.write_complete) break;
+            // Exit if done (w_state == W_IDLE)
+            if (u_dut.u_dma.w_state == 0) break;
         end
         
         if (overlap_count > 5) 
@@ -651,8 +651,8 @@ task automatic test_D07_concurrency;
                 cycles_overlap++;
             end
             
-            // Exit if done
-            if (u_dut.u_dma.write_complete) break;
+            // Exit if done (w_state == W_IDLE)
+            if (u_dut.u_dma.w_state == 0) break;
         end
         
         // Data integrity check
