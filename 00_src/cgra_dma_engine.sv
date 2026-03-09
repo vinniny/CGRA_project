@@ -133,6 +133,29 @@ module cgra_dma_engine #(
     logic local_write_en;
     logic local_fifo_pop;  // Explicit pop signal for local writes
     logic axi_fifo_pop;    // FIX: Explicit pop signal for AXI writes (set in W_WAIT)
+
+    // FSM types/states are declared here so FIFO logic can safely reference
+    // r_state/w_state and drain-state enum values.
+    typedef enum logic [2:0] {
+        R_IDLE  = 3'd0,
+        R_ADDR  = 3'd1,
+        R_DATA  = 3'd2,
+        R_DONE  = 3'd3,
+        R_DRAIN = 3'd4   // AXI-safe abort: drain in-flight read burst
+    } read_state_t;
+
+    typedef enum logic [2:0] {
+        W_IDLE  = 3'd0,
+        W_WAIT  = 3'd1,  // Wait for FIFO data
+        W_ADDR  = 3'd2,  // AW phase
+        W_DATA  = 3'd3,  // W phase
+        W_RESP  = 3'd4,  // B phase
+        W_DONE  = 3'd5,
+        W_DRAIN = 3'd6   // AXI-safe abort: drain in-flight write burst
+    } write_state_t;
+
+    read_state_t  r_state;
+    write_state_t w_state;
     
     // FIFO pop conditions:
     // - AXI: pop in W_WAIT when latching data (same as local) - NOT in W_DATA!
@@ -193,15 +216,6 @@ module cgra_dma_engine #(
     // =========================================================================
     // 2. Read Engine (Producer) - Fills FIFO from source
     // =========================================================================
-    typedef enum logic [2:0] {
-        R_IDLE  = 3'd0,
-        R_ADDR  = 3'd1,
-        R_DATA  = 3'd2,
-        R_DONE  = 3'd3,
-        R_DRAIN = 3'd4   // AXI-safe abort: drain in-flight read burst
-    } read_state_t;
-    
-    read_state_t r_state;
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
     logic        read_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
@@ -395,17 +409,6 @@ module cgra_dma_engine #(
     // =========================================================================
     // 3. Write Engine (Consumer) - Drains FIFO to destination
     // =========================================================================
-    typedef enum logic [2:0] {
-        W_IDLE  = 3'd0,
-        W_WAIT  = 3'd1,  // Wait for FIFO data
-        W_ADDR  = 3'd2,  // AW phase
-        W_DATA  = 3'd3,  // W phase
-        W_RESP  = 3'd4,  // B phase
-        W_DONE  = 3'd5,
-        W_DRAIN = 3'd6   // AXI-safe abort: drain in-flight write burst
-    } write_state_t;
-    
-    write_state_t w_state;
     logic [31:0] write_addr;
     logic [31:0] write_words_remaining;
     logic        write_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
