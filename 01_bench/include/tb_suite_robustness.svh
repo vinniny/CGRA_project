@@ -51,9 +51,10 @@ task automatic test_reset_injection;
         rand_delay = ($urandom % 8) + 1;
         repeat(rand_delay) @(posedge clk);
         
-        // Disable protocol checking — aborting mid-flight intentionally
-        // violates AXI (drops ARVALID/WVALID without handshake completion)
-        protocol_check_enable = 1'b0;
+        // NOTE: Protocol checking stays ENABLED during abort. The DMA engine's
+        // R_DRAIN/W_DRAIN states complete in-flight AXI transactions before
+        // returning to IDLE, so abort is now AXI-compliant. Any protocol error
+        // here means the drain logic has a bug that must be fixed.
         
         // Soft-reset aborts DMA (cu_soft_reset -> cfg_abort on DMA engine)
         apb_write(ADDR_CU_CTRL, 32'h2);

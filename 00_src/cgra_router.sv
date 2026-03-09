@@ -501,4 +501,19 @@ module cgra_router #(
         end
     end
 
+    // =========================================================================
+    // 6. GRANT ONE-HOT ASSERTIONS (Catch multi-hot arbiter bugs)
+    // =========================================================================
+    // synthesis translate_off
+    always @(posedge clk) begin
+        if (rst_n) begin
+            assert ($onehot0(grant_n)) else $error("[ROUTER (%0d,%0d)] grant_n is multi-hot: %05b @ %0t", X_COORD, Y_COORD, grant_n, $time);
+            assert ($onehot0(grant_e)) else $error("[ROUTER (%0d,%0d)] grant_e is multi-hot: %05b @ %0t", X_COORD, Y_COORD, grant_e, $time);
+            assert ($onehot0(grant_s)) else $error("[ROUTER (%0d,%0d)] grant_s is multi-hot: %05b @ %0t", X_COORD, Y_COORD, grant_s, $time);
+            assert ($onehot0(grant_w)) else $error("[ROUTER (%0d,%0d)] grant_w is multi-hot: %05b @ %0t", X_COORD, Y_COORD, grant_w, $time);
+            assert ($onehot0(grant_l)) else $error("[ROUTER (%0d,%0d)] grant_l is multi-hot: %05b @ %0t", X_COORD, Y_COORD, grant_l, $time);
+        end
+    end
+    // synthesis translate_on
+
 endmodule

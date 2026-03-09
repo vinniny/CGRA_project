@@ -218,7 +218,6 @@ module cgra_dma_engine #(
     // =========================================================================
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
-    logic        read_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
     logic [7:0]  current_burst_len;  // Current burst length (ARLEN value, 0-indexed)
     
     // AXI4 Burst Configuration (constant for INCR bursts)
@@ -251,7 +250,6 @@ module cgra_dma_engine #(
             r_state <= R_IDLE;
             read_addr <= '0;
             read_words_remaining <= '0;
-            read_complete <= 1'b0;
             current_burst_len <= '0;
             m_axi_araddr <= '0;
             m_axi_arlen <= '0;
@@ -262,7 +260,6 @@ module cgra_dma_engine #(
             // Transition to R_DRAIN to complete any in-flight AXI transaction
             // before returning to IDLE. This prevents AXI protocol violations.
             read_words_remaining <= '0;
-            read_complete <= 1'b0;
             case (r_state)
                 R_ADDR: begin
                     // ARVALID may be asserted — R_DRAIN will hold until ARREADY,
@@ -302,7 +299,6 @@ module cgra_dma_engine #(
         end else begin
             case (r_state)
                 R_IDLE: begin
-                    read_complete <= 1'b0;
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     if (cfg_start && cfg_size != '0 && !status_busy) begin
@@ -357,7 +353,6 @@ module cgra_dma_engine #(
                             // Check if transfer complete
                             if (read_words_remaining == 32'd1) begin
                                 // This was the last word of the last chunk
-                                read_complete <= 1'b1;
                                 r_state <= R_DONE;
                             end else begin
                                 // More chunks to transfer - loop back to R_ADDR
@@ -372,7 +367,6 @@ module cgra_dma_engine #(
                     // Go directly to IDLE
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
-                    read_complete <= 1'b0;
                     r_state <= R_IDLE;
                 end
                 
@@ -411,7 +405,6 @@ module cgra_dma_engine #(
     // =========================================================================
     logic [31:0] write_addr;
     logic [31:0] write_words_remaining;
-    logic        write_complete;  // NOTE: Dead signal — assigned but never read. Kept for debug visibility.
     logic [DATA_WIDTH-1:0] write_data_reg;  // Latched FIFO data
     logic        write_data_reg_valid;      // Pipeline register has valid data
     logic [31:0] local_write_addr;          // Address captured BEFORE increment for local writes
@@ -453,7 +446,6 @@ module cgra_dma_engine #(
             w_state <= W_IDLE;
             write_addr <= '0;
             write_words_remaining <= '0;
-            write_complete <= 1'b0;
             dst_is_axi <= 1'b0;
             dst_is_tile <= 1'b0;
             dst_is_config <= 1'b0;
@@ -478,7 +470,6 @@ module cgra_dma_engine #(
             // AXI write transactions before returning to IDLE. Prevents AXI
             // protocol violations (VALID must not drop without READY handshake).
             write_words_remaining <= '0;
-            write_complete <= 1'b0;
             dst_is_axi <= 1'b0;
             dst_is_tile <= 1'b0;
             dst_is_config <= 1'b0;
@@ -566,7 +557,6 @@ module cgra_dma_engine #(
         end else begin
             case (w_state)
                 W_IDLE: begin
-                    write_complete <= 1'b0;
                     local_write_en <= 1'b0;
                     local_fifo_pop <= 1'b0;
                     axi_fifo_pop <= 1'b0;
@@ -624,7 +614,6 @@ module cgra_dma_engine #(
                         
                         w_state <= W_ADDR;
                     end else if (write_words_remaining == '0) begin
-                        write_complete <= 1'b1;
                         w_state <= W_DONE;
                     end
                 end
@@ -654,7 +643,6 @@ module cgra_dma_engine #(
                         write_words_remaining <= write_words_remaining - 1'b1;
                         
                         if (write_words_remaining == 32'd1) begin
-                            write_complete <= 1'b1;
                             w_state <= W_DONE;
                         end else begin
                             w_state <= W_WAIT;
@@ -735,7 +723,6 @@ module cgra_dma_engine #(
                         // Check if all words written
                         if (write_words_remaining == 32'd0) begin
                             // Transfer complete
-                            write_complete <= 1'b1;
                             w_state <= W_DONE;
                         end else begin
                             // More words to write - start next burst
@@ -750,7 +737,6 @@ module cgra_dma_engine #(
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
                     local_write_en <= 1'b0;
-                    write_complete <= 1'b0;
                     w_state <= W_IDLE;
                 end
                 
