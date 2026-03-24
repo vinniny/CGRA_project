@@ -15,6 +15,9 @@
 
 task automatic run_suite_LPR;
     logic [31:0] res, rd;
+    logic [31:0] golden_row [0:3];
+    logic [31:0] row_addr   [0:3];
+    logic [31:0] got_row    [0:3];
     integer i;
     begin
         $display("\n========================================");
@@ -160,18 +163,33 @@ task automatic run_suite_LPR;
         apb_check(ADDR_LOOP_COUNT, 32'd0,  "LPR12f: LOOP_COUNT reset default");
 
         // =================================================================
-        // LPR13: 4-Row East-Edge Result Collection
+        // LPR13: 4-Row East-Edge Result Collection (KNN Data-Path Validation)
         // =================================================================
-        // Configure PE(0,3), PE(1,3), PE(2,3), PE(3,3) with different PASS0
-        // values and verify all 4 results captured via APB 0x58-0x64.
+        // KNN integration view:
+        // - Each row represents one candidate class/sample distance stream.
+        // - Array emits one east-edge value per row after compute.
+        // - cgra_top must latch these into RESULT_ROW0..3 (0x58..0x64).
+        //
+        // This test validates the register data-path against a golden vector
+        // computed in TB (manual model): golden_row[r] == east_edge_row[r].
         $display("[LPR13] 4-row result collection...");
         reset_dut(5);
 
-        // Load distinct values into each tile memory bank
-        tile_bank_fill_all(2'd0, 32'hAAAA_0000);  // Row 0
-        tile_bank_fill_all(2'd1, 32'hBBBB_1111);  // Row 1
-        tile_bank_fill_all(2'd2, 32'hCCCC_2222);  // Row 2
-        tile_bank_fill_all(2'd3, 32'hDDDD_3333);  // Row 3
+        // Golden distance vector for 4 rows (manual KNN model input)
+        golden_row[0] = 32'hAAAA_0000;
+        golden_row[1] = 32'hBBBB_1111;
+        golden_row[2] = 32'hCCCC_2222;
+        golden_row[3] = 32'hDDDD_3333;
+        row_addr[0]   = ADDR_RESULT_ROW0;
+        row_addr[1]   = ADDR_RESULT_ROW1;
+        row_addr[2]   = ADDR_RESULT_ROW2;
+        row_addr[3]   = ADDR_RESULT_ROW3;
+
+        // Load one golden value per row-bank
+        tile_bank_fill_all(2'd0, golden_row[0]);  // Row 0 stream
+        tile_bank_fill_all(2'd1, golden_row[1]);  // Row 1 stream
+        tile_bank_fill_all(2'd2, golden_row[2]);  // Row 2 stream
+        tile_bank_fill_all(2'd3, golden_row[3]);  // Row 3 stream
 
         // Configure ALL 16 PEs: PASS0 from West, route East
         // Column 0 PEs (row 0-3): PE0, PE4, PE8, PE12
@@ -191,25 +209,38 @@ task automatic run_suite_LPR;
             config_pe_safe(i[3:0] * 4 + 3, OP_PASS0, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST);
         end
 
-        run_cgra(20);
+        // IMPORTANT: Do not use run_cgra() here because it performs a final
+        // soft_reset that clears RESULT_STATUS[0] (result_valid latch).
+        // We need to sample RESULT_STATUS and RESULT_ROWx before stopping.
+        apb_write(ADDR_CU_CTRL, 32'd2);  // Assert soft_reset
+        wait_cycles(3);
+        apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
+        wait_cycles(2);
+        apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution
+        wait_cycles(20);
         wait_cycles(5);
 
-        // Read row results from APB
-        apb_read(ADDR_RESULT_ROW0, rd);
-        if (rd == 32'hAAAA_0000) pass("LPR13a: Row0 result correct");
-        else fail("LPR13a: Row0 result", $sformatf("Exp: 0xAAAA0000, Got: 0x%h", rd));
+        // Ensure result latch is valid before consuming row registers
+        apb_read(ADDR_RESULT_STATUS, rd);
+        if (!rd[0]) begin
+            fail("LPR13: RESULT_STATUS", "result_valid not set before row readback");
+        end
 
-        apb_read(ADDR_RESULT_ROW1, rd);
-        if (rd == 32'hBBBB_1111) pass("LPR13b: Row1 result correct");
-        else fail("LPR13b: Row1 result", $sformatf("Exp: 0xBBBB1111, Got: 0x%h", rd));
+        // Read row results from APB and compare with golden model vector
+        for (i = 0; i < 4; i++) begin
+            apb_read(row_addr[i], got_row[i]);
+            if (got_row[i] === golden_row[i]) begin
+                pass($sformatf("LPR13: Row%0d KNN data-path matches golden", i));
+            end else begin
+                fail($sformatf("LPR13: Row%0d KNN data-path", i),
+                     $sformatf("Exp: 0x%08h, Got: 0x%08h", golden_row[i], got_row[i]));
+            end
+        end
 
-        apb_read(ADDR_RESULT_ROW2, rd);
-        if (rd == 32'hCCCC_2222) pass("LPR13c: Row2 result correct");
-        else fail("LPR13c: Row2 result", $sformatf("Exp: 0xCCCC2222, Got: 0x%h", rd));
-
-        apb_read(ADDR_RESULT_ROW3, rd);
-        if (rd == 32'hDDDD_3333) pass("LPR13d: Row3 result correct");
-        else fail("LPR13d: Row3 result", $sformatf("Exp: 0xDDDD3333, Got: 0x%h", rd));
+            // Stop CU after readback to avoid affecting RESULT_STATUS sampling.
+            apb_write(ADDR_CU_CTRL, 32'd2);
+            wait_cycles(1);
+            apb_write(ADDR_CU_CTRL, 32'd0);
 
         // =================================================================
         // LPR14: Compute → RELU Pipeline (Multiply + Activation)

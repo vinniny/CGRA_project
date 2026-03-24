@@ -9,7 +9,7 @@
 //
 // ARCHITECTURE:
 //   - Read Engine (Producer): Fetches data from AXI, pushes to FIFO
-//   - 8-Word FIFO: Decouples read/write timing
+//   - Configurable-Depth FIFO: Decouples read/write timing (default 32 words)
 //   - Write Engine (Consumer): Pops FIFO, writes to destination
 //
 // DESTINATION ROUTING (by address prefix):
@@ -81,6 +81,9 @@ module cgra_dma_engine #(
     output logic [1:0]            tile_bank_sel_o,
     output logic                  tile_we_o,
     output logic [31:0]           tile_wdata_o,
+    output logic                  tile_re_o,            // Tile memory read enable (for read-back)
+    input  logic [DATA_WIDTH-1:0] tile_rdata_i,         // Read data from tile memory (1-cycle latent)
+    input  logic                  tile_rvalid_i,        // Read data valid
     
     // =========================================================================
     // Config Interface (To PE Array)
@@ -128,6 +131,10 @@ module cgra_dma_engine #(
     logic dst_is_axi;
     logic dst_is_tile;
     logic dst_is_config;
+
+    // Source address decoding (for tile read-back path)
+    logic src_is_tile;
+    logic tile_read_phase;  // 0=request, 1=capture (handles 1-cycle tile read latency)
     
     // Local write trigger (for tile/config - single cycle writes)
     logic local_write_en;
@@ -166,7 +173,10 @@ module cgra_dma_engine #(
     wire fifo_pop  = fifo_pop_axi || fifo_pop_local;
     // During R_DRAIN, rready is held high to accept residual beats from the slave,
     // but we discard the data (don't push into FIFO) to avoid stale data buildup.
-    wire fifo_push = (m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN);
+    // FIFO push: AXI read path OR tile read-back path (mutually exclusive per transfer)
+    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
+    wire fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
+    wire fifo_push      = fifo_push_axi || fifo_push_tile;
     
     // FIFO data output (combinational read - async LUTRAM style)
     logic [DATA_WIDTH-1:0] fifo_rdata;
@@ -195,7 +205,7 @@ module cgra_dma_engine #(
             end else begin
                 // Push data into FIFO
                 if (fifo_push) begin
-                    fifo_mem[w_ptr] <= m_axi_rdata;
+                    fifo_mem[w_ptr] <= src_is_tile ? tile_rdata_i : m_axi_rdata;
                     w_ptr <= w_ptr + 1'b1;
                 end
                 
@@ -225,7 +235,7 @@ module cgra_dma_engine #(
     assign m_axi_arburst = 2'b01;   // INCR burst type
     
     // Chunked Burst Calculation with 4KB Boundary Protection
-    // Max burst = FIFO_DEPTH words (default 8), so max ARLEN = 7
+    // Max burst = FIFO_DEPTH words, so max ARLEN = FIFO_DEPTH-1
     localparam MAX_BURST_WORDS = FIFO_DEPTH;
     
     // AXI 4KB Boundary Protection - bursts cannot cross 4KB page boundaries
@@ -255,12 +265,18 @@ module cgra_dma_engine #(
             m_axi_arlen <= '0;
             m_axi_arvalid <= 1'b0;
             m_axi_rready <= 1'b0;
+            src_is_tile <= 1'b0;
+            tile_read_phase <= 1'b0;
         end else if (cfg_abort) begin
             // AXI-SAFE ABORT: Do NOT drop VALID signals mid-handshake.
             // Transition to R_DRAIN to complete any in-flight AXI transaction
             // before returning to IDLE. This prevents AXI protocol violations.
             read_words_remaining <= '0;
-            case (r_state)
+            if (src_is_tile) begin
+                // Tile reads have no in-flight AXI transactions — go directly to IDLE
+                r_state <= R_IDLE;
+                tile_read_phase <= 1'b0;
+            end else case (r_state)
                 R_ADDR: begin
                     // ARVALID may be asserted — R_DRAIN will hold until ARREADY,
                     // then drain the resulting data beats with RREADY.
@@ -301,14 +317,21 @@ module cgra_dma_engine #(
                 R_IDLE: begin
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
+                    tile_read_phase <= 1'b0;
                     if (cfg_start && cfg_size != '0 && !status_busy) begin
                         read_addr <= cfg_src;
                         read_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+                        src_is_tile <= (cfg_src[31:28] == 4'h1);
                         r_state <= R_ADDR;
                     end
                 end
                 
                 R_ADDR: begin
+                    if (src_is_tile) begin
+                        // Tile reads: no AXI AR needed, go directly to R_DATA
+                        tile_read_phase <= 1'b0;
+                        r_state <= R_DATA;
+                    end else
                     // Issue CHUNKED burst - max FIFO_DEPTH words per burst
                     // Only issue if FIFO has room for the burst (space >= words_this_burst)
                     // Available space = FIFO_DEPTH - count
@@ -335,9 +358,29 @@ module cgra_dma_engine #(
                 end
                 
                 R_DATA: begin
+                    if (src_is_tile) begin
+                        // TILE READ-BACK: Word-by-word reads with 1-cycle latency
+                        // Phase 0: Issue read request (tile_re_o driven combinationally)
+                        // Phase 1: Capture data (tile_rvalid_i high, FIFO push via fifo_push_tile)
+                        if (!tile_read_phase) begin
+                            // Phase 0 → 1: request issued when tile_re_o is asserted
+                            // (combinational output gated by !fifo_full && read_words_remaining != 0)
+                            if (!fifo_full && read_words_remaining != '0)
+                                tile_read_phase <= 1'b1;
+                            // else: FIFO full or transfer done — wait for space
+                        end else begin
+                            // Phase 1 → 0: data captured, advance to next word
+                            read_words_remaining <= read_words_remaining - 1'b1;
+                            read_addr <= read_addr + BYTES_PER_WORD;
+                            tile_read_phase <= 1'b0;
+                            if (read_words_remaining == 32'd1)
+                                r_state <= R_DONE;
+                            // else: back to phase 0 for next word
+                        end
+                    end else begin
                     // BURST MODE: Stay here receiving ALL beats until RLAST
                     m_axi_rready <= !fifo_full;  // Backpressure if FIFO full
-                    
+
                     if (m_axi_rvalid && m_axi_rready) begin
                         // Data beat received - FIFO push happens via fifo_push wire
                         read_words_remaining <= read_words_remaining - 1'b1;
@@ -361,8 +404,9 @@ module cgra_dma_engine #(
                         end
                         // Otherwise stay in R_DATA for next beat
                     end
+                    end // else (AXI path)
                 end
-                
+
                 R_DONE: begin
                     // Go directly to IDLE
                     m_axi_arvalid <= 1'b0;
@@ -847,8 +891,16 @@ module cgra_dma_engine #(
     // =========================================================================
     // Combinational driving based on local_write_en and destination type
     // Use registered local_write_addr to avoid using post-increment address
-    assign tile_addr_o     = local_write_addr[11:0];   // 4KB wrapping per bank
-    assign tile_bank_sel_o = local_write_addr[13:12];  // Bank select from addr bits
+    // Tile read-back: combinational read enable for tile memory
+    wire tile_rd_en = src_is_tile && (r_state == R_DATA) && !tile_read_phase
+                      && !fifo_full && (read_words_remaining != '0);
+
+    // Mux tile addr/bank between read engine (src_is_tile) and write engine (dst_is_tile)
+    // These are mutually exclusive per transfer: a single DMA op cannot have both
+    // src and dst in tile address space for any useful operation.
+    assign tile_addr_o     = src_is_tile ? read_addr[11:0]   : local_write_addr[11:0];
+    assign tile_bank_sel_o = src_is_tile ? read_addr[13:12]  : local_write_addr[13:12];
+    assign tile_re_o       = tile_rd_en;
     assign tile_wdata_o    = write_data_reg;
     assign tile_we_o       = local_write_en && dst_is_tile;
     
