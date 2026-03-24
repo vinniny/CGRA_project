@@ -127,9 +127,78 @@ make clean              # Remove logs and compiled databases
 
 ```bash
 cd 07_sw
-make all                # Build driver + tiler + LPR demo
-make test               # Run tiler unit tests
+make all                # Build driver + tiler + LPR demo + golden model test
+make test               # Build and run golden model test (no HW needed)
+make lpr_demo           # Build HW demo only (requires CGRA on PYNQ-Z2)
+make lpr_golden_test    # Build golden model test only
+make test_tiler         # Build standalone tiler unit test
 make clean              # Clean build artifacts
+
+# Cross-compile for Zynq ARM (Cortex-A9)
+make CROSS=arm-linux-gnueabihf- all
+```
+
+### Golden Model (Pure-C Reference for Vietnamese License Plate OCR)
+
+A lightweight pure-C inference engine for character recognition on Vietnamese license plates.
+Runs on any Linux system (x86 or ARM Cortex-A9) with zero external dependencies — no ONNX Runtime,
+no Python, no floating point. Produces bit-exact int32 results for layer-by-layer comparison
+against CGRA-accelerated inference.
+
+**Vietnamese plate character set (30 classes):** `0-9`, `A-Z` excluding I, O, Q (confused with 1, 0, 9)
+
+**Network:** 28×28 grayscale → Conv1 (3×3, 1→8ch, ReLU) → MaxPool 2×2 → Conv2 (3×3, 8→16ch, ReLU) → MaxPool 2×2 → FC (784→30) → Argmax
+
+**Total weights:** 24,798 int32 values (97 KB)
+
+```bash
+cd 07_sw
+
+# Build and run golden model test (generates synthetic weights + 10 test images)
+make test
+
+# Or run manually with options
+build/lpr_golden_test                       # Synthetic weights + images
+build/lpr_golden_test weights.bin           # Load trained weights from file
+build/lpr_golden_test weights.bin image.bin # Load weights + single 28×28 image
+```
+
+**Output:**
+- `golden_weights.bin` — Serialized model weights (load on target for CGRA comparison)
+- `golden_dump/imgNN_conv1.bin` — Conv1 output per image (28×28×8 = 6,272 int32)
+- `golden_dump/imgNN_pool1.bin` — Pool1 output (14×14×8 = 1,568 int32)
+- `golden_dump/imgNN_conv2.bin` — Conv2 output (14×14×16 = 3,136 int32)
+- `golden_dump/imgNN_pool2.bin` — Pool2 output (7×7×16 = 784 int32)
+- `golden_dump/imgNN_fc.bin` — FC logits (30 int32)
+
+**CGRA comparison workflow:**
+1. Run `make test` on host — produces `golden_weights.bin` + `golden_dump/`
+2. Copy `golden_weights.bin` to PYNQ-Z2 target
+3. Run `lpr_demo` on target with same weights — CGRA computes FC layer
+4. Compare layer outputs: golden dump vs CGRA results
+
+### C ALPR (Real-Time License Plate Recognition)
+
+Pure C implementation for video/webcam-based plate detection using ONNX Runtime + FFmpeg.
+Located in `scripts/License_Plate_Recognition_Cpp/c_alpr/`.
+
+```bash
+cd scripts/License_Plate_Recognition_Cpp/c_alpr
+
+# Build (Linux, without ONNX — stub mode)
+cmake -S . -B build -DENABLE_ONNXRUNTIME=OFF -DENABLE_FFMPEG=ON
+cmake --build build --config Release
+
+# Build with ONNX Runtime (full inference)
+cmake -S . -B build -DENABLE_ONNXRUNTIME=ON \
+      -DONNXRUNTIME_ROOT=/path/to/onnxruntime -DENABLE_FFMPEG=ON
+cmake --build build --config Release
+
+# Run modes
+build/c_alpr configs/alpr_config.ini video.mp4         # Video file
+build/c_alpr configs/alpr_config.ini webcam:0           # Webcam
+build/c_alpr configs/alpr_config.ini image.bmp          # Single BMP image
+build/c_alpr configs/alpr_config.ini folder/             # Batch folder
 ```
 
 ---
