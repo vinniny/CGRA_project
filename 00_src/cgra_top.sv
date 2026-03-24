@@ -6,7 +6,7 @@
 //
 // COMPONENTS:
 //   - APB CSR Interface (cgra_axi_csr) - 11 registers
-//   - Pipelined DMA Engine (cgra_dma_engine) with 8-word FIFO
+//   - Pipelined DMA Engine (cgra_dma_engine) with 32-word FIFO
 //   - Control Unit (cgra_control_unit) with 3-state FSM + auto-stop
 //   - 4-Bank Tile Memory (cgra_tile_memory) with context_pc streaming  
 //   - 4x4 PE Array (cgra_array_4x4) with mesh broadcast
@@ -170,8 +170,9 @@ module cgra_top #(
     logic [1:0]  dma_tile_bank_sel;
     logic        dma_tile_we;
     logic [31:0] dma_tile_wdata;
-    logic [31:0] dma_tile_rdata;  // NOTE: Placeholder for future DMA-read-from-tile-memory path (currently unread)
-    logic        dma_tile_valid;  // NOTE: Placeholder — driven by tile_memory but not consumed yet
+    logic        dma_tile_re;     // DMA tile read enable (for tile-to-DDR read-back)
+    logic [31:0] dma_tile_rdata;  // Read data from tile memory (1-cycle latent)
+    logic        dma_tile_valid;  // Read data valid from tile memory
     
     // Row data from tile memory → Array
     logic [31:0] row_data [0:3];
@@ -316,7 +317,7 @@ module cgra_top #(
     cgra_dma_engine #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .FIFO_DEPTH(8)
+        .FIFO_DEPTH(32)
     ) u_dma (
         .clk(clk),
         .rst_n(rst_n),
@@ -363,6 +364,9 @@ module cgra_top #(
         .tile_bank_sel_o(dma_tile_bank_sel),
         .tile_we_o(dma_tile_we),
         .tile_wdata_o(dma_tile_wdata),
+        .tile_re_o(dma_tile_re),
+        .tile_rdata_i(dma_tile_rdata),
+        .tile_rvalid_i(dma_tile_valid),
         
         // Config Interface (To PE Array)
         .config_addr_o(dma_cfg_addr),
@@ -433,31 +437,31 @@ module cgra_top #(
         
         // Bank 0 (Row 0) - Read port to array
         .bank0_addr({8'd0, context_pc}), // FIX 3: Address = context_pc (0-15)
-        .bank0_read(1'b1),               // Always read enabled
+        .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
         .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
         .bank0_rdata(row_data[0]),
         .bank0_valid(row_valid[0]),
-        
+
         // Bank 1 (Row 1) - Read port to array
         .bank1_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
-        .bank1_read(1'b1),
+        .bank1_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
         .bank1_rdata(row_data[1]),
         .bank1_valid(row_valid[1]),
-        
+
         // Bank 2 (Row 2) - Read port to array
         .bank2_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
-        .bank2_read(1'b1),
+        .bank2_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
         .bank2_rdata(row_data[2]),
         .bank2_valid(row_valid[2]),
-        
+
         // Bank 3 (Row 3) - Read port to array
         .bank3_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
-        .bank3_read(1'b1),
+        .bank3_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),
         .bank3_rdata(row_data[3]),
@@ -466,7 +470,7 @@ module cgra_top #(
         // External/DMA port - Write access
         .ext_addr({2'b00, dma_tile_addr[11:2]}), // FIX: Convert byte address to word index (pad to 12-bit)
         .ext_bank_sel(dma_tile_bank_sel),
-        .ext_read(1'b0),             // DMA write only for now
+        .ext_read(dma_tile_re),      // DMA tile read-back path (was 1'b0)
         .ext_write(dma_tile_we),
         .ext_wdata(dma_tile_wdata),
         .ext_rdata(dma_tile_rdata),
@@ -477,7 +481,9 @@ module cgra_top #(
     // FIX: Assert DMA tile address is word-aligned (lower 2 bits silently discarded)
     always @(posedge clk) begin
         if (rst_n && dma_tile_we && (dma_tile_addr[1:0] != 2'b00))
-            $error("[CGRA_TOP] DMA tile address 0x%08h is not word-aligned!", dma_tile_addr);
+            $error("[CGRA_TOP] DMA tile WRITE address 0x%08h is not word-aligned!", dma_tile_addr);
+        if (rst_n && dma_tile_re && (dma_tile_addr[1:0] != 2'b00))
+            $error("[CGRA_TOP] DMA tile READ address 0x%08h is not word-aligned!", dma_tile_addr);
     end
     // synopsys translate_on
 

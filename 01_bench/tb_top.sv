@@ -105,6 +105,7 @@ module tb_top;
     `include "include/tb_suite_robustness.svh"  // Robustness (Reset, Stall, IRQ)
     `include "include/tb_suite_lpr.svh"          // LPR demo feature tests (RELU, MAX, Loop CSRs)
     `include "include/tb_suite_dma_writeback.svh"  // DMA Write-Back Verification (Suite AE)
+    `include "include/tb_suite_dma_readback.svh"  // DMA Tile Read-Back Verification (Suite AF)
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -429,6 +430,9 @@ module tb_top;
 
         reset_dut(5);
         run_suite_AE_dma_writeback();
+
+        reset_dut(5);
+        run_suite_AF_dma_readback();
 
         $display("\n================================================================");
         $display("  ALL TEST SUITES COMPLETE");
