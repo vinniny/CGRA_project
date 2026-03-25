@@ -26,7 +26,7 @@
  *          │       b. DMA config to PE config RAM            │
  *          │       c. DMA input chunk to tile memory banks   │
  *          │       d. Start CU → 16 context cycles          │
- *          │    3. Read 4 results from east-edge registers   │
+ *          │    3. DMA read-back 4 results from tile memory  │
  *          └─────────────────────────────────────────────────┘
  *    ARM : Add bias, dequantize, argmax → predicted character
  *    ARM : Top-K sorting kept on CPU (per design spec)
@@ -75,6 +75,14 @@
 #define TILE_BASE           0x10000000u
 #define CONFIG_BASE         0x20000000u
 #define TILE_BANK(b)        (TILE_BASE | ((uint32_t)(b) << 12))
+
+/*
+ * RESULT_BANK: tile-memory address where the CU writes the 4 east-edge
+ * accumulator values after completion (DMA tile read-back path added in
+ * RTL commit 8b30a54).  Placed immediately after the CONTEXT_DEPTH-word
+ * input area in bank 0 to avoid collision with live input data.
+ */
+#define RESULT_BANK         (TILE_BANK(0) + (CONTEXT_DEPTH * sizeof(uint32_t)))
 
 /* ── PE ISA Opcodes (matches cgra_pe.sv / tb_defs.svh) ──────────── */
 
@@ -244,7 +252,8 @@ static int cgra_fc_layer(cgra_dev_t *dev,
                          int32_t *output,            /* [out_feat]             */
                          int in_feat, int out_feat,
                          cgra_cma_buf_t *cma_cfg,
-                         cgra_cma_buf_t *cma_tile)
+                         cgra_cma_buf_t *cma_tile,
+                         cgra_cma_buf_t *cma_out)  /* [CGRA_ROWS uint32_t]   */
 {
     int n_groups = (out_feat + CGRA_ROWS - 1) / CGRA_ROWS;
     int n_chunks = (in_feat  + MAC_PER_RUN - 1) / MAC_PER_RUN;
@@ -314,9 +323,13 @@ static int cgra_fc_layer(cgra_dev_t *dev,
             }
         }
 
-        /* ── 4. Read accumulated results from east-edge regs ────── */
-        uint32_t results[4];
-        cgra_get_results(dev, results);
+        /* ── 4. DMA read-back: tile memory → DDR ────────────────── */
+        if (cgra_dma_write(dev, RESULT_BANK, cma_out->phys,
+                           CGRA_ROWS * sizeof(uint32_t)) < 0) {
+            fprintf(stderr, "[CGRA] Result DMA writeback failed (g=%d)\n", g);
+            return -1;
+        }
+        const uint32_t *results = (const uint32_t *)cma_out->virt;
 
         for (int r = 0; r < CGRA_ROWS; r++) {
             int oidx = g * CGRA_ROWS + r;
@@ -414,6 +427,7 @@ int main(int argc, char *argv[])
     cgra_dev_t      dev;
     cgra_cma_buf_t  cma_cfg  = {0};
     cgra_cma_buf_t  cma_tile = {0};
+    cgra_cma_buf_t  cma_out  = {0};
 
     if (use_hw) {
         printf("\n[HW] Initializing CGRA via /dev/uio0 ...\n");
@@ -421,16 +435,18 @@ int main(int argc, char *argv[])
             fprintf(stderr, "[HW] CGRA init failed -- falling back to SW\n");
             use_hw = 0;
         } else {
-            size_t tile_sz = CGRA_ROWS * CONTEXT_DEPTH * sizeof(int32_t);
+            size_t tile_sz   = CGRA_ROWS * CONTEXT_DEPTH * sizeof(int32_t);
+            size_t result_sz = CGRA_ROWS * sizeof(uint32_t);
 
-            if (cgra_cma_alloc(&cma_cfg, CFG_BUF_BYTES) < 0 ||
-                cgra_cma_alloc(&cma_tile, tile_sz) < 0) {
+            if (cgra_cma_alloc(&cma_cfg,  CFG_BUF_BYTES) < 0 ||
+                cgra_cma_alloc(&cma_tile, tile_sz)        < 0 ||
+                cgra_cma_alloc(&cma_out,  result_sz)      < 0) {
                 fprintf(stderr, "[HW] CMA alloc failed -- falling back to SW\n");
                 use_hw = 0;
             } else {
                 cgra_irq_enable(&dev, IRQ_DONE);
-                printf("[HW] CGRA ready  cfg=%zu B  tile=%zu B\n",
-                       (size_t)CFG_BUF_BYTES, tile_sz);
+                printf("[HW] CGRA ready  cfg=%zu B  tile=%zu B  out=%zu B\n",
+                       (size_t)CFG_BUF_BYTES, tile_sz, result_sz);
             }
         }
     }
@@ -483,7 +499,7 @@ int main(int argc, char *argv[])
 
             if (cgra_fc_layer(&dev, fc_input_q, fc_w_q, gw->fc_b,
                               fc_out_hw, fc_in, fc_out,
-                              &cma_cfg, &cma_tile) == 0)
+                              &cma_cfg, &cma_tile, &cma_out) == 0)
                 class_hw = golden_argmax(fc_out_hw, fc_out);
 
             total_hw_ms += time_ms() - t0;
@@ -541,6 +557,7 @@ int main(int argc, char *argv[])
     if (use_hw) {
         cgra_cma_free(&cma_cfg);
         cgra_cma_free(&cma_tile);
+        cgra_cma_free(&cma_out);
         cgra_close(&dev);
     }
 
