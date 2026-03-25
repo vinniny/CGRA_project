@@ -1,0 +1,1165 @@
+// image.mem — CGRA tile memory input for FC group 0
+// Image 0, seed 0xCAFEBABE, 61 chunks, 16 words/chunk
+// Word width: 32-bit  ($readmemh into reg [31:0] mem[0:975])
+// All 4 tile banks receive identical data (same fc_input_q slice)
+// Address ctx within bank = context_pc (0-15)
+//
+// --- chunk 0  base=0  count=13 ---
+@0000
+00007FFF  // ctx00  input_q[0]=32767
+00007FFF  // ctx01  input_q[1]=32767
+00000000  // ctx02  input_q[2]=0
+00000000  // ctx03  input_q[3]=0
+00007FFF  // ctx04  input_q[4]=32767
+00000000  // ctx05  input_q[5]=0
+00000000  // ctx06  input_q[6]=0
+00000000  // ctx07  input_q[7]=0
+00000000  // ctx08  input_q[8]=0
+00000000  // ctx09  input_q[9]=0
+00007FFF  // ctx10  input_q[10]=32767
+00000000  // ctx11  input_q[11]=0
+00007FFF  // ctx12  input_q[12]=32767
+00000000  // ctx13  input_q[13]=0
+00000000  // ctx14  input_q[14]=0
+00000000  // ctx15  input_q[15]=0
+
+// --- chunk 1  base=13  count=13 ---
+@0010
+00000000  // ctx00  input_q[13]=0
+00000000  // ctx01  input_q[14]=0
+00000000  // ctx02  input_q[15]=0
+00007FFF  // ctx03  input_q[16]=32767
+00000000  // ctx04  input_q[17]=0
+00000000  // ctx05  input_q[18]=0
+00000000  // ctx06  input_q[19]=0
+00007FFF  // ctx07  input_q[20]=32767
+00000000  // ctx08  input_q[21]=0
+00000000  // ctx09  input_q[22]=0
+00000000  // ctx10  input_q[23]=0
+00000000  // ctx11  input_q[24]=0
+00000000  // ctx12  input_q[25]=0
+00000000  // ctx13  input_q[26]=0
+00000000  // ctx14  input_q[27]=0
+00000000  // ctx15  input_q[28]=0
+
+// --- chunk 2  base=26  count=13 ---
+@0020
+00007FFF  // ctx00  input_q[26]=32767
+00000000  // ctx01  input_q[27]=0
+00000000  // ctx02  input_q[28]=0
+00000000  // ctx03  input_q[29]=0
+00000000  // ctx04  input_q[30]=0
+00000000  // ctx05  input_q[31]=0
+00000000  // ctx06  input_q[32]=0
+00007FFF  // ctx07  input_q[33]=32767
+00000000  // ctx08  input_q[34]=0
+00000000  // ctx09  input_q[35]=0
+00007FFF  // ctx10  input_q[36]=32767
+00000000  // ctx11  input_q[37]=0
+00000000  // ctx12  input_q[38]=0
+00000000  // ctx13  input_q[39]=0
+00000000  // ctx14  input_q[40]=0
+00000000  // ctx15  input_q[41]=0
+
+// --- chunk 3  base=39  count=13 ---
+@0030
+00000000  // ctx00  input_q[39]=0
+00007FFF  // ctx01  input_q[40]=32767
+00000000  // ctx02  input_q[41]=0
+00007FFF  // ctx03  input_q[42]=32767
+00000000  // ctx04  input_q[43]=0
+00007FFF  // ctx05  input_q[44]=32767
+00000000  // ctx06  input_q[45]=0
+00000000  // ctx07  input_q[46]=0
+00000000  // ctx08  input_q[47]=0
+00007FFF  // ctx09  input_q[48]=32767
+00007FFF  // ctx10  input_q[49]=32767
+00000000  // ctx11  input_q[50]=0
+00000000  // ctx12  input_q[51]=0
+00000000  // ctx13  input_q[52]=0
+00000000  // ctx14  input_q[53]=0
+00000000  // ctx15  input_q[54]=0
+
+// --- chunk 4  base=52  count=13 ---
+@0040
+00007FFF  // ctx00  input_q[52]=32767
+00000000  // ctx01  input_q[53]=0
+00000000  // ctx02  input_q[54]=0
+00000000  // ctx03  input_q[55]=0
+00000000  // ctx04  input_q[56]=0
+00000000  // ctx05  input_q[57]=0
+00007FFF  // ctx06  input_q[58]=32767
+00000000  // ctx07  input_q[59]=0
+00007FFF  // ctx08  input_q[60]=32767
+00000000  // ctx09  input_q[61]=0
+00000000  // ctx10  input_q[62]=0
+00000000  // ctx11  input_q[63]=0
+00000000  // ctx12  input_q[64]=0
+00000000  // ctx13  input_q[65]=0
+00000000  // ctx14  input_q[66]=0
+00000000  // ctx15  input_q[67]=0
+
+// --- chunk 5  base=65  count=13 ---
+@0050
+00000000  // ctx00  input_q[65]=0
+00000000  // ctx01  input_q[66]=0
+00000000  // ctx02  input_q[67]=0
+00007FFF  // ctx03  input_q[68]=32767
+00000000  // ctx04  input_q[69]=0
+00000000  // ctx05  input_q[70]=0
+00000000  // ctx06  input_q[71]=0
+00000000  // ctx07  input_q[72]=0
+00000000  // ctx08  input_q[73]=0
+00007FFF  // ctx09  input_q[74]=32767
+00000000  // ctx10  input_q[75]=0
+00007FFF  // ctx11  input_q[76]=32767
+00000000  // ctx12  input_q[77]=0
+00000000  // ctx13  input_q[78]=0
+00000000  // ctx14  input_q[79]=0
+00000000  // ctx15  input_q[80]=0
+
+// --- chunk 6  base=78  count=13 ---
+@0060
+00000000  // ctx00  input_q[78]=0
+00000000  // ctx01  input_q[79]=0
+00007FFF  // ctx02  input_q[80]=32767
+00007FFF  // ctx03  input_q[81]=32767
+00000000  // ctx04  input_q[82]=0
+00000000  // ctx05  input_q[83]=0
+00007FFF  // ctx06  input_q[84]=32767
+00000000  // ctx07  input_q[85]=0
+00000000  // ctx08  input_q[86]=0
+00000000  // ctx09  input_q[87]=0
+00007FFF  // ctx10  input_q[88]=32767
+00000000  // ctx11  input_q[89]=0
+00007FFF  // ctx12  input_q[90]=32767
+00000000  // ctx13  input_q[91]=0
+00000000  // ctx14  input_q[92]=0
+00000000  // ctx15  input_q[93]=0
+
+// --- chunk 7  base=91  count=13 ---
+@0070
+00000000  // ctx00  input_q[91]=0
+00007FFF  // ctx01  input_q[92]=32767
+00000000  // ctx02  input_q[93]=0
+00000000  // ctx03  input_q[94]=0
+00000000  // ctx04  input_q[95]=0
+00000000  // ctx05  input_q[96]=0
+00007FFF  // ctx06  input_q[97]=32767
+00000000  // ctx07  input_q[98]=0
+00007FFF  // ctx08  input_q[99]=32767
+00007FFF  // ctx09  input_q[100]=32767
+00000000  // ctx10  input_q[101]=0
+00000000  // ctx11  input_q[102]=0
+00000000  // ctx12  input_q[103]=0
+00000000  // ctx13  input_q[104]=0
+00000000  // ctx14  input_q[105]=0
+00000000  // ctx15  input_q[106]=0
+
+// --- chunk 8  base=104  count=13 ---
+@0080
+00000000  // ctx00  input_q[104]=0
+00000000  // ctx01  input_q[105]=0
+00007FFF  // ctx02  input_q[106]=32767
+00000000  // ctx03  input_q[107]=0
+00000000  // ctx04  input_q[108]=0
+00000000  // ctx05  input_q[109]=0
+00000000  // ctx06  input_q[110]=0
+00005900  // ctx07  input_q[111]=22784
+00007FFF  // ctx08  input_q[112]=32767
+00000000  // ctx09  input_q[113]=0
+00000000  // ctx10  input_q[114]=0
+00000000  // ctx11  input_q[115]=0
+00007FFF  // ctx12  input_q[116]=32767
+00000000  // ctx13  input_q[117]=0
+00000000  // ctx14  input_q[118]=0
+00000000  // ctx15  input_q[119]=0
+
+// --- chunk 9  base=117  count=13 ---
+@0090
+00000000  // ctx00  input_q[117]=0
+00000000  // ctx01  input_q[118]=0
+00000000  // ctx02  input_q[119]=0
+00000000  // ctx03  input_q[120]=0
+00000000  // ctx04  input_q[121]=0
+00007FFF  // ctx05  input_q[122]=32767
+00000000  // ctx06  input_q[123]=0
+00007FFF  // ctx07  input_q[124]=32767
+00000000  // ctx08  input_q[125]=0
+00000000  // ctx09  input_q[126]=0
+00000000  // ctx10  input_q[127]=0
+00000000  // ctx11  input_q[128]=0
+00007FFF  // ctx12  input_q[129]=32767
+00000000  // ctx13  input_q[130]=0
+00000000  // ctx14  input_q[131]=0
+00000000  // ctx15  input_q[132]=0
+
+// --- chunk 10  base=130  count=13 ---
+@00A0
+00000000  // ctx00  input_q[130]=0
+00000000  // ctx01  input_q[131]=0
+00007FFF  // ctx02  input_q[132]=32767
+00000000  // ctx03  input_q[133]=0
+00000000  // ctx04  input_q[134]=0
+00000000  // ctx05  input_q[135]=0
+00000000  // ctx06  input_q[136]=0
+00000000  // ctx07  input_q[137]=0
+00007FFF  // ctx08  input_q[138]=32767
+00000000  // ctx09  input_q[139]=0
+00007FFF  // ctx10  input_q[140]=32767
+00007FFF  // ctx11  input_q[141]=32767
+00000000  // ctx12  input_q[142]=0
+00000000  // ctx13  input_q[143]=0
+00000000  // ctx14  input_q[144]=0
+00000000  // ctx15  input_q[145]=0
+
+// --- chunk 11  base=143  count=13 ---
+@00B0
+00000000  // ctx00  input_q[143]=0
+00007FFF  // ctx01  input_q[144]=32767
+00000000  // ctx02  input_q[145]=0
+00000000  // ctx03  input_q[146]=0
+00000000  // ctx04  input_q[147]=0
+00007FFF  // ctx05  input_q[148]=32767
+00000000  // ctx06  input_q[149]=0
+00000000  // ctx07  input_q[150]=0
+00000000  // ctx08  input_q[151]=0
+00000000  // ctx09  input_q[152]=0
+00000000  // ctx10  input_q[153]=0
+00007FFF  // ctx11  input_q[154]=32767
+00000000  // ctx12  input_q[155]=0
+00000000  // ctx13  input_q[156]=0
+00000000  // ctx14  input_q[157]=0
+00000000  // ctx15  input_q[158]=0
+
+// --- chunk 12  base=156  count=13 ---
+@00C0
+00000000  // ctx00  input_q[156]=0
+00000000  // ctx01  input_q[157]=0
+00000000  // ctx02  input_q[158]=0
+00000000  // ctx03  input_q[159]=0
+00007FFF  // ctx04  input_q[160]=32767
+00000000  // ctx05  input_q[161]=0
+00000000  // ctx06  input_q[162]=0
+00000000  // ctx07  input_q[163]=0
+00007FFF  // ctx08  input_q[164]=32767
+00000000  // ctx09  input_q[165]=0
+00000000  // ctx10  input_q[166]=0
+00000000  // ctx11  input_q[167]=0
+00000000  // ctx12  input_q[168]=0
+00000000  // ctx13  input_q[169]=0
+00000000  // ctx14  input_q[170]=0
+00000000  // ctx15  input_q[171]=0
+
+// --- chunk 13  base=169  count=13 ---
+@00D0
+00000000  // ctx00  input_q[169]=0
+00007FFF  // ctx01  input_q[170]=32767
+00000000  // ctx02  input_q[171]=0
+00000000  // ctx03  input_q[172]=0
+00000000  // ctx04  input_q[173]=0
+00000000  // ctx05  input_q[174]=0
+00000000  // ctx06  input_q[175]=0
+00007FFF  // ctx07  input_q[176]=32767
+00000000  // ctx08  input_q[177]=0
+00000000  // ctx09  input_q[178]=0
+00000000  // ctx10  input_q[179]=0
+00007FFF  // ctx11  input_q[180]=32767
+00000000  // ctx12  input_q[181]=0
+00000000  // ctx13  input_q[182]=0
+00000000  // ctx14  input_q[183]=0
+00000000  // ctx15  input_q[184]=0
+
+// --- chunk 14  base=182  count=13 ---
+@00E0
+00000000  // ctx00  input_q[182]=0
+00000000  // ctx01  input_q[183]=0
+00000000  // ctx02  input_q[184]=0
+00000000  // ctx03  input_q[185]=0
+00007FFF  // ctx04  input_q[186]=32767
+00000000  // ctx05  input_q[187]=0
+00000000  // ctx06  input_q[188]=0
+00007FFF  // ctx07  input_q[189]=32767
+00000000  // ctx08  input_q[190]=0
+00000000  // ctx09  input_q[191]=0
+00007FFF  // ctx10  input_q[192]=32767
+00003F00  // ctx11  input_q[193]=16128
+00000000  // ctx12  input_q[194]=0
+00000000  // ctx13  input_q[195]=0
+00000000  // ctx14  input_q[196]=0
+00000000  // ctx15  input_q[197]=0
+
+// --- chunk 15  base=195  count=13 ---
+@00F0
+00000000  // ctx00  input_q[195]=0
+00007FFF  // ctx01  input_q[196]=32767
+00000000  // ctx02  input_q[197]=0
+00000000  // ctx03  input_q[198]=0
+00000000  // ctx04  input_q[199]=0
+00000000  // ctx05  input_q[200]=0
+00000000  // ctx06  input_q[201]=0
+00007FFF  // ctx07  input_q[202]=32767
+00000000  // ctx08  input_q[203]=0
+00007FFF  // ctx09  input_q[204]=32767
+00000000  // ctx10  input_q[205]=0
+00000000  // ctx11  input_q[206]=0
+00000000  // ctx12  input_q[207]=0
+00000000  // ctx13  input_q[208]=0
+00000000  // ctx14  input_q[209]=0
+00000000  // ctx15  input_q[210]=0
+
+// --- chunk 16  base=208  count=13 ---
+@0100
+00000000  // ctx00  input_q[208]=0
+00007FFF  // ctx01  input_q[209]=32767
+00000000  // ctx02  input_q[210]=0
+00000000  // ctx03  input_q[211]=0
+00007FFF  // ctx04  input_q[212]=32767
+00000000  // ctx05  input_q[213]=0
+00000000  // ctx06  input_q[214]=0
+00000000  // ctx07  input_q[215]=0
+00000000  // ctx08  input_q[216]=0
+00000000  // ctx09  input_q[217]=0
+00007FFF  // ctx10  input_q[218]=32767
+00000000  // ctx11  input_q[219]=0
+00000000  // ctx12  input_q[220]=0
+00000000  // ctx13  input_q[221]=0
+00000000  // ctx14  input_q[222]=0
+00000000  // ctx15  input_q[223]=0
+
+// --- chunk 17  base=221  count=13 ---
+@0110
+00000000  // ctx00  input_q[221]=0
+00000000  // ctx01  input_q[222]=0
+00000000  // ctx02  input_q[223]=0
+00000000  // ctx03  input_q[224]=0
+00000000  // ctx04  input_q[225]=0
+00000000  // ctx05  input_q[226]=0
+00000000  // ctx06  input_q[227]=0
+00007FFF  // ctx07  input_q[228]=32767
+00000000  // ctx08  input_q[229]=0
+00000000  // ctx09  input_q[230]=0
+00000000  // ctx10  input_q[231]=0
+00000000  // ctx11  input_q[232]=0
+00000000  // ctx12  input_q[233]=0
+00000000  // ctx13  input_q[234]=0
+00000000  // ctx14  input_q[235]=0
+00000000  // ctx15  input_q[236]=0
+
+// --- chunk 18  base=234  count=13 ---
+@0120
+00007FFF  // ctx00  input_q[234]=32767
+00000000  // ctx01  input_q[235]=0
+00007FFF  // ctx02  input_q[236]=32767
+00007FFF  // ctx03  input_q[237]=32767
+00000000  // ctx04  input_q[238]=0
+00000000  // ctx05  input_q[239]=0
+00007FFF  // ctx06  input_q[240]=32767
+00007FFF  // ctx07  input_q[241]=32767
+00000000  // ctx08  input_q[242]=0
+00000000  // ctx09  input_q[243]=0
+00007FFF  // ctx10  input_q[244]=32767
+00000000  // ctx11  input_q[245]=0
+00000000  // ctx12  input_q[246]=0
+00000000  // ctx13  input_q[247]=0
+00000000  // ctx14  input_q[248]=0
+00000000  // ctx15  input_q[249]=0
+
+// --- chunk 19  base=247  count=13 ---
+@0130
+00000000  // ctx00  input_q[247]=0
+00000000  // ctx01  input_q[248]=0
+00000000  // ctx02  input_q[249]=0
+00007FFF  // ctx03  input_q[250]=32767
+00000000  // ctx04  input_q[251]=0
+00000000  // ctx05  input_q[252]=0
+00000000  // ctx06  input_q[253]=0
+00000000  // ctx07  input_q[254]=0
+00000000  // ctx08  input_q[255]=0
+00000000  // ctx09  input_q[256]=0
+00000B00  // ctx10  input_q[257]=2816
+00000000  // ctx11  input_q[258]=0
+00000000  // ctx12  input_q[259]=0
+00000000  // ctx13  input_q[260]=0
+00000000  // ctx14  input_q[261]=0
+00000000  // ctx15  input_q[262]=0
+
+// --- chunk 20  base=260  count=13 ---
+@0140
+00007FFF  // ctx00  input_q[260]=32767
+00000000  // ctx01  input_q[261]=0
+00000000  // ctx02  input_q[262]=0
+00000000  // ctx03  input_q[263]=0
+00000000  // ctx04  input_q[264]=0
+00000000  // ctx05  input_q[265]=0
+00007FFF  // ctx06  input_q[266]=32767
+00000000  // ctx07  input_q[267]=0
+00000000  // ctx08  input_q[268]=0
+00000000  // ctx09  input_q[269]=0
+00000000  // ctx10  input_q[270]=0
+00000000  // ctx11  input_q[271]=0
+00007FFF  // ctx12  input_q[272]=32767
+00000000  // ctx13  input_q[273]=0
+00000000  // ctx14  input_q[274]=0
+00000000  // ctx15  input_q[275]=0
+
+// --- chunk 21  base=273  count=13 ---
+@0150
+00000000  // ctx00  input_q[273]=0
+00000000  // ctx01  input_q[274]=0
+00000000  // ctx02  input_q[275]=0
+00007FFF  // ctx03  input_q[276]=32767
+00000000  // ctx04  input_q[277]=0
+00000000  // ctx05  input_q[278]=0
+00000000  // ctx06  input_q[279]=0
+00000000  // ctx07  input_q[280]=0
+00000000  // ctx08  input_q[281]=0
+00007FFF  // ctx09  input_q[282]=32767
+00000000  // ctx10  input_q[283]=0
+00000000  // ctx11  input_q[284]=0
+00000000  // ctx12  input_q[285]=0
+00000000  // ctx13  input_q[286]=0
+00000000  // ctx14  input_q[287]=0
+00000000  // ctx15  input_q[288]=0
+
+// --- chunk 22  base=286  count=13 ---
+@0160
+00000000  // ctx00  input_q[286]=0
+00000000  // ctx01  input_q[287]=0
+00007FFF  // ctx02  input_q[288]=32767
+00007FFF  // ctx03  input_q[289]=32767
+00000000  // ctx04  input_q[290]=0
+00000000  // ctx05  input_q[291]=0
+00007FFF  // ctx06  input_q[292]=32767
+00000000  // ctx07  input_q[293]=0
+00000000  // ctx08  input_q[294]=0
+00000000  // ctx09  input_q[295]=0
+00000000  // ctx10  input_q[296]=0
+00000000  // ctx11  input_q[297]=0
+00007FFF  // ctx12  input_q[298]=32767
+00000000  // ctx13  input_q[299]=0
+00000000  // ctx14  input_q[300]=0
+00000000  // ctx15  input_q[301]=0
+
+// --- chunk 23  base=299  count=13 ---
+@0170
+00000000  // ctx00  input_q[299]=0
+00000000  // ctx01  input_q[300]=0
+00000000  // ctx02  input_q[301]=0
+00000000  // ctx03  input_q[302]=0
+00000000  // ctx04  input_q[303]=0
+00000000  // ctx05  input_q[304]=0
+00007FFF  // ctx06  input_q[305]=32767
+00000000  // ctx07  input_q[306]=0
+00000000  // ctx08  input_q[307]=0
+00007FFF  // ctx09  input_q[308]=32767
+00000000  // ctx10  input_q[309]=0
+00000000  // ctx11  input_q[310]=0
+00000000  // ctx12  input_q[311]=0
+00000000  // ctx13  input_q[312]=0
+00000000  // ctx14  input_q[313]=0
+00000000  // ctx15  input_q[314]=0
+
+// --- chunk 24  base=312  count=13 ---
+@0180
+00000000  // ctx00  input_q[312]=0
+00000000  // ctx01  input_q[313]=0
+00007FFF  // ctx02  input_q[314]=32767
+00000000  // ctx03  input_q[315]=0
+00000000  // ctx04  input_q[316]=0
+00000000  // ctx05  input_q[317]=0
+00000000  // ctx06  input_q[318]=0
+00000000  // ctx07  input_q[319]=0
+00007FFF  // ctx08  input_q[320]=32767
+00007FFF  // ctx09  input_q[321]=32767
+00000000  // ctx10  input_q[322]=0
+00000000  // ctx11  input_q[323]=0
+00007FFF  // ctx12  input_q[324]=32767
+00000000  // ctx13  input_q[325]=0
+00000000  // ctx14  input_q[326]=0
+00000000  // ctx15  input_q[327]=0
+
+// --- chunk 25  base=325  count=13 ---
+@0190
+00000000  // ctx00  input_q[325]=0
+00000000  // ctx01  input_q[326]=0
+00000000  // ctx02  input_q[327]=0
+00000000  // ctx03  input_q[328]=0
+00000000  // ctx04  input_q[329]=0
+00007FFF  // ctx05  input_q[330]=32767
+00000000  // ctx06  input_q[331]=0
+00000000  // ctx07  input_q[332]=0
+00000000  // ctx08  input_q[333]=0
+00000000  // ctx09  input_q[334]=0
+00000000  // ctx10  input_q[335]=0
+00000000  // ctx11  input_q[336]=0
+00000000  // ctx12  input_q[337]=0
+00000000  // ctx13  input_q[338]=0
+00000000  // ctx14  input_q[339]=0
+00000000  // ctx15  input_q[340]=0
+
+// --- chunk 26  base=338  count=13 ---
+@01A0
+00000000  // ctx00  input_q[338]=0
+00000000  // ctx01  input_q[339]=0
+00007FFF  // ctx02  input_q[340]=32767
+00000000  // ctx03  input_q[341]=0
+00000000  // ctx04  input_q[342]=0
+00000000  // ctx05  input_q[343]=0
+00000000  // ctx06  input_q[344]=0
+00000000  // ctx07  input_q[345]=0
+00007FFF  // ctx08  input_q[346]=32767
+00000000  // ctx09  input_q[347]=0
+00007FFF  // ctx10  input_q[348]=32767
+00000000  // ctx11  input_q[349]=0
+00000000  // ctx12  input_q[350]=0
+00000000  // ctx13  input_q[351]=0
+00000000  // ctx14  input_q[352]=0
+00000000  // ctx15  input_q[353]=0
+
+// --- chunk 27  base=351  count=13 ---
+@01B0
+00000000  // ctx00  input_q[351]=0
+00007FFF  // ctx01  input_q[352]=32767
+00000000  // ctx02  input_q[353]=0
+00000000  // ctx03  input_q[354]=0
+00000000  // ctx04  input_q[355]=0
+00007FFF  // ctx05  input_q[356]=32767
+00000000  // ctx06  input_q[357]=0
+00000000  // ctx07  input_q[358]=0
+00000000  // ctx08  input_q[359]=0
+00000000  // ctx09  input_q[360]=0
+00000000  // ctx10  input_q[361]=0
+00007FFF  // ctx11  input_q[362]=32767
+00000000  // ctx12  input_q[363]=0
+00000000  // ctx13  input_q[364]=0
+00000000  // ctx14  input_q[365]=0
+00000000  // ctx15  input_q[366]=0
+
+// --- chunk 28  base=364  count=13 ---
+@01C0
+00000000  // ctx00  input_q[364]=0
+00007FFF  // ctx01  input_q[365]=32767
+00000000  // ctx02  input_q[366]=0
+00000000  // ctx03  input_q[367]=0
+00007FFF  // ctx04  input_q[368]=32767
+00007FFF  // ctx05  input_q[369]=32767
+00000000  // ctx06  input_q[370]=0
+00000000  // ctx07  input_q[371]=0
+00007FFF  // ctx08  input_q[372]=32767
+00000000  // ctx09  input_q[373]=0
+00000000  // ctx10  input_q[374]=0
+00000000  // ctx11  input_q[375]=0
+00000000  // ctx12  input_q[376]=0
+00000000  // ctx13  input_q[377]=0
+00000000  // ctx14  input_q[378]=0
+00000000  // ctx15  input_q[379]=0
+
+// --- chunk 29  base=377  count=13 ---
+@01D0
+00000000  // ctx00  input_q[377]=0
+00007FFF  // ctx01  input_q[378]=32767
+00000000  // ctx02  input_q[379]=0
+00000000  // ctx03  input_q[380]=0
+00000000  // ctx04  input_q[381]=0
+00000000  // ctx05  input_q[382]=0
+00000000  // ctx06  input_q[383]=0
+00007FFF  // ctx07  input_q[384]=32767
+00000000  // ctx08  input_q[385]=0
+00000000  // ctx09  input_q[386]=0
+00000000  // ctx10  input_q[387]=0
+00007FFF  // ctx11  input_q[388]=32767
+00000000  // ctx12  input_q[389]=0
+00000000  // ctx13  input_q[390]=0
+00000000  // ctx14  input_q[391]=0
+00000000  // ctx15  input_q[392]=0
+
+// --- chunk 30  base=390  count=13 ---
+@01E0
+00000000  // ctx00  input_q[390]=0
+00000000  // ctx01  input_q[391]=0
+00000000  // ctx02  input_q[392]=0
+00000000  // ctx03  input_q[393]=0
+00007FFF  // ctx04  input_q[394]=32767
+00000000  // ctx05  input_q[395]=0
+00000000  // ctx06  input_q[396]=0
+00000000  // ctx07  input_q[397]=0
+00000000  // ctx08  input_q[398]=0
+00000000  // ctx09  input_q[399]=0
+00007FFF  // ctx10  input_q[400]=32767
+00007FFF  // ctx11  input_q[401]=32767
+00000000  // ctx12  input_q[402]=0
+00000000  // ctx13  input_q[403]=0
+00000000  // ctx14  input_q[404]=0
+00000000  // ctx15  input_q[405]=0
+
+// --- chunk 31  base=403  count=13 ---
+@01F0
+00000000  // ctx00  input_q[403]=0
+00007FFF  // ctx01  input_q[404]=32767
+00000000  // ctx02  input_q[405]=0
+00000000  // ctx03  input_q[406]=0
+00000000  // ctx04  input_q[407]=0
+00000000  // ctx05  input_q[408]=0
+00000000  // ctx06  input_q[409]=0
+00007FFF  // ctx07  input_q[410]=32767
+00000000  // ctx08  input_q[411]=0
+00007FFF  // ctx09  input_q[412]=32767
+00007FFF  // ctx10  input_q[413]=32767
+00000000  // ctx11  input_q[414]=0
+00000000  // ctx12  input_q[415]=0
+00000000  // ctx13  input_q[416]=0
+00000000  // ctx14  input_q[417]=0
+00000000  // ctx15  input_q[418]=0
+
+// --- chunk 32  base=416  count=13 ---
+@0200
+00000000  // ctx00  input_q[416]=0
+00000000  // ctx01  input_q[417]=0
+00000000  // ctx02  input_q[418]=0
+00000000  // ctx03  input_q[419]=0
+00007FFF  // ctx04  input_q[420]=32767
+00000000  // ctx05  input_q[421]=0
+00000000  // ctx06  input_q[422]=0
+00000000  // ctx07  input_q[423]=0
+00000000  // ctx08  input_q[424]=0
+00000000  // ctx09  input_q[425]=0
+00007FFF  // ctx10  input_q[426]=32767
+00000000  // ctx11  input_q[427]=0
+00000000  // ctx12  input_q[428]=0
+00000000  // ctx13  input_q[429]=0
+00000000  // ctx14  input_q[430]=0
+00000000  // ctx15  input_q[431]=0
+
+// --- chunk 33  base=429  count=13 ---
+@0210
+00000000  // ctx00  input_q[429]=0
+00000000  // ctx01  input_q[430]=0
+00000000  // ctx02  input_q[431]=0
+00007FFF  // ctx03  input_q[432]=32767
+00000000  // ctx04  input_q[433]=0
+00000000  // ctx05  input_q[434]=0
+00000000  // ctx06  input_q[435]=0
+00007FFF  // ctx07  input_q[436]=32767
+00000000  // ctx08  input_q[437]=0
+00000000  // ctx09  input_q[438]=0
+00000000  // ctx10  input_q[439]=0
+00000000  // ctx11  input_q[440]=0
+00000000  // ctx12  input_q[441]=0
+00000000  // ctx13  input_q[442]=0
+00000000  // ctx14  input_q[443]=0
+00000000  // ctx15  input_q[444]=0
+
+// --- chunk 34  base=442  count=13 ---
+@0220
+00007FFF  // ctx00  input_q[442]=32767
+00000000  // ctx01  input_q[443]=0
+00000000  // ctx02  input_q[444]=0
+00000000  // ctx03  input_q[445]=0
+00000000  // ctx04  input_q[446]=0
+00000000  // ctx05  input_q[447]=0
+00000000  // ctx06  input_q[448]=0
+00007FFF  // ctx07  input_q[449]=32767
+00000000  // ctx08  input_q[450]=0
+00000000  // ctx09  input_q[451]=0
+00007FFF  // ctx10  input_q[452]=32767
+00000000  // ctx11  input_q[453]=0
+00000000  // ctx12  input_q[454]=0
+00000000  // ctx13  input_q[455]=0
+00000000  // ctx14  input_q[456]=0
+00000000  // ctx15  input_q[457]=0
+
+// --- chunk 35  base=455  count=13 ---
+@0230
+00000000  // ctx00  input_q[455]=0
+00000000  // ctx01  input_q[456]=0
+00000000  // ctx02  input_q[457]=0
+00007FFF  // ctx03  input_q[458]=32767
+00000000  // ctx04  input_q[459]=0
+00007FFF  // ctx05  input_q[460]=32767
+00007FFF  // ctx06  input_q[461]=32767
+00000000  // ctx07  input_q[462]=0
+00000000  // ctx08  input_q[463]=0
+00007600  // ctx09  input_q[464]=30208
+00007FFF  // ctx10  input_q[465]=32767
+00000000  // ctx11  input_q[466]=0
+00000000  // ctx12  input_q[467]=0
+00000000  // ctx13  input_q[468]=0
+00000000  // ctx14  input_q[469]=0
+00000000  // ctx15  input_q[470]=0
+
+// --- chunk 36  base=468  count=13 ---
+@0240
+00007FFF  // ctx00  input_q[468]=32767
+00000000  // ctx01  input_q[469]=0
+00000000  // ctx02  input_q[470]=0
+00000000  // ctx03  input_q[471]=0
+00000000  // ctx04  input_q[472]=0
+00000000  // ctx05  input_q[473]=0
+00007FFF  // ctx06  input_q[474]=32767
+00000000  // ctx07  input_q[475]=0
+00000000  // ctx08  input_q[476]=0
+00000000  // ctx09  input_q[477]=0
+00000000  // ctx10  input_q[478]=0
+00000000  // ctx11  input_q[479]=0
+00007FFF  // ctx12  input_q[480]=32767
+00000000  // ctx13  input_q[481]=0
+00000000  // ctx14  input_q[482]=0
+00000000  // ctx15  input_q[483]=0
+
+// --- chunk 37  base=481  count=13 ---
+@0250
+00007FFF  // ctx00  input_q[481]=32767
+00000000  // ctx01  input_q[482]=0
+00000000  // ctx02  input_q[483]=0
+00007FFF  // ctx03  input_q[484]=32767
+00000000  // ctx04  input_q[485]=0
+00000000  // ctx05  input_q[486]=0
+00000000  // ctx06  input_q[487]=0
+00007FFF  // ctx07  input_q[488]=32767
+00000000  // ctx08  input_q[489]=0
+00007FFF  // ctx09  input_q[490]=32767
+00000000  // ctx10  input_q[491]=0
+00000000  // ctx11  input_q[492]=0
+00000000  // ctx12  input_q[493]=0
+00000000  // ctx13  input_q[494]=0
+00000000  // ctx14  input_q[495]=0
+00000000  // ctx15  input_q[496]=0
+
+// --- chunk 38  base=494  count=13 ---
+@0260
+00000000  // ctx00  input_q[494]=0
+00000000  // ctx01  input_q[495]=0
+00007FFF  // ctx02  input_q[496]=32767
+00000000  // ctx03  input_q[497]=0
+00000000  // ctx04  input_q[498]=0
+00000000  // ctx05  input_q[499]=0
+00007FFF  // ctx06  input_q[500]=32767
+00000000  // ctx07  input_q[501]=0
+00000000  // ctx08  input_q[502]=0
+00000000  // ctx09  input_q[503]=0
+00000000  // ctx10  input_q[504]=0
+00000000  // ctx11  input_q[505]=0
+00007FFF  // ctx12  input_q[506]=32767
+00000000  // ctx13  input_q[507]=0
+00000000  // ctx14  input_q[508]=0
+00000000  // ctx15  input_q[509]=0
+
+// --- chunk 39  base=507  count=13 ---
+@0270
+00000000  // ctx00  input_q[507]=0
+00000000  // ctx01  input_q[508]=0
+00000000  // ctx02  input_q[509]=0
+00000000  // ctx03  input_q[510]=0
+00000000  // ctx04  input_q[511]=0
+00007FFF  // ctx05  input_q[512]=32767
+00007FFF  // ctx06  input_q[513]=32767
+00000000  // ctx07  input_q[514]=0
+00000000  // ctx08  input_q[515]=0
+00007FFF  // ctx09  input_q[516]=32767
+00000000  // ctx10  input_q[517]=0
+00000000  // ctx11  input_q[518]=0
+00000000  // ctx12  input_q[519]=0
+00000000  // ctx13  input_q[520]=0
+00000000  // ctx14  input_q[521]=0
+00000000  // ctx15  input_q[522]=0
+
+// --- chunk 40  base=520  count=13 ---
+@0280
+00000000  // ctx00  input_q[520]=0
+00000000  // ctx01  input_q[521]=0
+00007FFF  // ctx02  input_q[522]=32767
+00000000  // ctx03  input_q[523]=0
+00000000  // ctx04  input_q[524]=0
+00000000  // ctx05  input_q[525]=0
+00000000  // ctx06  input_q[526]=0
+00000000  // ctx07  input_q[527]=0
+00007FFF  // ctx08  input_q[528]=32767
+00000000  // ctx09  input_q[529]=0
+00000000  // ctx10  input_q[530]=0
+00000000  // ctx11  input_q[531]=0
+00007FFF  // ctx12  input_q[532]=32767
+00000000  // ctx13  input_q[533]=0
+00000000  // ctx14  input_q[534]=0
+00000000  // ctx15  input_q[535]=0
+
+// --- chunk 41  base=533  count=13 ---
+@0290
+00000000  // ctx00  input_q[533]=0
+00000000  // ctx01  input_q[534]=0
+00000000  // ctx02  input_q[535]=0
+00000000  // ctx03  input_q[536]=0
+00000000  // ctx04  input_q[537]=0
+00007FFF  // ctx05  input_q[538]=32767
+00000000  // ctx06  input_q[539]=0
+00000000  // ctx07  input_q[540]=0
+00000000  // ctx08  input_q[541]=0
+00000000  // ctx09  input_q[542]=0
+00000000  // ctx10  input_q[543]=0
+00007FFF  // ctx11  input_q[544]=32767
+00000000  // ctx12  input_q[545]=0
+00000000  // ctx13  input_q[546]=0
+00000000  // ctx14  input_q[547]=0
+00000000  // ctx15  input_q[548]=0
+
+// --- chunk 42  base=546  count=13 ---
+@02A0
+00000000  // ctx00  input_q[546]=0
+00000000  // ctx01  input_q[547]=0
+00007FFF  // ctx02  input_q[548]=32767
+00000000  // ctx03  input_q[549]=0
+00000000  // ctx04  input_q[550]=0
+00000000  // ctx05  input_q[551]=0
+00000000  // ctx06  input_q[552]=0
+00000000  // ctx07  input_q[553]=0
+00007FFF  // ctx08  input_q[554]=32767
+00000000  // ctx09  input_q[555]=0
+00000000  // ctx10  input_q[556]=0
+00000000  // ctx11  input_q[557]=0
+00000000  // ctx12  input_q[558]=0
+00000000  // ctx13  input_q[559]=0
+00000000  // ctx14  input_q[560]=0
+00000000  // ctx15  input_q[561]=0
+
+// --- chunk 43  base=559  count=13 ---
+@02B0
+00000000  // ctx00  input_q[559]=0
+00000000  // ctx01  input_q[560]=0
+00007FFF  // ctx02  input_q[561]=32767
+00000000  // ctx03  input_q[562]=0
+00000000  // ctx04  input_q[563]=0
+00007FFF  // ctx05  input_q[564]=32767
+00000000  // ctx06  input_q[565]=0
+00000000  // ctx07  input_q[566]=0
+00000000  // ctx08  input_q[567]=0
+00000000  // ctx09  input_q[568]=0
+00000000  // ctx10  input_q[569]=0
+00007FFF  // ctx11  input_q[570]=32767
+00000000  // ctx12  input_q[571]=0
+00000000  // ctx13  input_q[572]=0
+00000000  // ctx14  input_q[573]=0
+00000000  // ctx15  input_q[574]=0
+
+// --- chunk 44  base=572  count=13 ---
+@02C0
+00007FFF  // ctx00  input_q[572]=32767
+00007FFF  // ctx01  input_q[573]=32767
+00000000  // ctx02  input_q[574]=0
+00000000  // ctx03  input_q[575]=0
+00000000  // ctx04  input_q[576]=0
+00007FFF  // ctx05  input_q[577]=32767
+00000000  // ctx06  input_q[578]=0
+00000000  // ctx07  input_q[579]=0
+00007FFF  // ctx08  input_q[580]=32767
+00000000  // ctx09  input_q[581]=0
+00000000  // ctx10  input_q[582]=0
+00000000  // ctx11  input_q[583]=0
+00000000  // ctx12  input_q[584]=0
+00000000  // ctx13  input_q[585]=0
+00000000  // ctx14  input_q[586]=0
+00000000  // ctx15  input_q[587]=0
+
+// --- chunk 45  base=585  count=13 ---
+@02D0
+00000000  // ctx00  input_q[585]=0
+00007FFF  // ctx01  input_q[586]=32767
+00000000  // ctx02  input_q[587]=0
+00000000  // ctx03  input_q[588]=0
+00000000  // ctx04  input_q[589]=0
+00000000  // ctx05  input_q[590]=0
+00000000  // ctx06  input_q[591]=0
+00007FFF  // ctx07  input_q[592]=32767
+00000000  // ctx08  input_q[593]=0
+00000000  // ctx09  input_q[594]=0
+00000000  // ctx10  input_q[595]=0
+00007FFF  // ctx11  input_q[596]=32767
+00000000  // ctx12  input_q[597]=0
+00000000  // ctx13  input_q[598]=0
+00000000  // ctx14  input_q[599]=0
+00000000  // ctx15  input_q[600]=0
+
+// --- chunk 46  base=598  count=13 ---
+@02E0
+00000000  // ctx00  input_q[598]=0
+00000000  // ctx01  input_q[599]=0
+00000000  // ctx02  input_q[600]=0
+00000000  // ctx03  input_q[601]=0
+00007FFF  // ctx04  input_q[602]=32767
+00000000  // ctx05  input_q[603]=0
+00000000  // ctx06  input_q[604]=0
+00000000  // ctx07  input_q[605]=0
+00000000  // ctx08  input_q[606]=0
+00000000  // ctx09  input_q[607]=0
+00007FFF  // ctx10  input_q[608]=32767
+00000000  // ctx11  input_q[609]=0
+00000000  // ctx12  input_q[610]=0
+00000000  // ctx13  input_q[611]=0
+00000000  // ctx14  input_q[612]=0
+00000000  // ctx15  input_q[613]=0
+
+// --- chunk 47  base=611  count=13 ---
+@02F0
+00000000  // ctx00  input_q[611]=0
+00007FFF  // ctx01  input_q[612]=32767
+00000000  // ctx02  input_q[613]=0
+00000000  // ctx03  input_q[614]=0
+00000000  // ctx04  input_q[615]=0
+00000000  // ctx05  input_q[616]=0
+00000000  // ctx06  input_q[617]=0
+00007FFF  // ctx07  input_q[618]=32767
+00000000  // ctx08  input_q[619]=0
+00000000  // ctx09  input_q[620]=0
+00000000  // ctx10  input_q[621]=0
+00000000  // ctx11  input_q[622]=0
+00000000  // ctx12  input_q[623]=0
+00000000  // ctx13  input_q[624]=0
+00000000  // ctx14  input_q[625]=0
+00000000  // ctx15  input_q[626]=0
+
+// --- chunk 48  base=624  count=13 ---
+@0300
+00007FFF  // ctx00  input_q[624]=32767
+00007FFF  // ctx01  input_q[625]=32767
+00000000  // ctx02  input_q[626]=0
+00000000  // ctx03  input_q[627]=0
+00007FFF  // ctx04  input_q[628]=32767
+00000000  // ctx05  input_q[629]=0
+00000000  // ctx06  input_q[630]=0
+00000000  // ctx07  input_q[631]=0
+00007FFF  // ctx08  input_q[632]=32767
+00000000  // ctx09  input_q[633]=0
+00007FFF  // ctx10  input_q[634]=32767
+00000000  // ctx11  input_q[635]=0
+00000000  // ctx12  input_q[636]=0
+00000000  // ctx13  input_q[637]=0
+00000000  // ctx14  input_q[638]=0
+00000000  // ctx15  input_q[639]=0
+
+// --- chunk 49  base=637  count=13 ---
+@0310
+00000000  // ctx00  input_q[637]=0
+00000000  // ctx01  input_q[638]=0
+00000000  // ctx02  input_q[639]=0
+00007FFF  // ctx03  input_q[640]=32767
+00000000  // ctx04  input_q[641]=0
+00000000  // ctx05  input_q[642]=0
+00000000  // ctx06  input_q[643]=0
+00007FFF  // ctx07  input_q[644]=32767
+00000000  // ctx08  input_q[645]=0
+00000000  // ctx09  input_q[646]=0
+00000000  // ctx10  input_q[647]=0
+00000000  // ctx11  input_q[648]=0
+00000000  // ctx12  input_q[649]=0
+00000000  // ctx13  input_q[650]=0
+00000000  // ctx14  input_q[651]=0
+00000000  // ctx15  input_q[652]=0
+
+// --- chunk 50  base=650  count=13 ---
+@0320
+00007FFF  // ctx00  input_q[650]=32767
+00000000  // ctx01  input_q[651]=0
+00000000  // ctx02  input_q[652]=0
+00000000  // ctx03  input_q[653]=0
+00000000  // ctx04  input_q[654]=0
+00000000  // ctx05  input_q[655]=0
+00007FFF  // ctx06  input_q[656]=32767
+00007FFF  // ctx07  input_q[657]=32767
+00000000  // ctx08  input_q[658]=0
+00000000  // ctx09  input_q[659]=0
+00007FFF  // ctx10  input_q[660]=32767
+00000000  // ctx11  input_q[661]=0
+00000000  // ctx12  input_q[662]=0
+00000000  // ctx13  input_q[663]=0
+00000000  // ctx14  input_q[664]=0
+00000000  // ctx15  input_q[665]=0
+
+// --- chunk 51  base=663  count=13 ---
+@0330
+00000000  // ctx00  input_q[663]=0
+00000000  // ctx01  input_q[664]=0
+00000000  // ctx02  input_q[665]=0
+00007FFF  // ctx03  input_q[666]=32767
+00000000  // ctx04  input_q[667]=0
+00000000  // ctx05  input_q[668]=0
+00000000  // ctx06  input_q[669]=0
+00000000  // ctx07  input_q[670]=0
+00000000  // ctx08  input_q[671]=0
+00007FFF  // ctx09  input_q[672]=32767
+00007FFF  // ctx10  input_q[673]=32767
+00000000  // ctx11  input_q[674]=0
+00000000  // ctx12  input_q[675]=0
+00000000  // ctx13  input_q[676]=0
+00000000  // ctx14  input_q[677]=0
+00000000  // ctx15  input_q[678]=0
+
+// --- chunk 52  base=676  count=13 ---
+@0340
+00007FFF  // ctx00  input_q[676]=32767
+00000000  // ctx01  input_q[677]=0
+00000000  // ctx02  input_q[678]=0
+00000000  // ctx03  input_q[679]=0
+00000000  // ctx04  input_q[680]=0
+00000000  // ctx05  input_q[681]=0
+00007FFF  // ctx06  input_q[682]=32767
+00000000  // ctx07  input_q[683]=0
+00007FFF  // ctx08  input_q[684]=32767
+00007FFF  // ctx09  input_q[685]=32767
+00000000  // ctx10  input_q[686]=0
+00000000  // ctx11  input_q[687]=0
+00007FFF  // ctx12  input_q[688]=32767
+00000000  // ctx13  input_q[689]=0
+00000000  // ctx14  input_q[690]=0
+00000000  // ctx15  input_q[691]=0
+
+// --- chunk 53  base=689  count=13 ---
+@0350
+00000000  // ctx00  input_q[689]=0
+00000000  // ctx01  input_q[690]=0
+00000000  // ctx02  input_q[691]=0
+00007FFF  // ctx03  input_q[692]=32767
+00000000  // ctx04  input_q[693]=0
+00000000  // ctx05  input_q[694]=0
+00000000  // ctx06  input_q[695]=0
+00000000  // ctx07  input_q[696]=0
+00000000  // ctx08  input_q[697]=0
+00007FFF  // ctx09  input_q[698]=32767
+00000000  // ctx10  input_q[699]=0
+00000000  // ctx11  input_q[700]=0
+00000000  // ctx12  input_q[701]=0
+00000000  // ctx13  input_q[702]=0
+00000000  // ctx14  input_q[703]=0
+00000000  // ctx15  input_q[704]=0
+
+// --- chunk 54  base=702  count=13 ---
+@0360
+00000000  // ctx00  input_q[702]=0
+00000000  // ctx01  input_q[703]=0
+00007FFF  // ctx02  input_q[704]=32767
+00000000  // ctx03  input_q[705]=0
+00000000  // ctx04  input_q[706]=0
+00000000  // ctx05  input_q[707]=0
+00007FFF  // ctx06  input_q[708]=32767
+00000000  // ctx07  input_q[709]=0
+00000000  // ctx08  input_q[710]=0
+00000000  // ctx09  input_q[711]=0
+00000000  // ctx10  input_q[712]=0
+00000000  // ctx11  input_q[713]=0
+00007FFF  // ctx12  input_q[714]=32767
+00000000  // ctx13  input_q[715]=0
+00000000  // ctx14  input_q[716]=0
+00000000  // ctx15  input_q[717]=0
+
+// --- chunk 55  base=715  count=13 ---
+@0370
+00000000  // ctx00  input_q[715]=0
+00000000  // ctx01  input_q[716]=0
+00000000  // ctx02  input_q[717]=0
+00000000  // ctx03  input_q[718]=0
+00000000  // ctx04  input_q[719]=0
+00007FFF  // ctx05  input_q[720]=32767
+00000000  // ctx06  input_q[721]=0
+00000000  // ctx07  input_q[722]=0
+00000000  // ctx08  input_q[723]=0
+00007FFF  // ctx09  input_q[724]=32767
+00000000  // ctx10  input_q[725]=0
+00000000  // ctx11  input_q[726]=0
+00000000  // ctx12  input_q[727]=0
+00000000  // ctx13  input_q[728]=0
+00000000  // ctx14  input_q[729]=0
+00000000  // ctx15  input_q[730]=0
+
+// --- chunk 56  base=728  count=13 ---
+@0380
+00000000  // ctx00  input_q[728]=0
+00000000  // ctx01  input_q[729]=0
+00007FFF  // ctx02  input_q[730]=32767
+00000000  // ctx03  input_q[731]=0
+00000000  // ctx04  input_q[732]=0
+00007FFF  // ctx05  input_q[733]=32767
+00000000  // ctx06  input_q[734]=0
+00000000  // ctx07  input_q[735]=0
+00007FFF  // ctx08  input_q[736]=32767
+00000000  // ctx09  input_q[737]=0
+00000000  // ctx10  input_q[738]=0
+00000000  // ctx11  input_q[739]=0
+00007FFF  // ctx12  input_q[740]=32767
+00000000  // ctx13  input_q[741]=0
+00000000  // ctx14  input_q[742]=0
+00000000  // ctx15  input_q[743]=0
+
+// --- chunk 57  base=741  count=13 ---
+@0390
+00000000  // ctx00  input_q[741]=0
+00000000  // ctx01  input_q[742]=0
+00000000  // ctx02  input_q[743]=0
+00000000  // ctx03  input_q[744]=0
+00000000  // ctx04  input_q[745]=0
+00007FFF  // ctx05  input_q[746]=32767
+00000000  // ctx06  input_q[747]=0
+00000000  // ctx07  input_q[748]=0
+00000000  // ctx08  input_q[749]=0
+00000000  // ctx09  input_q[750]=0
+00000000  // ctx10  input_q[751]=0
+00007FFF  // ctx11  input_q[752]=32767
+00000000  // ctx12  input_q[753]=0
+00000000  // ctx13  input_q[754]=0
+00000000  // ctx14  input_q[755]=0
+00000000  // ctx15  input_q[756]=0
+
+// --- chunk 58  base=754  count=13 ---
+@03A0
+00000000  // ctx00  input_q[754]=0
+00000000  // ctx01  input_q[755]=0
+00007FFF  // ctx02  input_q[756]=32767
+00000000  // ctx03  input_q[757]=0
+00000000  // ctx04  input_q[758]=0
+00000000  // ctx05  input_q[759]=0
+00000000  // ctx06  input_q[760]=0
+00000000  // ctx07  input_q[761]=0
+00007FFF  // ctx08  input_q[762]=32767
+00000000  // ctx09  input_q[763]=0
+00000000  // ctx10  input_q[764]=0
+00000000  // ctx11  input_q[765]=0
+00000000  // ctx12  input_q[766]=0
+00000000  // ctx13  input_q[767]=0
+00000000  // ctx14  input_q[768]=0
+00000000  // ctx15  input_q[769]=0
+
+// --- chunk 59  base=767  count=13 ---
+@03B0
+00000000  // ctx00  input_q[767]=0
+00000000  // ctx01  input_q[768]=0
+00000000  // ctx02  input_q[769]=0
+00000000  // ctx03  input_q[770]=0
+00000000  // ctx04  input_q[771]=0
+00007FFF  // ctx05  input_q[772]=32767
+00000000  // ctx06  input_q[773]=0
+00000000  // ctx07  input_q[774]=0
+00000000  // ctx08  input_q[775]=0
+00000000  // ctx09  input_q[776]=0
+00000000  // ctx10  input_q[777]=0
+00007FFF  // ctx11  input_q[778]=32767
+00000000  // ctx12  input_q[779]=0
+00000000  // ctx13  input_q[780]=0
+00000000  // ctx14  input_q[781]=0
+00000000  // ctx15  input_q[782]=0
+
+// --- chunk 60  base=780  count=4 ---
+@03C0
+00000000  // ctx00  input_q[780]=0
+00000000  // ctx01  input_q[781]=0
+00000000  // ctx02  input_q[782]=0
+00000000  // ctx03  input_q[783]=0
+00000000  // ctx04  input_q[784]=0
+00000000  // ctx05  input_q[785]=0
+00000000  // ctx06  input_q[786]=0
+00000000  // ctx07  input_q[787]=0
+00000000  // ctx08  input_q[788]=0
+00000000  // ctx09  input_q[789]=0
+00000000  // ctx10  input_q[790]=0
+00000000  // ctx11  input_q[791]=0
+00000000  // ctx12  input_q[792]=0
+00000000  // ctx13  input_q[793]=0
+00000000  // ctx14  input_q[794]=0
+00000000  // ctx15  input_q[795]=0
+

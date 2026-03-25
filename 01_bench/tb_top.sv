@@ -106,6 +106,7 @@ module tb_top;
     `include "include/tb_suite_lpr.svh"          // LPR demo feature tests (RELU, MAX, Loop CSRs)
     `include "include/tb_suite_dma_writeback.svh"  // DMA Write-Back Verification (Suite AE)
     `include "include/tb_suite_dma_readback.svh"  // DMA Tile Read-Back Verification (Suite AF)
+    `include "include/tb_suite_real_app.svh"      // Suite RAP: Real Application E2E
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -175,10 +176,10 @@ module tb_top;
     
     assign axi_arready = axi_arready_reg;
     assign axi_rvalid = axi_rvalid_reg;
-    assign axi_rdata = {mem[r_addr_reg[16:0] + 3],
-                        mem[r_addr_reg[16:0] + 2],
-                        mem[r_addr_reg[16:0] + 1],
-                        mem[r_addr_reg[16:0] + 0]};
+    assign axi_rdata = {mem[r_addr_reg[21:0] + 3],
+                        mem[r_addr_reg[21:0] + 2],
+                        mem[r_addr_reg[21:0] + 1],
+                        mem[r_addr_reg[21:0] + 0]};
     
     // RLAST is purely combinational - asserts on final beat
     // FIX: Gate on rvalid — RLAST must only be meaningful when RVALID=1 (AXI spec)
@@ -300,10 +301,10 @@ module tb_top;
             end
 
             if ((axi_awvalid && axi_awready_reg) || axi_waddr_received) begin
-                if (axi_wstrb[0]) mem[target_addr[16:0] + 0] <= axi_wdata[7:0];
-                if (axi_wstrb[1]) mem[target_addr[16:0] + 1] <= axi_wdata[15:8];
-                if (axi_wstrb[2]) mem[target_addr[16:0] + 2] <= axi_wdata[23:16];
-                if (axi_wstrb[3]) mem[target_addr[16:0] + 3] <= axi_wdata[31:24];
+                if (axi_wstrb[0]) mem[target_addr[21:0] + 0] <= axi_wdata[7:0];
+                if (axi_wstrb[1]) mem[target_addr[21:0] + 1] <= axi_wdata[15:8];
+                if (axi_wstrb[2]) mem[target_addr[21:0] + 2] <= axi_wdata[23:16];
+                if (axi_wstrb[3]) mem[target_addr[21:0] + 3] <= axi_wdata[31:24];
             end
         end
     end
@@ -433,6 +434,9 @@ module tb_top;
 
         reset_dut(5);
         run_suite_AF_dma_readback();
+
+        reset_dut(5);
+        run_suite_real_app();
 
         $display("\n================================================================");
         $display("  ALL TEST SUITES COMPLETE");

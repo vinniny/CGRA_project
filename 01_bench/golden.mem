@@ -1,0 +1,10 @@
+// golden.mem — CGRA expected raw accumulators for FC group 0
+// Image 0, seed 0xCAFEBABE
+// Word width: 32-bit  ($readmemh into reg [31:0] mem[0:3])
+// Values are pre-dequant (no >>8) and pre-bias: raw Σ(act*wt)
+// Row 0 → class 0 ('1'), Row 1 → class 1 ('2'), etc.
+//
+FFD0285A  // row0 class0 ('1')  raw=-3135398  >>8=-12248
+FFDB3847  // row1 class1 ('2')  raw=-2410425  >>8=-9416
+FFCFF45E  // row2 class2 ('3')  raw=-3148706  >>8=-12300
+FFD1A45F  // row3 class3 ('4')  raw=-3038113  >>8=-11868

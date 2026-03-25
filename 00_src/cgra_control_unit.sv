@@ -228,7 +228,11 @@ module cgra_control_unit #(
     //      pe_enable is registered and lags FSM by 1 cycle, so during FINISH
     //      pe_enable is still HIGH. Without the state check, PEs execute an
     //      extra cycle with a stale/wrapped context_pc.
-    assign global_stall_o = dma_busy_i || !pe_enable || (state != STATE_RUN);
+    //   4. Array done (prevent 17th execution: counter reaches 16 one cycle
+    //      before the FSM transitions to FINISH, allowing the PE to execute
+    //      context 0 a second time if not gated here)
+    assign global_stall_o = dma_busy_i || !pe_enable || (state != STATE_RUN)
+                          || array_done_i;
     
     // =========================================================================
     // Output Assignments

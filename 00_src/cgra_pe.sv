@@ -158,8 +158,10 @@ module cgra_pe #(
     );
     
     // Select active config:
-    // - config_valid=1: Use config_frame input (single-config execution mode)
-    // - config_valid=0: Use config RAM (multi-context mode with context_pc addressing)
+    // - config_valid=1 (execution): Use config_frame from cgra_top.sv.
+    //   cgra_top indexes config_frames[pe_id][context_pc] — a 2D register
+    //   array with combinational read, zero latency, cycling per-context.
+    // - config_valid=0 (idle): Use config_ram_data from BSG SRAM.
     assign active_config = config_valid ? config_frame : config_ram_data;
 
     // FIX: config_active is true whenever PE has valid configuration
@@ -360,7 +362,12 @@ module cgra_pe #(
         // FIX: Use 64-bit temporary to prevent 32-bit overflow interpretation (e.g. 0x80000000 becoming -2^31 instead of +2^31)
         // FIX: Use 64-bit temporary to prevent 32-bit overflow and handle >40-bit products
         
-        mult_full = $signed(operand0) * $signed(operand1);
+        // FIX: Widen operands to 64-bit BEFORE multiply so the product is
+        // computed at full precision.  Without this, SystemVerilog self-determines
+        // the multiply width as max(32,32)=32, silently truncating products that
+        // exceed the 32-bit signed range before they reach mult_full[63:0].
+        mult_full = $signed({{(64-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0})
+                  * $signed({{(64-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1});
         
         // Check for 40-bit overflow
         // If all bits from [63:39] are NOT identical, we have overflow beyond 40 bits.

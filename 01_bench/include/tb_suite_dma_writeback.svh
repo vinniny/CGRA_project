@@ -103,7 +103,7 @@ task automatic test_AE03_bvalid_stress();
     
     $display("\n[AE03] BVALID/BREADY Stress Test");
     
-    // FIX: Use DDR-range source (0x1000_0000 aliased to mem[0] via 17-bit truncation)
+    // FIX: Use DDR-range source mapped via 22-bit address mask
     src = 32'h0000_3000;
     dst = 32'h0000_7000;
     
@@ -132,7 +132,7 @@ task automatic test_AE04_4kb_boundary_write();
     
     $display("\n[AE04] 4KB Boundary Crossing (Write)");
     
-    // FIX: Use DDR-range source (0x1000_0000 aliased to mem[0] via 17-bit truncation)
+    // FIX: Use DDR-range source mapped via 22-bit address mask
     src = 32'h0000_4000;
     dst = 32'h0000_0FE0; // 32 bytes from 4KB boundary
     
@@ -157,7 +157,7 @@ task automatic test_AE05_multi_burst_write();
     
     $display("\n[AE05] Multi-Burst Write (256 Bytes)");
     
-    // FIX: Use DDR-range source (0x1000_0000 aliased to mem[0] via 17-bit truncation)
+    // FIX: Use DDR-range source mapped via 22-bit address mask
     src = 32'h0000_C000;
     dst = 32'h0000_8000;
     
@@ -187,15 +187,15 @@ task automatic test_AE06_concurrent_read_write();
     for (int i = 0; i < XFER_SIZE; i += 4) begin
         logic [31:0] pattern;
         pattern = 32'hAE06_0000 | i[15:0];
-        mem[SRC_ADDR[16:0] + i + 0] = pattern[7:0];
-        mem[SRC_ADDR[16:0] + i + 1] = pattern[15:8];
-        mem[SRC_ADDR[16:0] + i + 2] = pattern[23:16];
-        mem[SRC_ADDR[16:0] + i + 3] = pattern[31:24];
+        mem[SRC_ADDR[21:0] + i + 0] = pattern[7:0];
+        mem[SRC_ADDR[21:0] + i + 1] = pattern[15:8];
+        mem[SRC_ADDR[21:0] + i + 2] = pattern[23:16];
+        mem[SRC_ADDR[21:0] + i + 3] = pattern[31:24];
     end
     
     // 2. Clear destination
     for (int i = 0; i < XFER_SIZE; i++)
-        mem[DST_ADDR[16:0] + i] = 8'h00;
+        mem[DST_ADDR[21:0] + i] = 8'h00;
     
     // 3. DMA transfer: src -> dst
     apb_write(ADDR_DMA_SRC, SRC_ADDR);
@@ -223,10 +223,10 @@ task automatic test_AE07_zero_length_write();
     // FIX: Seed destination with known pattern, verify zero-length write doesn't corrupt it
     for (int i = 0; i < GUARD_SIZE; i++) begin
         guard_pattern[i] = 8'hA7 ^ i[7:0];
-        mem[DST_ADDR[16:0] + i] = guard_pattern[i];
+        mem[DST_ADDR[21:0] + i] = guard_pattern[i];
     end
     
-    // FIX: Use DDR-range source (0x1000_0000 aliased to mem[0] via 17-bit truncation)
+    // FIX: Use DDR-range source mapped via 22-bit address mask
     apb_write(ADDR_DMA_SRC, 32'h0000_E000);
     apb_write(ADDR_DMA_DST, DST_ADDR);
     apb_write(ADDR_DMA_SIZE, 32'd0);
@@ -244,9 +244,9 @@ task automatic test_AE07_zero_length_write();
     begin
         bit corrupted = 0;
         for (int i = 0; i < GUARD_SIZE; i++) begin
-            if (mem[DST_ADDR[16:0] + i] !== guard_pattern[i]) begin
+            if (mem[DST_ADDR[21:0] + i] !== guard_pattern[i]) begin
                 $error("[AE07] Destination corrupted at offset %0d: expected 0x%02h, got 0x%02h",
-                       i, guard_pattern[i], mem[DST_ADDR[16:0] + i]);
+                       i, guard_pattern[i], mem[DST_ADDR[21:0] + i]);
                 corrupted = 1;
             end
         end
@@ -268,7 +268,7 @@ task automatic test_AE08_stress_random_writes();
     
     for(i=0; i<10; i++) begin
         addr = 32'h0000_A000 + (i*64);
-        // FIX: Use DDR-range source (0x1000_0000 aliased to mem[0] via 17-bit truncation)
+        // FIX: Use DDR-range source mapped via 22-bit address mask
         ram_write(32'h0000_B000, i); // Seed data
         dma_transfer(32'h0000_B000, addr, 4, 100);
         

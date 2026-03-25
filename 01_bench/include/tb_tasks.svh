@@ -156,17 +156,17 @@ endtask
 // BACKDOOR RAM ACCESS
 // ============================================================================
 task automatic ram_write(input logic [31:0] addr, input logic [31:0] data);
-    mem[addr[16:0] + 0] = data[7:0];
-    mem[addr[16:0] + 1] = data[15:8];
-    mem[addr[16:0] + 2] = data[23:16];
-    mem[addr[16:0] + 3] = data[31:24];
+    mem[addr[21:0] + 0] = data[7:0];
+    mem[addr[21:0] + 1] = data[15:8];
+    mem[addr[21:0] + 2] = data[23:16];
+    mem[addr[21:0] + 3] = data[31:24];
 endtask
 
 function automatic logic [31:0] ram_read(input logic [31:0] addr);
-    return {mem[addr[16:0] + 3],
-            mem[addr[16:0] + 2],
-            mem[addr[16:0] + 1],
-            mem[addr[16:0] + 0]};
+    return {mem[addr[21:0] + 3],
+            mem[addr[21:0] + 2],
+            mem[addr[21:0] + 1],
+            mem[addr[21:0] + 0]};
 endfunction
 
 // ============================================================================
@@ -206,15 +206,15 @@ task automatic check_data(input logic [31:0] src, input logic [31:0] dst,
     ok = 1'b1;
 
     // FIX: OOB guard — prevent array access beyond MEM_SIZE
-    if ((32'(src[16:0]) + size) > TB_MEM_SIZE || (32'(dst[16:0]) + size) > TB_MEM_SIZE) begin
-        $error("[check_data] OOB: src[16:0]=0x%05h dst[16:0]=0x%05h size=%0d exceeds MEM_SIZE=%0d",
-               src[16:0], dst[16:0], size, TB_MEM_SIZE);
+    if ((32'(src[21:0]) + size) > TB_MEM_SIZE || (32'(dst[21:0]) + size) > TB_MEM_SIZE) begin
+        $error("[check_data] OOB: src[21:0]=0x%06h dst[21:0]=0x%06h size=%0d exceeds MEM_SIZE=%0d",
+               src[21:0], dst[21:0], size, TB_MEM_SIZE);
         ok = 1'b0;
         return;
     end
 
     for (int i = 0; i < size; i++) begin
-        if (mem[{15'd0, dst[16:0]} + 32'(i)] !== mem[{15'd0, src[16:0]} + 32'(i)]) ok = 1'b0;
+        if (mem[{10'd0, dst[21:0]} + 32'(i)] !== mem[{10'd0, src[21:0]} + 32'(i)]) ok = 1'b0;
     end
 endtask
 
@@ -224,19 +224,19 @@ task automatic check_data_report(input logic [31:0] src, input logic [31:0] dst,
     logic ok;
 
     // OOB guard
-    if ((32'(src[16:0]) + size) > TB_MEM_SIZE || (32'(dst[16:0]) + size) > TB_MEM_SIZE) begin
-        fail(test_name, $sformatf("OOB: src[16:0]=0x%05h dst[16:0]=0x%05h size=%0d exceeds MEM_SIZE=%0d",
-             src[16:0], dst[16:0], size, TB_MEM_SIZE));
+    if ((32'(src[21:0]) + size) > TB_MEM_SIZE || (32'(dst[21:0]) + size) > TB_MEM_SIZE) begin
+        fail(test_name, $sformatf("OOB: src[21:0]=0x%06h dst[21:0]=0x%06h size=%0d exceeds MEM_SIZE=%0d",
+             src[21:0], dst[21:0], size, TB_MEM_SIZE));
         return;
     end
 
     ok = 1'b1;
     for (int i = 0; i < size; i++) begin
-        if (mem[{15'd0, dst[16:0]} + 32'(i)] !== mem[{15'd0, src[16:0]} + 32'(i)]) begin
+        if (mem[{10'd0, dst[21:0]} + 32'(i)] !== mem[{10'd0, src[21:0]} + 32'(i)]) begin
             if (ok) begin  // Print first mismatch only
-                $display("  [MISMATCH] offset=%0d: dst[0x%05h]=0x%02h, src[0x%05h]=0x%02h",
-                         i, dst[16:0]+17'(i), mem[{15'd0, dst[16:0]} + 32'(i)],
-                            src[16:0]+17'(i), mem[{15'd0, src[16:0]} + 32'(i)]);
+                $display("  [MISMATCH] offset=%0d: dst[0x%06h]=0x%02h, src[0x%06h]=0x%02h",
+                         i, dst[21:0]+22'(i), mem[{10'd0, dst[21:0]} + 32'(i)],
+                            src[21:0]+22'(i), mem[{10'd0, src[21:0]} + 32'(i)]);
             end
             ok = 1'b0;
         end
@@ -322,20 +322,22 @@ task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
     logic [31:0] cfg_addr_base;
     logic [31:0] data_high, data_low;
     
-    cfg_addr_base = BASE_CONFIG | (32'({24'd0, pe_id}) << 8) | (32'({28'd0, slot}) << 3);
+    cfg_addr_base = BASE_CONFIG | (32'({24'd0, pe_id}) << 7) | (32'({28'd0, slot}) << 3);
     data_low  = config_data[31:0];
     data_high = config_data[63:32];
     
+    // HI word first: addr bit[2]=0 latches upper 32 bits
     ram_write(32'h0000_1004, data_high);
     apb_write(ADDR_DMA_SRC, 32'h0000_1004);
-    apb_write(ADDR_DMA_DST, cfg_addr_base | 32'h4);
+    apb_write(ADDR_DMA_DST, cfg_addr_base);
     apb_write(ADDR_DMA_SIZE, 32'd4);
     apb_write(ADDR_DMA_CTRL, 32'd1);
     wait_dma_done(100);
-    
+
+    // LO word second: addr bit[2]=1 commits full 64-bit config
     ram_write(32'h0000_1004, data_low);
     apb_write(ADDR_DMA_SRC, 32'h0000_1004);
-    apb_write(ADDR_DMA_DST, cfg_addr_base);
+    apb_write(ADDR_DMA_DST, cfg_addr_base | 32'h4);
     apb_write(ADDR_DMA_SIZE, 32'd4);
     apb_write(ADDR_DMA_CTRL, 32'd1);
     wait_dma_done(100);

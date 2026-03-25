@@ -303,17 +303,16 @@ task automatic run_suite_LPR;
         // =================================================================
         // LPR16: Double-Buffer Config Smoke Test
         // =================================================================
-        // NOTE: During CU execution, config_valid=cu_busy=1, so PEs always
-        // use the config_frame register (last DMA-written config), not the
-        // config SRAM slots. This test verifies that config_pe writes to
-        // config_frames[] correctly and that the last-written config is used.
+        // NOTE: Slot-0 broadcast: writing to slot 0 fills ALL 16 context slots.
+        // This test verifies that two successive slot-0 writes result in the
+        // LAST-written config being active during execution (SUB, not ADD).
         $display("[LPR16] Double-buffer config smoke test...");
         reset_dut(5);
 
-        // Write ADD config to PE0 (updates config_frames[0] via DMA path)
+        // Write ADD config to PE0 slot 0 (broadcasts ADD to all 16 context slots)
         config_pe(4'd0, 4'd0, build_pe_config(OP_ADD, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'd1));
-        // Overwrite with SUB (config_frames[0] now holds SUB)
-        config_pe(4'd0, 4'd1, build_pe_config(OP_SUB, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'd1));
+        // Overwrite slot 0 with SUB (broadcasts SUB to all 16 context slots, replacing ADD)
+        config_pe(4'd0, 4'd0, build_pe_config(OP_SUB, SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, 16'd1));
 
         tile_bank_fill_all(2'd0, 32'd10);
         
