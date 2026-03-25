@@ -82,7 +82,7 @@
 // ============================================================================
 // TESTBENCH PARAMETERS
 // ============================================================================
-localparam int TB_MEM_SIZE    = 128 * 1024 + 4;  // 128KB + 4B guard for byte-lane OOB (addr[16:0]+3)
+localparam int TB_MEM_SIZE    = 4 * 1024 * 1024 + 4;  // 4MB + 4B guard (covers DDR_BASE → RESULT_ADDR range)
 localparam int TB_TIMEOUT     = 10000;       // Default timeout cycles
 localparam int TB_CLK_PERIOD  = 10;          // 10ns = 100MHz
 
@@ -142,6 +142,12 @@ localparam logic [31:0] ADDR_UNMAPPED   = 32'h80;
 localparam logic [31:0] BASE_AXI    = 32'h0000_0000;
 localparam logic [31:0] BASE_TILE   = 32'h1000_0000;
 localparam logic [31:0] BASE_CONFIG = 32'h2000_0000;
+
+// Physical DDR addresses (matching cgra_driver.h for board-level alignment)
+localparam logic [31:0] DDR_BASE     = 32'h1000_0000;
+localparam logic [31:0] DDR_IMAGE    = 32'h1000_0000;  // Image/tile staging
+localparam logic [31:0] DDR_CONFIG   = 32'h1010_0000;  // PE config staging
+localparam logic [31:0] DDR_RESULT   = 32'h1020_0000;  // Write-back destination
 
 // ============================================================================
 // PE OPCODE CONSTANTS (21-Op ISA)

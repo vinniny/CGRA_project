@@ -189,30 +189,33 @@ module cgra_top #(
     // =========================================================================
     // FIX 2: Double-Pump Config Loader (32-bit DMA → 64-bit Config)
     // =========================================================================
-    // Protocol: Write High Word (addr[2]=1) → Write Low Word (addr[2]=0) commits 64-bit
+    // Protocol: Write High Word (addr[2]=0) → Write Low Word (addr[2]=1) commits 64-bit
+    // Polarity: bit[2]=0 latches HI (first in sequential DMA), bit[2]=1 commits LO.
+    // This enables bulk DMA: sequential writes to CONFIG_BASE+0,+4,+8,...
+    // naturally pair as [HI latch, LO commit] per 8-byte config entry.
     logic [31:0] config_high_reg;     // Holding register for upper 32 bits
     logic [63:0] config_full_word;    // Combined 64-bit config
     logic        config_commit_en;    // Triggers when low word written
     logic        config_high_loaded;  // FIX: Guard — high word must be written before commit
-    
+
     always_ff @(posedge clk) begin
         if (!rst_n || cu_soft_reset) begin
             config_high_reg    <= 32'd0;  // FIX: Clear on soft reset to prevent stale pairing
             config_high_loaded <= 1'b0;
-        end else if (dma_cfg_we && dma_cfg_addr[2]) begin
-            // Writing to high word address (offset 4 within config slot)
+        end else if (dma_cfg_we && !dma_cfg_addr[2]) begin
+            // Writing to high word address (addr[2]=0, first in sequential order)
             config_high_reg    <= dma_cfg_wdata;
             config_high_loaded <= 1'b1;
         end else if (config_commit_en) begin
             config_high_loaded <= 1'b0;   // Clear after commit
         end
     end
-    
-    // Commit trigger: DMA writes to low word address (addr[2]=0) AND high word was loaded
+
+    // Commit trigger: DMA writes to low word address (addr[2]=1) AND high word was loaded
     // FIX: Without config_high_loaded guard, a stray low-word write could commit
     //      a stale or zeroed high_reg, silently corrupting the PE config frame.
-    assign config_commit_en = dma_cfg_we && !dma_cfg_addr[2] && config_high_loaded;
-    
+    assign config_commit_en = dma_cfg_we && dma_cfg_addr[2] && config_high_loaded;
+
     // Combined 64-bit config: {high_reg, current_low_word}
     assign config_full_word = {config_high_reg, dma_cfg_wdata};
     
@@ -226,14 +229,17 @@ module cgra_top #(
     // =========================================================================
     // Internal Wires: Configuration (simplified for now)
     // =========================================================================
-    logic [CONFIG_WIDTH-1:0] config_frames [0:15];  // 16 PE configs
-    
+    // 2D config register array: [pe_id][context_slot]
+    // Combinational read via context_pc — zero latency, no BSG pipeline issue.
+    // Survives soft_reset (only cleared by global rst_n).
+    logic [CONFIG_WIDTH-1:0] config_frames [0:15][0:15];  // 16 PEs × 16 contexts
+
     // =========================================================================
     // Internal Wires: Control Unit → Flow Control
     // =========================================================================
     logic [3:0]  context_pc;    // 4-bit PC counter (0-15) from Control Unit
     logic        global_stall;  // Stall signal to PE array
-    
+
     // =========================================================================
     // Internal Wires: Hybrid I/O - Result Collection from Array
     // =========================================================================
@@ -243,21 +249,37 @@ module cgra_top #(
     logic        result_valid;
 
     // Config Write Logic: Populate config_frames when DMA commits
+    // Slot-0 broadcast: writing to slot 0 fills ALL 16 context slots of the PE.
+    //   This preserves backward compatibility — single-config tests write slot 0
+    //   and expect the same instruction to execute on every context_pc cycle.
+    // Addressed write: writing to slot 1-15 updates only that specific slot.
+    //   Multi-context drivers (e.g. FC layer) write slot 0 first (broadcast),
+    //   then overwrite slots 1-15 with per-context configs.
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            for (int i = 0; i < 16; i++) begin
-                config_frames[i] <= 64'd0;
-            end
+            for (int i = 0; i < 16; i++)
+                for (int j = 0; j < 16; j++)
+                    config_frames[i][j] <= 64'd0;
         end else if (config_commit_en) begin
-            // Write to selected PE's config frame
-            config_frames[dma_cfg_pe_sel] <= config_full_word;
+            if (dma_cfg_addr[6:3] == 4'd0) begin
+                // Slot 0: broadcast to all 16 context slots
+                for (int s = 0; s < 16; s++)
+                    config_frames[dma_cfg_pe_sel][s] <= config_full_word;
+            end else begin
+                // Slot 1-15: addressed write to specific context slot
+                config_frames[dma_cfg_pe_sel][dma_cfg_addr[6:3]] <= config_full_word;
+            end
         end
     end
 
     // =========================================================================
     // TEMPORARY: Placeholder assignment for config PE selection
     // =========================================================================
-    assign dma_cfg_pe_sel = dma_cfg_addr[11:8];  // PE select from higher bits (avoid overlap with slot)
+    // Address layout within 2048-byte config block:
+    //   [2]    = HI/LO (0=HI latch, 1=LO commit)
+    //   [6:3]  = context slot (0-15, stride 8 bytes)
+    //   [10:7] = PE select (0-15, stride 128 bytes)
+    assign dma_cfg_pe_sel = dma_cfg_addr[10:7];
     
     // =========================================================================
     // TEMPORARY: Hardware Loop Configuration - NOW WIRED FROM CSR
@@ -423,6 +445,29 @@ module cgra_top #(
     // =========================================================================
     // 4 banks × 1024 words = 16KB total
     // DMA writes to ext_* port, Array reads from bank*_rdata
+    //
+    // FIX: Tile read pre-fetch to compensate for 1-cycle sync read latency.
+    // The sync read registers the address at posedge, outputting data 1 cycle
+    // later.  Without pre-fetch, the PE at context_pc=N reads tile[N-1].
+    // Solution: feed `tile_prefetch_pc` (= next context_pc) to the tile
+    // address, so the registered read delivers tile[N] when PE executes at N.
+    // When stalled: holds current pc (pre-loads data for first execution).
+    // When executing: advances to pc+1 (pre-loads next context's data).
+    logic [3:0] tile_prefetch_pc;
+    always_comb begin
+        if (pe_enable && !global_stall) begin
+            // Executing: pre-fetch next context (mirrors CU PC increment)
+            if (context_pc == 4'd15)
+                tile_prefetch_pc = 4'd0;
+            else
+                tile_prefetch_pc = context_pc + 4'd1;
+        end else begin
+            // Stalled or idle: hold at current pc (ensures first execution
+            // reads the correct context after the stall cycle pre-loads it)
+            tile_prefetch_pc = context_pc;
+        end
+    end
+
     cgra_tile_memory #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(12),
@@ -436,7 +481,7 @@ module cgra_top #(
         // Each bank address = context_pc, enabling 16-word streaming per run
         
         // Bank 0 (Row 0) - Read port to array
-        .bank0_addr({8'd0, context_pc}), // FIX 3: Address = context_pc (0-15)
+        .bank0_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency (0-15)
         .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
         .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
@@ -444,7 +489,7 @@ module cgra_top #(
         .bank0_valid(row_valid[0]),
 
         // Bank 1 (Row 1) - Read port to array
-        .bank1_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
+        .bank1_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
         .bank1_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
@@ -452,7 +497,7 @@ module cgra_top #(
         .bank1_valid(row_valid[1]),
 
         // Bank 2 (Row 2) - Read port to array
-        .bank2_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
+        .bank2_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
         .bank2_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
@@ -460,7 +505,7 @@ module cgra_top #(
         .bank2_valid(row_valid[2]),
 
         // Bank 3 (Row 3) - Read port to array
-        .bank3_addr({8'd0, context_pc}), // FIX 3: Address = context_pc
+        .bank3_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
         .bank3_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),
@@ -560,22 +605,23 @@ module cgra_top #(
         .rst_n(rst_n & pe_reset_n),  // Combined reset
         
         // Configuration - FIX: Wire from config_frames array (loaded by DMA)
-        .config_frame_00(config_frames[0]),
-        .config_frame_01(config_frames[1]),
-        .config_frame_02(config_frames[2]),
-        .config_frame_03(config_frames[3]),
-        .config_frame_10(config_frames[4]),
-        .config_frame_11(config_frames[5]),
-        .config_frame_12(config_frames[6]),
-        .config_frame_13(config_frames[7]),
-        .config_frame_20(config_frames[8]),
-        .config_frame_21(config_frames[9]),
-        .config_frame_22(config_frames[10]),
-        .config_frame_23(config_frames[11]),
-        .config_frame_30(config_frames[12]),
-        .config_frame_31(config_frames[13]),
-        .config_frame_32(config_frames[14]),
-        .config_frame_33(config_frames[15]),
+        // Combinational MUX: config_frames[pe_id][context_pc] — zero latency
+        .config_frame_00(config_frames[0][context_pc]),
+        .config_frame_01(config_frames[1][context_pc]),
+        .config_frame_02(config_frames[2][context_pc]),
+        .config_frame_03(config_frames[3][context_pc]),
+        .config_frame_10(config_frames[4][context_pc]),
+        .config_frame_11(config_frames[5][context_pc]),
+        .config_frame_12(config_frames[6][context_pc]),
+        .config_frame_13(config_frames[7][context_pc]),
+        .config_frame_20(config_frames[8][context_pc]),
+        .config_frame_21(config_frames[9][context_pc]),
+        .config_frame_22(config_frames[10][context_pc]),
+        .config_frame_23(config_frames[11][context_pc]),
+        .config_frame_30(config_frames[12][context_pc]),
+        .config_frame_31(config_frames[13][context_pc]),
+        .config_frame_32(config_frames[14][context_pc]),
+        .config_frame_33(config_frames[15][context_pc]),
         .config_valid(cu_busy),    // FIX: Enable PE execution when CU is running
         
         // Multi-context interface - FIX 2: Double-pump config path

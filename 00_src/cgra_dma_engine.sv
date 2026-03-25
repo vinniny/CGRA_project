@@ -154,11 +154,12 @@ module cgra_dma_engine #(
     typedef enum logic [2:0] {
         W_IDLE  = 3'd0,
         W_WAIT  = 3'd1,  // Wait for FIFO data
-        W_ADDR  = 3'd2,  // AW phase
-        W_DATA  = 3'd3,  // W phase
-        W_RESP  = 3'd4,  // B phase
+        W_ADDR  = 3'd2,  // AW phase (AXI only)
+        W_DATA  = 3'd3,  // W phase  (AXI only)
+        W_RESP  = 3'd4,  // B phase  (AXI only)
         W_DONE  = 3'd5,
-        W_DRAIN = 3'd6   // AXI-safe abort: drain in-flight write burst
+        W_DRAIN = 3'd6,  // AXI-safe abort: drain in-flight write burst
+        W_LOCAL = 3'd7   // Fast local drain: tile/config writes (1 word/cycle)
     } write_state_t;
 
     read_state_t  r_state;
@@ -614,8 +615,10 @@ module cgra_dma_engine #(
                     end
                 end
                 default: begin
-                    // W_IDLE, W_WAIT, W_DONE — safe to go directly to IDLE
+                    // W_IDLE, W_WAIT, W_DONE, W_LOCAL — safe to go directly to IDLE
                     w_state <= W_IDLE;
+                    local_write_en <= 1'b0;
+                    local_fifo_pop <= 1'b0;
                     write_data_reg_valid <= 1'b0;
                     write_beat_counter <= '0;
                     m_axi_awvalid <= 1'b0;
@@ -682,7 +685,7 @@ module cgra_dma_engine #(
                             local_fifo_pop <= 1'b1;
                         end
                         
-                        w_state <= W_ADDR;
+                        w_state <= dst_is_axi ? W_ADDR : W_LOCAL;
                     end else if (write_words_remaining == '0) begin
                         w_state <= W_DONE;
                     end
@@ -807,6 +810,7 @@ module cgra_dma_engine #(
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
                     local_write_en <= 1'b0;
+                    local_fifo_pop <= 1'b0;
                     w_state <= W_IDLE;
                 end
                 
@@ -881,11 +885,31 @@ module cgra_dma_engine #(
                     end
                 end
                 
+                W_LOCAL: begin
+                    // ─── Local drain: tile/config writes ────────────────────
+                    // write_data_reg holds the current word (loaded in W_WAIT).
+                    // Write it to the local destination, then return to W_WAIT
+                    // for the next word.  Cannot pre-load write_data_reg here
+                    // because the NBA update would overwrite the current word
+                    // before the tile/config memory captures it.
+                    local_write_addr      <= write_addr;
+                    local_write_en        <= 1'b1;
+                    local_fifo_pop        <= 1'b0;
+                    write_addr            <= write_addr + BYTES_PER_WORD;
+                    write_words_remaining <= write_words_remaining - 1'b1;
+
+                    if (write_words_remaining == 32'd1) begin
+                        w_state <= W_DONE;
+                    end else begin
+                        w_state <= W_WAIT;
+                    end
+                end
+
                 default: w_state <= W_IDLE;
             endcase
         end
     end
-    
+
     // =========================================================================
     // Local Memory & Config Output Assignments
     // =========================================================================
@@ -1038,9 +1062,9 @@ module cgra_dma_engine #(
             end
             
             // Check 5: Write FSM State Valid
-            if (w_state != W_IDLE && w_state != W_WAIT && w_state != W_ADDR && 
+            if (w_state != W_IDLE && w_state != W_WAIT && w_state != W_ADDR &&
                 w_state != W_DATA && w_state != W_RESP && w_state != W_DONE &&
-                w_state != W_DRAIN) begin
+                w_state != W_DRAIN && w_state != W_LOCAL) begin
                 $error("[DMA ASSERT] Write FSM in invalid state: %0d", w_state);
             end
             

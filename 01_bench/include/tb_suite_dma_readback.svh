@@ -222,7 +222,7 @@ task automatic test_AF06_zero_length();
     // Seed destination with known guard pattern
     for (i = 0; i < GUARD_SIZE; i++) begin
         guard_pattern[i] = 8'hA6 ^ i[7:0];
-        mem[DST_ADDR[16:0] + i] = guard_pattern[i];
+        mem[DST_ADDR[21:0] + i] = guard_pattern[i];
     end
 
     // Issue zero-length tile read-back
@@ -244,9 +244,9 @@ task automatic test_AF06_zero_length();
         bit corrupted;
         corrupted = 0;
         for (i = 0; i < GUARD_SIZE; i++) begin
-            if (mem[DST_ADDR[16:0] + i] !== guard_pattern[i]) begin
+            if (mem[DST_ADDR[21:0] + i] !== guard_pattern[i]) begin
                 $error("[AF06] Destination corrupted at offset %0d: expected 0x%02h, got 0x%02h",
-                       i, guard_pattern[i], mem[DST_ADDR[16:0] + i]);
+                       i, guard_pattern[i], mem[DST_ADDR[21:0] + i]);
                 corrupted = 1;
             end
         end

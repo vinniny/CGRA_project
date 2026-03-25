@@ -40,9 +40,9 @@ APP_OBJ     = $(BUILD_DIR)/lpr_demo.o
 ALL_OBJS    = $(DRIVER_OBJ) $(TILER_OBJ) $(APP_OBJ)
 
 # ── Targets ───────────────────────────────────────────────────────
-.PHONY: all clean test_tiler lpr_golden_test test
+.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex
 
-all: $(BUILD_DIR) lpr_demo lpr_cgra_accel lpr_golden_test
+all: $(BUILD_DIR) lpr_demo lpr_cgra_accel lpr_golden_test dump_cgra_hex
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -84,6 +84,19 @@ $(BUILD_DIR)/lpr_demo.o: $(APP_SRC) $(DRIVER_DIR)/cgra_driver.h $(LIB_DIR)/cgra_
 
 $(BUILD_DIR)/lpr_golden_test.o: $(APP_DIR)/lpr_golden_test.c $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
+
+# CGRA hex dump utility (no HW — runs on host, outputs $readmemh files)
+dump_cgra_hex: $(BUILD_DIR)/dump_cgra_hex.o $(GOLDEN_OBJ)
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
+	@echo "[BUILD] $(BUILD_DIR)/dump_cgra_hex ready"
+
+$(BUILD_DIR)/dump_cgra_hex.o: $(APP_DIR)/dump_cgra_hex.c $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
+
+# Convenience: build + run, writes .mem files to 01_bench/
+dump_hex: dump_cgra_hex
+	$(BUILD_DIR)/dump_cgra_hex ../01_bench/
+	@echo "[DUMP] config.mem  image.mem  golden.mem → ../01_bench/"
 
 # Standalone tiler test (no HW dependencies)
 test_tiler: $(BUILD_DIR) $(BUILD_DIR)/cgra_tiler.o $(BUILD_DIR)/test_tiler.o

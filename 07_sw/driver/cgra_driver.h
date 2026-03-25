@@ -59,6 +59,12 @@ extern "C" {
 #define CGRA_RESULT_ROW2      0x60
 #define CGRA_RESULT_ROW3      0x64
 
+/* ── Zynq-7000 DDR physical memory map (PYNQ-Z2 CMA region) ──── */
+#define CGRA_DDR_BASE         0x10000000u  /* CMA region base            */
+#define CGRA_IMAGE_ADDR       0x10000000u  /* Image/tile data staging    */
+#define CGRA_CONFIG_ADDR      0x10100000u  /* PE config data staging     */
+#define CGRA_RESULT_ADDR      0x10200000u  /* DMA write-back destination */
+
 /* ── Bit masks ───────────────────────────────────────────────────── */
 #define DMA_CTRL_START        (1u << 0)
 #define DMA_CTRL_WR_MODE      (1u << 1)
