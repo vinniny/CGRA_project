@@ -124,7 +124,7 @@ make gui                # Launch SimVision waveform viewer
 make sim DEFINES=+define+TB_VERBOSE
 
 # Clean build artifacts
-make clean              # Remove logs and compiled databases
+make clean
 ```
 
 ### Building Software
@@ -132,83 +132,37 @@ make clean              # Remove logs and compiled databases
 ```bash
 cd 07_sw
 make all                         # Build all targets (native x86_64)
-make test                        # Run golden model test (no HW needed)
-make lpr_demo                    # HW demo (requires CGRA on PYNQ-Z2)
-make lpr_golden_test             # Standalone golden model test
-make lpr_cgra_accel              # CGRA-accelerated classifier
-make dump_cgra_hex               # Dump config/image/golden as hex for TB
+make test                        # Build and run golden model test (no HW needed)
+make test_tiler                  # Build and run tiler unit tests
+make dump_hex                    # Generate config/image/golden .mem files for simulation
 make clean                       # Clean build artifacts
 
 # Cross-compile for Zynq ARM (Cortex-A9)
 make CROSS=arm-linux-gnueabihf- all
 ```
 
-### Golden Model (Pure-C Reference for Vietnamese License Plate OCR)
-
-A lightweight pure-C inference engine for character recognition on Vietnamese license plates.
-Runs on any Linux system (x86 or ARM Cortex-A9) with zero external dependencies — no ONNX Runtime,
-no Python, no floating point. Produces bit-exact int32 results for layer-by-layer comparison
-against CGRA-accelerated inference.
-
-**Vietnamese plate character set (30 classes):** `0-9`, `A-Z` excluding I, O, Q (confused with 1, 0, 9)
-
-**Network:** 28×28 grayscale → Conv1 (3×3, 1→8ch, ReLU) → MaxPool 2×2 → Conv2 (3×3, 8→16ch, ReLU) → MaxPool 2×2 → FC (784→30) → Argmax
-
-**Total weights:** 24,798 int32 values (97 KB)
-
-```bash
-cd 07_sw
-
-# Build and run golden model test (generates synthetic weights + 10 test images)
-make test
-
-# Or run manually with options
-build/lpr_golden_test                       # Synthetic weights + images
-build/lpr_golden_test weights.bin           # Load trained weights from file
-build/lpr_golden_test weights.bin image.bin # Load weights + single 28×28 image
-```
-
-**Output:**
-- `golden_weights.bin` — Serialized model weights (load on target for CGRA comparison)
-- `golden_dump/imgNN_conv1.bin` — Conv1 output per image (28×28×8 = 6,272 int32)
-- `golden_dump/imgNN_pool1.bin` — Pool1 output (14×14×8 = 1,568 int32)
-- `golden_dump/imgNN_conv2.bin` — Conv2 output (14×14×16 = 3,136 int32)
-- `golden_dump/imgNN_pool2.bin` — Pool2 output (7×7×16 = 784 int32)
-- `golden_dump/imgNN_fc.bin` — FC logits (30 int32)
-
-**End-to-end CGRA verification workflow:**
-1. `cd 07_sw && make dump_hex` — produces `../01_bench/config.mem`, `image.mem`, `golden.mem`
-2. `cd .. && make sim` — Suite RAP loads these files, drives DMA+CU, compares east-edge results bit-exactly against golden
-3. 4/4 result rows match → `VERDICT: PASS`
-
-**Hardware comparison workflow (PYNQ-Z2):**
-1. Run `make test` on host — produces `golden_weights.bin` + `golden_dump/`
-2. Copy `golden_weights.bin` to PYNQ-Z2 target
-3. Run `lpr_cgra_accel` on target — CGRA computes FC layer (Q8.8 activations, INT8 weights)
-4. Compare layer outputs: golden dump vs CGRA results
-
 ### C ALPR (Real-Time License Plate Recognition)
 
-Pure C implementation for video/webcam-based plate detection using ONNX Runtime + FFmpeg.
+Pure C pipeline for video/webcam-based plate detection using ONNX Runtime + FFmpeg.
 Located in `scripts/License_Plate_Recognition_Cpp/c_alpr/`.
 
 ```bash
 cd scripts/License_Plate_Recognition_Cpp/c_alpr
 
 # Build (Linux, without ONNX — stub mode)
-cmake -S . -B build -DENABLE_ONNXRUNTIME=OFF -DENABLE_FFMPEG=ON
-cmake --build build --config Release
+cmake -S . -B build_linux -DENABLE_ONNXRUNTIME=OFF -DENABLE_FFMPEG=ON
+cmake --build build_linux --config Release
 
 # Build with ONNX Runtime (full inference)
-cmake -S . -B build -DENABLE_ONNXRUNTIME=ON \
+cmake -S . -B build_linux -DENABLE_ONNXRUNTIME=ON \
       -DONNXRUNTIME_ROOT=/path/to/onnxruntime -DENABLE_FFMPEG=ON
-cmake --build build --config Release
+cmake --build build_linux --config Release
 
 # Run modes
-build/c_alpr configs/alpr_config.ini video.mp4         # Video file
-build/c_alpr configs/alpr_config.ini webcam:0           # Webcam
-build/c_alpr configs/alpr_config.ini image.bmp          # Single BMP image
-build/c_alpr configs/alpr_config.ini folder/             # Batch folder
+build_linux/c_alpr configs/alpr_config.ini webcam:0     # Webcam
+build_linux/c_alpr configs/alpr_config.ini video.mp4    # Video file
+build_linux/c_alpr configs/alpr_config.ini image.bmp    # Single BMP image
+build_linux/c_alpr configs/alpr_config.ini folder/      # Batch folder
 ```
 
 ---
@@ -344,8 +298,8 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 |--------|----------|--------|-------|-------------|
 | 0x20 | CU_CTRL | RW | 0x0 | [0] Start, [1] Soft Reset |
 | 0x24 | CU_STATUS | RO | 0x0 | [0] Busy, [1] Done |
-| 0x28 | CU_CYCLES | RO | 0x0 | Execution cycle counter (active cycles only) |
-| 0x2C | CU_TIMEOUT | RW | 0x0 | Max cycles (0 = unlimited) |
+| 0x28 | CU_CYCLES | RO | 0x0 | Active (non-stalled) execution cycle counter |
+| 0x2C | CU_TIMEOUT | RW | 0x0 | Max wall-clock cycles before timeout (0 = unlimited) |
 
 **Interrupt Control (2 registers):**
 
@@ -366,8 +320,8 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
 | 0x48 | LOOP_START | RW | 0x0 | Hardware loop start PC [15:0] |
-| 0x4C | LOOP_END | RW | 0x0 | Hardware loop end PC [15:0] |
-| 0x50 | LOOP_COUNT | RW | 0x0 | Hardware loop iteration count [15:0] (0 = run once) |
+| 0x4C | LOOP_END | RW | 0x0 | Hardware loop end PC [15:0] (inclusive) |
+| 0x50 | LOOP_COUNT | RW | 0x0 | Extra iterations beyond the first pass [15:0] (0 = run once) |
 
 **LPR Row Results (4 registers — East-edge output capture):**
 
@@ -386,13 +340,13 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | 0x1XXX_XXXX | Tile Memory | [13:12]=Bank, [11:0]=Byte offset |
 | 0x2XXX_XXXX | Config RAM | [11:8]=PE ID, [6:3]=Slot, [2]=Hi/Lo word |
 
-**Important:** Staging buffers in DDR **must** use prefix `0x0`. Addresses with prefix `0x1` or `0x2` route to internal memories, not external RAM.
+**Important:** Staging buffers in DDR **must** use prefix `0x0`. Addresses with prefix `0x1` or `0x2` are routed to internal memories, not external RAM.
 
 **Config double-pump write sequence (64-bit atomic):**
-1. Write `data[63:32]` to `0x2XXXXXXX | 0x4` (HI word, latches upper 32 bits)
-2. Write `data[31:0]` to `0x2XXXXXXX` (LO word, commits full 64-bit entry)
+1. Write `data[63:32]` to `0x2XXXXXXX | 0x4` — latches upper 32 bits (addr[2]=1)
+2. Write `data[31:0]` to `0x2XXXXXXX` — commits full 64-bit config entry (addr[2]=0)
 
-**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots. Slots 1-15 update only that slot.
+**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE. Writing to slots 1–15 updates only that specific slot.
 
 ---
 
@@ -403,10 +357,10 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | Op | Mnemonic | Operation | Flags | Latency |
 |----|----------|-----------|-------|---------|
 | 0 | NOP | No operation | - | 1 |
-| 1 | ADD | A + B (sat) | OVF | 1 |
-| 2 | SUB | A - B (sat) | OVF | 1 |
+| 1 | ADD | A + B (saturating) | OVF | 1 |
+| 2 | SUB | A - B (saturating) | OVF | 1 |
 | 3 | MUL | A × B (64-bit full precision) | - | 1 |
-| 4 | MAC | Acc += A × B (64-bit, sat to 40b) | OVF | 1 |
+| 4 | MAC | Acc += A × B (64-bit, saturating to 40b) | OVF | 1 |
 | 5 | AND | A & B | - | 1 |
 | 6 | OR | A \| B | - | 1 |
 | 7 | XOR | A ^ B | - | 1 |
@@ -424,7 +378,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | 19 | RELU | max(0, A) | - | 1 |
 | 20 | MAX | max(A, B) signed | - | 1 |
 
-**MUL/MAC precision note:** Both operands are sign-extended to 64 bits before multiplication, yielding a full 64-bit product. For MAC, the product is accumulated into the 40-bit saturating accumulator with overflow detection on bits [63:39].
+**MUL/MAC precision:** Both operands are sign-extended to 64 bits before multiplication, yielding a full 64-bit product. For MAC, the product is accumulated into the 40-bit saturating accumulator with overflow detection on bits [63:39].
 
 ### Configuration Frame Format (64-bit)
 
@@ -437,17 +391,17 @@ Bit Position:
 └────────────┴──────────┴──┴──┴────────┴────────┴────────┴────────┴───────┘
 ```
 
-| Field | Bits | Range | Description |
-|-------|------|-------|-------------|
-| opcode | [5:0] | 0-20 | ALU operation code |
-| src0_sel | [9:6] | 0-6 | Operand A source (0=RF, 1=N, 2=E, 3=S, 4=W, 5=SPM, 6=Imm) |
-| src1_sel | [13:10] | 0-6 | Operand B source |
-| dst_sel | [17:14] | 0-15 | RF write address |
-| route_mask | [21:18] | 0-15 | Output direction mask (N/E/S/W bits) |
-| pred_en | [22] | 0-1 | Enable predication |
-| pred_inv | [23] | 0-1 | Invert predicate |
-| imm | [39:24] | ±32767 | Signed immediate value |
-| extended | [63:40] | - | Reserved/routing extensions |
+| Field | Bits | Description |
+|-------|------|-------------|
+| opcode | [5:0] | ALU operation code (0–20) |
+| src0_sel | [9:6] | Operand A source: 0=RF, 1=N, 2=E, 3=S, 4=W, 5=SPM, 6=Imm |
+| src1_sel | [13:10] | Operand B source (same encoding as src0) |
+| dst_sel | [17:14] | RF write address (0–15) |
+| route_mask | [21:18] | Output direction mask (N/E/S/W bits) |
+| pred_en | [22] | Enable predication |
+| pred_inv | [23] | Invert predicate |
+| imm | [39:24] | Signed 16-bit immediate (±32767) |
+| extended | [63:40] | Reserved / routing extensions |
 
 ---
 
@@ -457,22 +411,12 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests Executed | **6183 PASS** |
-| Test Failures | **0** |
-| Protocol Violations | **0** |
-| Verification Architecture | Constrained Random Verification (CRV) + directed |
-| Test Suites | 8 major suites (System, Fabric, Robustness, ISA, LPR, DMA-WB, DMA-RB, Real App) |
+| Total Tests | **6183 PASS, 0 FAIL** |
+| Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | 21/21 operations verified |
-| Protocol Compliance | AXI4 + APB assertion-based monitors |
+| Verification Method | Constrained Random Verification (CRV) + directed tests |
+| Test Suites | 8 (System, Fabric, Robustness, ISA, LPR, DMA-WB, DMA-RB, Real App) |
 | Status | **SILICON READY** ✅ |
-
-### Test Execution Summary
-
-**Latest Simulation Run (March 2026):**
-- **6183 tests PASSED**
-- **0 tests FAILED**
-- **0 protocol violations** (AXI4/APB)
-- **Verdict: PASS** ✅
 
 ### Test Suite Breakdown
 
@@ -485,20 +429,20 @@ Bit Position:
 | **LPR Features** | LPR | ~150 | RELU/MAX passthrough, HW loop CSRs, east-edge result collection, double-buffer config |
 | **DMA Write-Back** | AE | ~800 | Round-trip, burst protocol, 4KB boundary, multi-burst concurrency, zero-length, stress |
 | **DMA Read-Back** | AF | ~800 | Round-trip, multi-bank tile read, large transfers, 4KB crossing, abort mid-transfer, stress |
-| **Real Application E2E** | RAP | ~4 | FC layer 784→30 (61 chunks, CGRA vs. golden model bit-exact match) |
+| **Real Application E2E** | RAP | ~4 | FC layer 784→30: 61 chunks, bit-exact match against software golden model |
 
 ### Real Application Suite (RAP) Details
 
-Suite RAP drives the complete end-to-end FC layer verification:
-- Loads `config.mem` (61 chunks × 256 config words), `image.mem` (61 chunks × 16 tile words), `golden.mem` (4 expected raw accumulators) from pre-generated hex files
-- Runs ACC_CLR phase to zero all PE accumulators
-- For each of 61 chunks: loads config via individual 4-byte DMAs, stages image data to DDR, DMAs to all 4 tile banks, runs 16-context CU sweep
-- Reads RESULT_ROW0-3 after all chunks complete
-- Compares against software golden model — 4/4 rows must match bit-exactly
+Suite RAP drives the complete end-to-end FC layer verification. It loads pre-generated hex files (`config.mem`, `image.mem`, `golden.mem`) and drives DMA and CU exactly as the production driver does:
 
-Generate test fixtures:
+1. ACC_CLR sweep — zeros all PE accumulators across 16 PEs
+2. For each of 61 chunks: load config words → stage image to DDR → DMA to tile banks → run 16-context CU sweep → wait IRQ
+3. Read RESULT_ROW0-3 and compare bit-exactly against the software golden model
+
+Generate test fixtures before running simulation:
 ```bash
 cd 07_sw && make dump_hex   # Produces ../01_bench/{config,image,golden}.mem
+cd ..     && make sim       # Suite RAP verifies 4/4 result rows match golden
 ```
 
 ### Supported Simulators
@@ -568,13 +512,13 @@ cgra_top #(
     // Interrupt
     .irq          (cgra_interrupt),
 
-    // Synthesis Keeper & Debug
-    .synthesis_keep(synthesis_keep_signal),
-    .dbg_dma_busy (/* optional ILA probe */),
-    .dbg_dma_read_state (),
-    .dbg_dma_write_state(),
-    .dbg_dma_fifo_full  (),
-    .dbg_dma_fifo_empty (),
+    // Debug (optional ILA probes)
+    .synthesis_keep           (synthesis_keep_signal),
+    .dbg_dma_busy             (),
+    .dbg_dma_read_state       (),
+    .dbg_dma_write_state      (),
+    .dbg_dma_fifo_full        (),
+    .dbg_dma_fifo_empty       (),
     .dbg_dma_write_words_remaining()
 );
 ```
@@ -583,7 +527,7 @@ cgra_top #(
 
 | Signal | Requirement |
 |--------|-------------|
-| clk | 10-200 MHz, 50% duty cycle ±5% (Fmax 213.72 MHz) |
+| clk | 10–200 MHz, 50% duty cycle ±5% (Fmax 213.72 MHz) |
 | rst_n | Synchronous, active-low, min 2 cycles |
 
 ---
@@ -596,7 +540,7 @@ cgra_top #(
 
 #define CGRA_BASE     0x40000000  // Configure for your SoC
 
-// Register offsets
+// Register offsets (see Register Map section for full descriptions)
 #define DMA_CTRL      0x00    // [0]=start (auto-clear)
 #define DMA_STATUS    0x04    // [0]=busy, [1]=done
 #define DMA_SRC       0x08
@@ -612,13 +556,12 @@ cgra_top #(
 #define RESULT_STATUS 0x44    // [0]=result_valid
 #define LOOP_START    0x48    // HW loop start PC [15:0]
 #define LOOP_END      0x4C    // HW loop end PC [15:0] (inclusive)
-#define LOOP_COUNT    0x50    // HW loop iteration count [15:0] (0 = run once)
+#define LOOP_COUNT    0x50    // Extra iterations beyond first pass [15:0]
 #define RESULT_ROW0   0x58    // East-edge row 0 accumulator
 #define RESULT_ROW1   0x5C    // East-edge row 1 accumulator
 #define RESULT_ROW2   0x60    // East-edge row 2 accumulator
 #define RESULT_ROW3   0x64    // East-edge row 3 accumulator
 
-// Register access macro
 #define REG(off) (*(volatile uint32_t*)(CGRA_BASE + (off)))
 
 // Wait for DMA completion
@@ -656,16 +599,16 @@ void cgra_config_pe(uint32_t pe_id, uint32_t slot, uint64_t config,
     REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
 }
 
-// Execute with hardware loop (loop_count=0: run loop_end-loop_start+1 contexts once)
+// Execute context range with hardware loop (loop_count=0: run range once)
 void cgra_run_loop(uint32_t loop_start, uint32_t loop_end, uint32_t loop_count) {
     REG(LOOP_START) = loop_start;
     REG(LOOP_END)   = loop_end;
     REG(LOOP_COUNT) = loop_count;
-    REG(CU_CTRL)    = 1;           // Start
+    REG(CU_CTRL)    = 1;
     cgra_exec_wait();
 }
 
-// Clear all PE accumulators (configure ACC_CLR to all PEs, run once)
+// Clear all PE accumulators (ACC_CLR to all 16 PEs, run once)
 void cgra_acc_clr(uint32_t scratch_phys, uint32_t scratch_virt) {
     const uint64_t acc_clr_cfg = 0x000000000000000FULL;  // opcode=15
     for (int pe = 0; pe < 16; pe++)
@@ -690,16 +633,16 @@ void cgra_get_results(uint32_t results[4]) {
 |--------|------|-------|-------------|
 | cgra_top | cgra_top.sv | ~764 | Top-level integration: DMA, CU, tile memory, APB CSR, PE array, east-edge result registers |
 | cgra_apb_csr | cgra_apb_csr.sv | ~268 | APB register interface (20 registers, W1C IRQ, RO status) |
-| cgra_dma_engine | cgra_dma_engine.sv | ~820 | Bi-directional AXI DMA: W_LOCAL fast-drain path for tile/config, AXI burst for DDR |
+| cgra_dma_engine | cgra_dma_engine.sv | ~820 | Bi-directional AXI DMA: W_LOCAL fast-drain for tile/config, AXI burst for DDR |
 | cgra_control_unit | cgra_control_unit.sv | ~297 | FSM (IDLE→RUN→FINISH), HW loop, wall-clock timeout, global stall |
 | cgra_tile_memory | cgra_tile_memory.sv | ~280 | 4-bank SRAM with boundary checks and prefetch PC logic |
 | cgra_array_4x4 | cgra_array_4x4.sv | ~1175 | PE mesh instantiation with broadcast routing |
 | cgra_tile | cgra_tile.sv | ~224 | PE + Router wrapper |
 | cgra_pe | cgra_pe.sv | ~631 | Processing Element: 21-op ISA, 40-bit sat accumulator, 64-bit full-precision MUL/MAC |
 | cgra_router | cgra_router.sv | ~417 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
-| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~81 | BSG SRAM wrapper (16×64-bit config RAM) |
+| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~81 | BSG SRAM wrapper (16×64-bit config RAM per PE) |
 | axi_ram | axi_ram.sv | ~373 | AXI4 DDR behavioral model (simulation only) |
-| **Total RTL** | **17 files** | **~5,930** | — |
+| **Total** | **17 files** | **~5,930** | — |
 
 ---
 
@@ -711,52 +654,48 @@ void cgra_get_results(uint32_t results[4]) {
 |-----------|-------|-------|-------------|
 | **CGRA Driver** | driver/cgra_driver.{c,h} | ~519 | UIO+CMA Linux driver for PYNQ-Z2; full register API, IRQ handling |
 | **Tiler Library** | lib/cgra_tiler.{c,h} | ~340 | Im2Col + CSC conversion; CGRA-aware 4-row tile chunking |
-| **LPR Golden Model** | lib/lpr_golden.{c,h} | ~400 | Pure-C reference classifier (no ONNX, no float); bit-exact int32 output |
-| **LPR Demo** | app/lpr_demo.c | ~426 | HW/SW latency comparison: MatMul offload on CGRA vs. ARM |
-| **CGRA Accelerator** | app/lpr_cgra_accel.c | ~350 | Production classifier: Conv/Pool on ARM, FC layer on CGRA (Q8.8 activations) |
-| **Hex Dumper** | app/dump_cgra_hex.c | ~200 | Generates config.mem / image.mem / golden.mem for testbench |
+| **LPR Golden Model** | lib/lpr_golden.{c,h} | ~400 | Pure-C reference CNN (no ONNX, no float); bit-exact int32 output |
+| **LPR Demo** | app/lpr_demo.c | ~426 | HW/SW latency comparison: FC MatMul on CGRA vs. ARM |
+| **CGRA Accelerator** | app/lpr_cgra_accel.c | ~350 | Production classifier: Conv/Pool on ARM, FC on CGRA (Q8.8 activations) |
+| **Hex Dumper** | app/dump_cgra_hex.c | ~200 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
 | **Golden Model Test** | app/lpr_golden_test.c | ~180 | Standalone golden model validation (no hardware required) |
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
 
-### Driver Features (cgra_driver.h)
+### LPR Golden Model
+
+The golden model is a pure-C11 CNN running the full Vietnamese LP character classifier with zero external dependencies.
+
+**Network:** 28×28 grayscale → Conv1 (3×3, 1→8ch, ReLU) → MaxPool 2×2 → Conv2 (3×3, 8→16ch, ReLU) → MaxPool 2×2 → FC (784→30) → Argmax
+
+**Character set (30 classes):** `0–9`, `A–Z` excluding I, O, Q
+
+**Total weights:** 24,798 int32 values (97 KB); serialized to `golden_weights.bin`
+
+```bash
+cd 07_sw
+make test                        # Build + run with synthetic weights (no HW needed)
+build/lpr_golden_test weights.bin image.bin   # Run with trained weights + single image
+```
+
+Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Pool2, FC outputs) for layer-by-layer comparison against CGRA hardware results.
+
+### Driver Features
 - UIO-based register access (userspace I/O, no kernel module needed)
 - CMA buffer allocation (`/dev/cma`) for physically-contiguous DMA buffers
 - Full register map API (DMA, CU, IRQ, Hardware Loop, Results)
-- Hardware loop configuration (loop_start / loop_end / loop_count)
-- East-edge result readback (RESULT_ROW0-3)
-- Interrupt-driven completion via `poll()` on UIO fd
+- Interrupt-driven completion via `poll()` on UIO file descriptor
 
-### Tiler Library (cgra_tiler.h)
+### Tiler Library
 - `im2col_nhwc()` — Standard Im2Col for convolution layers
 - `im2col_4x4_tile()` — CGRA-aware tiling (4-row chunks for west-edge input)
 - `dense_to_csc()` — Dense matrix → Compressed Sparse Column conversion
 - `csc_spmv_sw()` — Software SpMV reference (validation/fallback)
 
-### LPR Golden Model (lpr_golden.h)
-- Full CNN inference in pure C11, zero external dependencies
-- Network: 28×28 → Conv1 (ReLU) → MaxPool → Conv2 (ReLU) → MaxPool → FC → Argmax
-- All arithmetic in int32; no floating point at any layer
-- Produces intermediate layer dumps (`golden_dump/`) for layer-by-layer CGRA comparison
-
-### CGRA Accelerator App (lpr_cgra_accel.c)
-- Conv1/Pool1/Conv2/Pool2 run on ARM CPU using golden model
-- FC layer (784→30) offloaded to CGRA using quantized weights
-- Q8.8 fixed-point activations, INT8 weights, ACC_CLR before each inference
-- Hardware loop for zero-overhead 16-context sweep over 61 input chunks
-- Reads RESULT_ROW0-3 for final logits, applies argmax for character prediction
-
-### Building
-
-```bash
-cd 07_sw
-make all         # Build all targets (native x86_64)
-make test        # Run tiler tests
-make dump_hex    # Produce ../01_bench/{config,image,golden}.mem for simulation
-make clean       # Clean build artifacts
-
-# ARM cross-compile for PYNQ-Z2
-make CROSS=arm-linux-gnueabihf- all
-```
+### CGRA Accelerator App
+- Conv1/Pool1/Conv2/Pool2 layers run on ARM CPU using the golden model
+- FC layer (784→30) is fully offloaded to the CGRA with Q8.8 activations and INT8 weights
+- Calls `cgra_acc_clr` before each inference, then drives 61 DMA+CU chunk iterations
+- Reads RESULT_ROW0-3 and applies argmax for the final character prediction
 
 ---
 
@@ -788,11 +727,10 @@ make CROSS=arm-linux-gnueabihf- all
 
 ### Known Design Constraints
 
-- **Tile memory prefetch:** Each PE row reads from `tile_prefetch_pc = context_pc + 1` during execution (compensates 1-cycle SRAM read latency). Config data for context `N` must be loaded before context `N-1` begins executing.
-- **Config slot 0 broadcast:** Writing a config word to PE slot 0 broadcasts to all 16 context slots. Use slot 0 writes to initialize all contexts uniformly; use slots 1-15 for per-context overrides.
-- **DMA local write (tile/config):** Uses W_LOCAL fast-drain path (1 cycle/word). AXI write path uses burst mode. Both engines share the same 8-entry FIFO.
-- **Loop count semantics:** `LOOP_COUNT=N` means N additional iterations beyond the first pass. Total iterations = N+1. Use `LOOP_COUNT=0` to run the context range exactly once.
-- **ACC_CLR required between inferences:** MAC accumulator persists across CU runs. Always execute an ACC_CLR sweep before starting a new FC computation.
+- **Tile memory prefetch:** Each PE row reads from `tile_prefetch_pc = context_pc + 1` during execution (compensates 1-cycle SRAM read latency). Config for context N must be loaded before context N−1 begins executing.
+- **DMA local write path:** Tile/config destination addresses use the W_LOCAL state machine (1 cycle/word). DDR destinations use the AXI burst path. Both share the same 8-entry FIFO; do not mix local and AXI transfers in a single DMA transaction.
+- **ACC_CLR required between inferences:** The MAC accumulator persists across CU runs. Always execute an ACC_CLR sweep (opcode 15, slot 0 broadcast to all PEs) before starting a new FC computation.
+- **Hardware loop count:** `LOOP_COUNT=N` runs the context range N+1 total times (N additional passes beyond the first). Use `LOOP_COUNT=0` to run the range exactly once.
 
 ---
 
@@ -805,10 +743,10 @@ make CROSS=arm-linux-gnueabihf- all
 | Predicated Execution | ✅ `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ PE outputs to all 4 neighbors |
-| Self-Checking Testbench | ✅ CRV + directed, golden models, 6183 tests |
+| Self-Checking Testbench | ✅ CRV + directed, 6183 tests, 0 failures |
 | BSG Memory Macros | ✅ ASIC-ready SRAM wrappers |
-| Double-Buffer Config | ✅ Ping-pong context memory (16 slots/PE) |
-| RELU / MAX Operations | ✅ ANN/LPR extensions (opcodes 19-20) |
+| Double-Buffer Config | ✅ 16-slot context memory per PE |
+| RELU / MAX Operations | ✅ ANN/LPR extensions (opcodes 19–20) |
 | Hardware Loop CSRs | ✅ Programmable start/end/count |
 | East-Edge Result Capture | ✅ 4-row APB-readable registers |
 | Bi-Directional DMA | ✅ AXI4 read + write engines, W_LOCAL fast-drain |
@@ -823,8 +761,8 @@ make CROSS=arm-linux-gnueabihf- all
 
 | Enhancement | Priority | Description |
 |-------------|----------|-------------|
-| **Parameterized Array** | High | `generate` blocks with `ROWS`/`COLS` parameters for 2×2, 8×8, N×M exploration |
-| **2D Strided DMA** | High | `STRIDE` register for efficient matrix/image sub-block access |
+| **Parameterized Array** | High | `generate` blocks with `ROWS`/`COLS` for 2×2, 8×8, N×M exploration |
+| **2D Strided DMA** | High | `STRIDE` register for matrix/image sub-block access |
 | **On-Chip Learning (STDP)** | Medium | Spike-Timing-Dependent Plasticity for local weight updates |
 | **Mixed-Precision Support** | Medium | INT8/INT16 modes for area/power efficiency |
 | **Python Config Generator** | Medium | Script to generate 64-bit config frames from assembly-like syntax |
