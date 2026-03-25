@@ -278,3 +278,20 @@ NOTES.md
 *.timing.rpt
 *.area.rpt
 *.power.rpt
+
+# ==============================================================================
+# 07_sw Generated Artifacts
+# ==============================================================================
+07_sw/golden_dump/
+07_sw/golden_weights.bin
+
+# ==============================================================================
+# C ALPR (scripts/License_Plate_Recognition_Cpp/c_alpr)
+# ==============================================================================
+scripts/License_Plate_Recognition_Cpp/c_alpr/build/
+scripts/License_Plate_Recognition_Cpp/c_alpr/build_linux/
+scripts/License_Plate_Recognition_Cpp/c_alpr/.claude/
+# ONNX model files are large binaries — store via LFS or external storage
+scripts/License_Plate_Recognition_Cpp/c_alpr/models/*.onnx
+# FUSE temp files (SSHFS artifacts)
+.fuse_hidden*
