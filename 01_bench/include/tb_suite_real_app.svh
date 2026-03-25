@@ -135,6 +135,18 @@ task automatic run_suite_real_app;
     $readmemh("../01_bench/image.mem",  rap_img);
     $readmemh("../01_bench/golden.mem", rap_gld);
 
+    // Validate that .mem files were actually loaded (readmemh silently fails if missing)
+    if (rap_gld[0] === 32'hx || (rap_gld[0] == 32'h0 && rap_gld[1] == 32'h0 &&
+                                  rap_gld[2] == 32'h0 && rap_gld[3] == 32'h0)) begin
+        $error("[RAP] golden.mem appears empty or failed to load — skipping suite");
+        error_count = error_count + 1;
+        return;
+    end
+    if (rap_cfg[0] === 64'hx || rap_cfg[0] == 64'h0) begin
+        $error("[RAP] config.mem appears empty or failed to load — skipping suite");
+        error_count = error_count + 1;
+        return;
+    end
     $display("[RAP] Loaded config.mem / image.mem / golden.mem");
     $display("[RAP] Golden: row0=0x%08h row1=0x%08h row2=0x%08h row3=0x%08h",
              rap_gld[0], rap_gld[1], rap_gld[2], rap_gld[3]);

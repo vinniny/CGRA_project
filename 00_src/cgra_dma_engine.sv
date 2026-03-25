@@ -708,19 +708,9 @@ module cgra_dma_engine #(
                             m_axi_awvalid <= 1'b0;
                             w_state <= W_DATA;
                         end
-                    end else begin
-                        // Local destination (tile/config) - single-cycle write
-                        local_write_addr <= write_addr;
-                        local_write_en <= 1'b1;
-                        write_addr <= write_addr + BYTES_PER_WORD;
-                        write_words_remaining <= write_words_remaining - 1'b1;
-                        
-                        if (write_words_remaining == 32'd1) begin
-                            w_state <= W_DONE;
-                        end else begin
-                            w_state <= W_WAIT;
-                        end
                     end
+                    // Note: Local destinations (tile/config) are handled by W_LOCAL
+                    // state — W_WAIT routes them there directly via line 688.
                 end
                 
                 W_DATA: begin
