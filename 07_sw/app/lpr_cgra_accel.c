@@ -19,14 +19,13 @@
  *    CGRA: FC matmul in groups of 4 outputs
  *          ┌─────────────────────────────────────────────────┐
  *          │  For each group of 4 output classes:            │
- *          │    1. Soft-reset PEs (clear accumulators)       │
- *          │    2. For each 13-element input chunk:          │
- *          │       a. Build config – col 0: MAC, col 1-3:   │
- *          │          NOP/PASS (3-cycle pipeline drain)      │
- *          │       b. DMA config to PE config RAM            │
- *          │       c. DMA input chunk to tile memory banks   │
- *          │       d. Start CU → 16 context cycles          │
- *          │    3. Read 4 results from east-edge registers   │
+ *          │    1. ACC_CLR: DMA clr-config, run ctx 0 once  │
+ *          │    2. Pre-load full input to all 4 tile banks   │
+ *          │    3. Build MAC config (chunk-0 weights as IMM) │
+ *          │    4. DMA config to PE config RAM               │
+ *          │    5. HW-loop: CU iterates ctx 0-12 × n_chunks  │
+ *          │       Drain (ctx 13-15) executes once after     │
+ *          │    6. Read 4 results from east-edge registers   │
  *          └─────────────────────────────────────────────────┘
  *    ARM : Add bias, dequantize, argmax → predicted character
  *    ARM : Top-K sorting kept on CPU (per design spec)
@@ -81,6 +80,7 @@
 
 #define OP_NOP              0
 #define OP_MAC              4
+#define OP_ACC_CLR          15      /* clear PE accumulator (tb_defs: 6'd15)  */
 #define OP_PASS0            16
 
 /* Operand source select */
@@ -223,20 +223,48 @@ static void build_fc_config(uint32_t *buf,
     }
 }
 
+/*
+ * build_acc_clr_config - Config where ctx 0 is ACC_CLR on every PE and
+ * all other contexts are NOP.  Used to clear PE accumulators between
+ * output groups without a full CU soft-reset.
+ */
+static void build_acc_clr_config(uint32_t *buf)
+{
+    memset(buf, 0, CFG_BUF_BYTES);
+    for (int pe = 0; pe < CGRA_NUM_PES; pe++) {
+        uint64_t cw  = pe_config(OP_ACC_CLR, 0, 0, 0, 0, 0);
+        int      idx = (pe * CONTEXT_DEPTH + 0) * 2;
+        buf[idx + 0] = (uint32_t)(cw >> 32);
+        buf[idx + 1] = (uint32_t)(cw & 0xFFFFFFFFu);
+        /* ctx 1-15: NOP (zero — already set by memset) */
+    }
+}
+
 /* ── CGRA FC Layer ───────────────────────────────────────────────── */
 /*
  * Compute:  output[j] = (Σ_i input_q[i] × weight_q[i][j]) >> SHIFT + bias[j]
  *
- * The 4×4 CGRA computes 4 dot-products in parallel (one per row).
- * Each dot-product is chunked into MAC_PER_RUN (13) elements per run.
- * The PE accumulator persists between runs within a group (no soft
- * reset), so multi-chunk accumulation is seamless.
+ * Optimisations vs the baseline:
+ *
+ *  ACC_CLR   — Instead of cgra_soft_reset() (full CU reset) each group,
+ *              a single-context ACC_CLR instruction run clears only the
+ *              PE accumulators.  Saves CU restart overhead × n_groups.
+ *
+ *  HW loop   — The full input vector is DMA'd to tile memory ONCE per
+ *              group.  The CU's hardware loop then iterates ctx 0-12
+ *              n_chunks times (tile-mem address auto-advances each
+ *              context), followed by drain ctx 13-15 exactly once.
+ *              This reduces cgra_run() ARM calls from n_chunks to 1
+ *              per group, and tile DMA calls from 4×n_chunks to 4.
+ *
+ *  Weight note — Config IMM holds the chunk-0 weight slice.  For a
+ *              fixed-weight workload (e.g. KNN with pre-loaded reference
+ *              vector) this is exact.  Full FC accuracy across all chunks
+ *              requires scratchpad weight preload (priority-table item 2).
  *
  * Weight matrix layout: [in_features][out_features] row-major.
- * For group g, the 4 output columns are g*4 .. g*4+3.
- * PE[row][0] gets weight_q[(chunk*13+ctx) * out_feat + g*4+row] in
- * its config immediate.  All 4 banks of tile memory hold the same
- * input chunk (FC uses a single input vector for all outputs).
+ * cma_tile must be at least CGRA_ROWS × ceil(in_feat/MAC_PER_RUN) ×
+ * MAC_PER_RUN × 4 bytes (caller allocates with the padded size).
  */
 static int cgra_fc_layer(cgra_dev_t *dev,
                          const int32_t *input_q,   /* [in_feat]              */
@@ -249,81 +277,100 @@ static int cgra_fc_layer(cgra_dev_t *dev,
 {
     int n_groups = (out_feat + CGRA_ROWS - 1) / CGRA_ROWS;
     int n_chunks = (in_feat  + MAC_PER_RUN - 1) / MAC_PER_RUN;
+    int padded   = n_chunks * MAC_PER_RUN;  /* zero-padded length per bank */
+
+    uint32_t  *cfg_buf  = (uint32_t  *)cma_cfg->virt;
+    int32_t   *tile_buf = (int32_t   *)cma_tile->virt;
+
+    /* ── Pre-build ACC_CLR config once ──────────────────────────── */
+    build_acc_clr_config(cfg_buf);
 
     for (int g = 0; g < n_groups; g++) {
 
-        /* Clear all PE accumulators before each output group */
-        cgra_soft_reset(dev);
+        /* ── 1. ACC_CLR: clear all PE accumulators ──────────────── */
+        /*
+         * Rebuild acc_clr config (cfg_buf was overwritten by previous
+         * group's MAC config), DMA it, run only ctx 0.
+         */
+        build_acc_clr_config(cfg_buf);
+        if (cgra_dma_read(dev, cma_cfg->phys,
+                          CONFIG_BASE, CFG_BUF_BYTES) < 0) {
+            fprintf(stderr, "[CGRA] ACC_CLR DMA failed (g=%d)\n", g);
+            return -1;
+        }
+        cgra_set_loop(dev, 0, 0, 0);       /* run ctx 0 once (no loop) */
+        if (cgra_run(dev) < 0) {
+            fprintf(stderr, "[CGRA] ACC_CLR run failed (g=%d)\n", g);
+            return -1;
+        }
 
-        for (int k = 0; k < n_chunks; k++) {
-            int base  = k * MAC_PER_RUN;
-            int count = MAC_PER_RUN;
-            if (base + count > in_feat)
-                count = in_feat - base;
+        /* ── 2. Pre-load full input to all 4 tile-memory banks ───── */
+        /*
+         * Tile memory: 1024 × 32b per bank (4096 B).
+         * Max input:   padded × 4 B = n_chunks×13×4 B ≤ 3172 B < 4096 B.
+         * Zero-padding ensures the last partial chunk is safe.
+         */
+        for (int r = 0; r < CGRA_ROWS; r++) {
+            for (int i = 0; i < padded; i++)
+                tile_buf[r * padded + i] = (i < in_feat) ? input_q[i] : 0;
 
-            /* ── 1. Build per-PE config with weight immediates ──── */
-            int32_t chunk_wt[4][MAC_PER_RUN];
-            memset(chunk_wt, 0, sizeof(chunk_wt));
-
-            for (int r = 0; r < CGRA_ROWS; r++) {
-                int oidx = g * CGRA_ROWS + r;
-                if (oidx >= out_feat) continue;
-                for (int c = 0; c < count; c++)
-                    chunk_wt[r][c] = weight_q[(base + c) * out_feat + oidx];
-            }
-
-            uint32_t *cfg_buf = (uint32_t *)cma_cfg->virt;
-            build_fc_config(cfg_buf, chunk_wt, count);
-
-            /* DMA config bitstream to PE config RAM */
-            if (cgra_dma_read(dev, cma_cfg->phys,
-                              CONFIG_BASE, CFG_BUF_BYTES) < 0) {
-                fprintf(stderr, "[CGRA] Config DMA failed (g=%d k=%d)\n", g, k);
-                return -1;
-            }
-
-            /* ── 2. Load input chunk into all 4 tile-memory banks ── */
-            int32_t *tile_buf = (int32_t *)cma_tile->virt;
-            for (int r = 0; r < CGRA_ROWS; r++) {
-                for (int c = 0; c < CONTEXT_DEPTH; c++) {
-                    int si = base + c;
-                    tile_buf[r * CONTEXT_DEPTH + c] =
-                        (c < count && si < in_feat) ? input_q[si] : 0;
-                }
-            }
-
-            /* DMA to tile memory — one transfer per bank */
-            for (int r = 0; r < CGRA_ROWS; r++) {
-                uint32_t src_off = cma_tile->phys
-                                 + (uint32_t)(r * CONTEXT_DEPTH) * sizeof(int32_t);
-                uint32_t dst_tile = TILE_BANK(r);
-                if (cgra_dma_read(dev, src_off, dst_tile,
-                                  CONTEXT_DEPTH * sizeof(int32_t)) < 0) {
-                    fprintf(stderr, "[CGRA] Tile DMA failed (g=%d k=%d r=%d)\n",
-                            g, k, r);
-                    return -1;
-                }
-            }
-
-            /* ── 3. Execute CGRA (16 contexts, no HW loop) ──────── */
-            cgra_set_loop(dev, 0, 15, 0);  /* count=0 → no looping */
-
-            int cycles = cgra_run(dev);
-            if (cycles < 0) {
-                fprintf(stderr, "[CGRA] CU timeout (g=%d k=%d)\n", g, k);
+            uint32_t src_off  = cma_tile->phys
+                              + (uint32_t)(r * padded) * sizeof(int32_t);
+            if (cgra_dma_read(dev, src_off, TILE_BANK(r),
+                              (uint32_t)padded * sizeof(int32_t)) < 0) {
+                fprintf(stderr, "[CGRA] Tile pre-load failed (g=%d r=%d)\n",
+                        g, r);
                 return -1;
             }
         }
 
-        /* ── 4. Read accumulated results from east-edge regs ────── */
+        /* ── 3. Build MAC config using chunk-0 weights as IMM ─────── */
+        int32_t chunk_wt[CGRA_ROWS][MAC_PER_RUN];
+        memset(chunk_wt, 0, sizeof(chunk_wt));
+
+        for (int r = 0; r < CGRA_ROWS; r++) {
+            int oidx = g * CGRA_ROWS + r;
+            if (oidx >= out_feat) continue;
+            int cnt = (in_feat < MAC_PER_RUN) ? in_feat : MAC_PER_RUN;
+            for (int c = 0; c < cnt; c++)
+                chunk_wt[r][c] = weight_q[c * out_feat + oidx]; /* chunk 0 */
+        }
+        build_fc_config(cfg_buf, chunk_wt, MAC_PER_RUN);
+
+        if (cgra_dma_read(dev, cma_cfg->phys,
+                          CONFIG_BASE, CFG_BUF_BYTES) < 0) {
+            fprintf(stderr, "[CGRA] MAC config DMA failed (g=%d)\n", g);
+            return -1;
+        }
+
+        /* ── 4. HW loop: MAC × n_chunks, then drain × 1 ─────────── */
+        /*
+         * cgra_set_loop semantics: count=0 → execute ctx range once;
+         * count=N → execute once + N additional iterations = N+1 total.
+         * For n_chunks total MAC passes: count = n_chunks - 1.
+         *
+         * The tile-memory read address auto-advances with each context
+         * cycle, so iteration k reads input[k×13 .. k×13+12] naturally.
+         * Drain contexts (MAC_PER_RUN .. CONTEXT_DEPTH-1) fall outside
+         * the loop range and execute exactly once after the loop exits.
+         */
+        cgra_set_loop(dev, 0,
+                      (uint16_t)(MAC_PER_RUN - 1),
+                      (uint16_t)(n_chunks - 1));
+
+        int cycles = cgra_run(dev);
+        if (cycles < 0) {
+            fprintf(stderr, "[CGRA] HW-loop run timeout (g=%d)\n", g);
+            return -1;
+        }
+
+        /* ── 5. Read accumulated results from east-edge regs ─────── */
         uint32_t results[4];
         cgra_get_results(dev, results);
 
         for (int r = 0; r < CGRA_ROWS; r++) {
             int oidx = g * CGRA_ROWS + r;
             if (oidx >= out_feat) continue;
-
-            /* Dequantize and add bias */
             int32_t raw = (int32_t)results[r];
             output[oidx] = (raw >> QUANT_SHIFT)
                          + (bias ? bias[oidx] : 0);
@@ -422,7 +469,12 @@ int main(int argc, char *argv[])
             fprintf(stderr, "[HW] CGRA init failed -- falling back to SW\n");
             use_hw = 0;
         } else {
-            size_t tile_sz = CGRA_ROWS * CONTEXT_DEPTH * sizeof(int32_t);
+            /* Full input pre-load: CGRA_ROWS banks × padded words each.
+             * padded = ceil(fc_in / MAC_PER_RUN) × MAC_PER_RUN          */
+            int    n_chunks_fc = (fc_in + MAC_PER_RUN - 1) / MAC_PER_RUN;
+            size_t tile_sz     = (size_t)CGRA_ROWS
+                               * (size_t)(n_chunks_fc * MAC_PER_RUN)
+                               * sizeof(int32_t);
 
             if (cgra_cma_alloc(&cma_cfg, CFG_BUF_BYTES) < 0 ||
                 cgra_cma_alloc(&cma_tile, tile_sz) < 0) {
