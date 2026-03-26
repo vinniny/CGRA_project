@@ -1078,16 +1078,18 @@ module cgra_dma_engine #(
             if (m_axi_wvalid && w_state == W_ADDR && !m_axi_awvalid) begin
                 $warning("[DMA WARN] WVALID high in W_ADDR state without AWVALID");
             end
-            // Debug displays removed for synthesis - uncomment for debugging:
-            // if (m_axi_rvalid && m_axi_rready) begin
-            //     $display("[DMA_RD] Data=%h | RLAST=%b | Count=%0d", m_axi_rdata, m_axi_rlast, count);
-            // end
-            // if (fifo_pop) begin
-            //     $display("[DMA_WR] PopData=%h | w_state=%0d | WrWordsLeft=%0d", fifo_rdata, w_state, write_words_remaining);
-            // end
+            // Check 9: FIFO pop mutual exclusion — AXI and local pop must never fire together
+            if (fifo_pop_axi && fifo_pop_local) begin
+                $error("[DMA ASSERT] FIFO pop race: both axi_fifo_pop and local_fifo_pop active simultaneously!");
+            end
+
+            // Check 10: FIFO push mutual exclusion — AXI and tile push must never fire together
+            if (fifo_push_axi && fifo_push_tile) begin
+                $error("[DMA ASSERT] FIFO push race: both AXI and tile push active simultaneously!");
+            end
         end
     end
-    
+
     // synthesis translate_on
 
     // =========================================================================

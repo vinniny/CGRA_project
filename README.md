@@ -7,7 +7,7 @@
 *Version 2.7.0 | March 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-6183%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-6163%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
@@ -110,7 +110,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ```bash
 # Run full verification suite (Cadence Xcelium 24.09+)
-make sim                # Compile, elaborate, simulate (6183 tests)
+make sim                # Compile, elaborate, simulate (6163 tests)
 
 # Split flow for debugging
 make compile            # Compile RTL + TB sources
@@ -411,7 +411,7 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | **6183 PASS, 0 FAIL** |
+| Total Tests | **6163 PASS, 0 FAIL** |
 | Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | 21/21 operations verified |
 | Verification Method | Constrained Random Verification (CRV) + directed tests |
@@ -743,7 +743,7 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | Predicated Execution | ✅ `pred_en`, `pred_inv` in config frame |
 | Memory Banking | ✅ 4 banks × 1024 words (bank per row) |
 | Multicast Broadcast | ✅ PE outputs to all 4 neighbors |
-| Self-Checking Testbench | ✅ CRV + directed, 6183 tests, 0 failures |
+| Self-Checking Testbench | ✅ CRV + directed, 6163 tests, 0 failures |
 | BSG Memory Macros | ✅ ASIC-ready SRAM wrappers |
 | Double-Buffer Config | ✅ 16-slot context memory per PE |
 | RELU / MAX Operations | ✅ ANN/LPR extensions (opcodes 19–20) |
@@ -794,6 +794,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for SNN Inference**
 
-*Silicon-Ready • 6183/6183 Verified • Production-Quality*
+*Silicon-Ready • 6163/6163 Verified • Production-Quality*
 
 </div>

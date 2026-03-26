@@ -127,7 +127,12 @@ endtask
 task automatic apb_check_nonzero(input logic [31:0] addr, input string msg);
     logic [31:0] rd;
     apb_read(addr, rd);
-    if (rd !== '0) begin
+    // FIX: Use != instead of !== so X-valued data correctly fails (X != 0 → X → false).
+    // Previously !== let X data pass as "nonzero" since X !==0 is true in 4-state logic.
+    if ($isunknown(rd)) begin
+        $display("  [FAIL] %s | Read returned X/Z (0x%h)", msg, rd);
+        error_count++;
+    end else if (rd != '0) begin
         $display("  [PASS] %s (value=%0d)", msg, rd);
         pass_count++;
     end else begin
