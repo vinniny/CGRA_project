@@ -256,14 +256,15 @@ module cgra_tile_memory #(
     // so only write-write conflicts are true hazards worth flagging.
     always_ff @(posedge clk) begin
         if (rst_n) begin
+            // FIX: Upgrade write-write conflicts from $warning to $error — these cause data corruption
             if (bank0_write && ext_write && ext_bank_sel == 2'd0)
-                $warning("[TILE_MEM] Simultaneous bank0_write + ext_write on bank 0!");
+                $error("[TILE_MEM] Simultaneous bank0_write + ext_write on bank 0 — data corruption!");
             if (bank1_write && ext_write && ext_bank_sel == 2'd1)
-                $warning("[TILE_MEM] Simultaneous bank1_write + ext_write on bank 1!");
+                $error("[TILE_MEM] Simultaneous bank1_write + ext_write on bank 1 — data corruption!");
             if (bank2_write && ext_write && ext_bank_sel == 2'd2)
-                $warning("[TILE_MEM] Simultaneous bank2_write + ext_write on bank 2!");
+                $error("[TILE_MEM] Simultaneous bank2_write + ext_write on bank 2 — data corruption!");
             if (bank3_write && ext_write && ext_bank_sel == 2'd3)
-                $warning("[TILE_MEM] Simultaneous bank3_write + ext_write on bank 3!");
+                $error("[TILE_MEM] Simultaneous bank3_write + ext_write on bank 3 — data corruption!");
             // FIX: Also check read-read conflicts — ext_read wins the mux, corrupting bank rdata
             if (bank0_read && ext_read && ext_bank_sel == 2'd0)
                 $warning("[TILE_MEM] Simultaneous bank0_read + ext_read on bank 0 — bank gets ext data!");

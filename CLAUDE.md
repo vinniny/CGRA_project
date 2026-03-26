@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Simulation Commands
 
 ```bash
-make sim                # Full simulation flow (compile + elaborate + run, 6169 tests)
+make sim                # Full simulation flow (compile + elaborate + run, 6163 tests)
 make compile            # xmvlog compilation only
 make build              # xmelab elaboration only
 make run                # xmsim simulation only

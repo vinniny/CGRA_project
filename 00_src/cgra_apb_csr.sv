@@ -187,18 +187,20 @@ module cgra_apb_csr #(
             reg_loop_count <= 32'd0;       // Default: no looping
         end else begin
             // APB Write Phase
+            // FIX: Reject writes to DMA config regs while DMA is busy, and
+            //      CU config regs while CU is busy, to prevent mid-operation corruption.
             if (psel && penable && pwrite) begin
                 case (paddr[7:0])
                     ADDR_DMA_CTRL:   reg_dma_ctrl <= pwdata;
-                    ADDR_DMA_SRC:    reg_dma_src  <= pwdata;
-                    ADDR_DMA_DST:    reg_dma_dst  <= pwdata;
-                    ADDR_DMA_SIZE:   reg_dma_size <= pwdata;
+                    ADDR_DMA_SRC:    if (!dma_busy_i) reg_dma_src  <= pwdata;
+                    ADDR_DMA_DST:    if (!dma_busy_i) reg_dma_dst  <= pwdata;
+                    ADDR_DMA_SIZE:   if (!dma_busy_i) reg_dma_size <= pwdata;
                     ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
-                    ADDR_CU_TIMEOUT: reg_cu_timeout <= pwdata;
+                    ADDR_CU_TIMEOUT: if (!cu_busy_i) reg_cu_timeout <= pwdata;
                     ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
-                    ADDR_LOOP_START: reg_loop_start <= pwdata;
-                    ADDR_LOOP_END:   reg_loop_end   <= pwdata;
-                    ADDR_LOOP_COUNT: reg_loop_count <= pwdata;
+                    ADDR_LOOP_START: if (!cu_busy_i) reg_loop_start <= pwdata;
+                    ADDR_LOOP_END:   if (!cu_busy_i) reg_loop_end   <= pwdata;
+                    ADDR_LOOP_COUNT: if (!cu_busy_i) reg_loop_count <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
                 endcase
@@ -264,5 +266,30 @@ module cgra_apb_csr #(
             irq <= |(reg_irq_status & reg_irq_mask);
         end
     end
+
+    // =========================================================================
+    // Simulation-Only Assertions
+    // =========================================================================
+    // synthesis translate_off
+    always_ff @(posedge clk) begin
+        if (rst_n && psel && penable && pwrite) begin
+            // Warn on rejected writes to busy-protected registers
+            if (dma_busy_i) begin
+                case (paddr[7:0])
+                    ADDR_DMA_SRC, ADDR_DMA_DST, ADDR_DMA_SIZE:
+                        $warning("[CSR] Write to DMA config reg 0x%02h rejected — DMA busy", paddr[7:0]);
+                    default: ;
+                endcase
+            end
+            if (cu_busy_i) begin
+                case (paddr[7:0])
+                    ADDR_CU_TIMEOUT, ADDR_LOOP_START, ADDR_LOOP_END, ADDR_LOOP_COUNT:
+                        $warning("[CSR] Write to CU config reg 0x%02h rejected — CU busy", paddr[7:0]);
+                    default: ;
+                endcase
+            end
+        end
+    end
+    // synthesis translate_on
 
 endmodule

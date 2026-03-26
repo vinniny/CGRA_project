@@ -289,6 +289,11 @@ module cgra_control_unit #(
                 if (loop_end_pc_i[15:PC_WIDTH] != '0)
                     $warning("[CU] loop_end_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d — upper bits truncated!",
                              loop_end_pc_i, CONTEXT_DEPTH);
+                // FIX: Detect invalid loop bounds (start > end causes infinite loop)
+                if (loop_count_i > 16'd0 &&
+                    loop_start_pc_i[PC_WIDTH-1:0] > loop_end_pc_i[PC_WIDTH-1:0])
+                    $warning("[CU] Invalid loop bounds: start_pc(%0d) > end_pc(%0d) — loop will never terminate!",
+                             loop_start_pc_i[PC_WIDTH-1:0], loop_end_pc_i[PC_WIDTH-1:0]);
             end
         end
     end
