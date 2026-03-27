@@ -43,6 +43,7 @@ module cgra_control_unit #(
     // Multi-Context Flow Control
     // =========================================================================
     output logic [PC_WIDTH-1:0] context_pc_o,   // Current context slot (0-15)
+    output logic [PC_WIDTH-1:0] next_context_pc_o, // Next PC (for tile prefetch, accounts for loops)
     output logic                global_stall_o, // Freeze PE array
     input  logic                dma_busy_i,     // DMA is active
     
@@ -155,9 +156,15 @@ module cgra_control_unit #(
                 wall_counter  <= 32'd0;
                 // FIX: Latch all parameters on RUN entry to prevent mid-run corruption
                 max_cycles_reg <= max_cycles_i;
-                loop_count_reg <= loop_count_i;
                 loop_start_reg <= loop_start_pc_i[PC_WIDTH-1:0];
                 loop_end_reg   <= loop_end_pc_i[PC_WIDTH-1:0];
+                // Hardware guard: invalid bounds (start > end) would never reach loop_end,
+                // causing an infinite loop in silicon. Disable looping in that case.
+                if (loop_count_i > 16'd0 &&
+                    loop_start_pc_i[PC_WIDTH-1:0] > loop_end_pc_i[PC_WIDTH-1:0])
+                    loop_count_reg <= 16'd0;
+                else
+                    loop_count_reg <= loop_count_i;
             end else if (state == STATE_RUN) begin
                 // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
                 wall_counter <= wall_counter + 32'd1;
@@ -217,7 +224,27 @@ module cgra_control_unit #(
     end
     
     assign context_pc_o = pc_counter;
-    
+
+    // =========================================================================
+    // Next PC (combinational) — for tile memory prefetch
+    // =========================================================================
+    // Mirrors the sequential PC logic above, but computed combinationally so
+    // cgra_top can prefetch tile[next_pc] one cycle ahead of execution.
+    // Without this, hardware loop backward jumps cause tile prefetch to read
+    // the wrong address for one cycle.
+    always_comb begin
+        if (pe_enable && !global_stall_o) begin
+            if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0))
+                next_context_pc_o = loop_start_reg;
+            else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1))
+                next_context_pc_o = '0;
+            else
+                next_context_pc_o = pc_counter + 1'b1;
+        end else begin
+            next_context_pc_o = pc_counter;
+        end
+    end
+
     // =========================================================================
     // Global Stall Logic
     // =========================================================================

@@ -1,7 +1,7 @@
 `ifndef TB_TEST_SUITES_SVH
 `define TB_TEST_SUITES_SVH
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Suite (6169 Tests Passed, 38 Suites)
+// tb_test_suites.svh - Master Verification Suite (8663 Tests Passed, 38 Suites)
 // ==============================================================================
 // Complete Pre-Silicon Verification:
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
@@ -27,12 +27,12 @@
 //   System Integrity  : Merges A-C, R (400+ randomized vectors)
 //   Fabric Stress     : Merges L, O (300+ randomized vectors)
 //   Robustness        : Merges S, W, AA (300+ randomized vectors)
-//   ISA Regression AD : 500 vectors/opcode (6000+ vectors)
+//   ISA Regression AD : 500 vectors/opcode × 17 opcodes (8500 vectors)
 //   LPR Features      : RELU, MAX, Loop CSRs, East-edge (20+ vectors)
 //   DMA Writeback AE  : AXI Write, Round-trip, Burst (8 tests)
 //
 // ISA COVERAGE: 21/21 operations verified (incl. RELU, MAX from LPR suite)
-// VERIFICATION STATUS: 6169 TESTS PASSED, 0 FAILED - SILICON READY
+// VERIFICATION STATUS: 8663 TESTS PASSED, 0 FAILED - SILICON READY
 // ==============================================================================
 // NOTE: Address map constants are now in include/tb_defs.svh
 // NOTE: Random functions are now in include/tb_scenario_gen.svh

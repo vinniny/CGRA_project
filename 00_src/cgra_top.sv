@@ -237,7 +237,8 @@ module cgra_top #(
     // =========================================================================
     // Internal Wires: Control Unit → Flow Control
     // =========================================================================
-    logic [3:0]  context_pc;    // 4-bit PC counter (0-15) from Control Unit
+    logic [3:0]  context_pc;       // 4-bit PC counter (0-15) from Control Unit
+    logic [3:0]  next_context_pc;  // Next PC (for tile prefetch, accounts for HW loops)
     logic        global_stall;  // Stall signal to PE array
 
     // =========================================================================
@@ -428,6 +429,7 @@ module cgra_top #(
         
         // Multi-Context Flow Control
         .context_pc_o(context_pc),
+        .next_context_pc_o(next_context_pc),
         .global_stall_o(global_stall),
         .dma_busy_i(dma_busy),
         
@@ -453,20 +455,10 @@ module cgra_top #(
     // address, so the registered read delivers tile[N] when PE executes at N.
     // When stalled: holds current pc (pre-loads data for first execution).
     // When executing: advances to pc+1 (pre-loads next context's data).
+    // Use CU's next_context_pc directly — it correctly handles hardware loop
+    // backward jumps (loop_end → loop_start) that the old context_pc+1 logic missed.
     logic [3:0] tile_prefetch_pc;
-    always_comb begin
-        if (pe_enable && !global_stall) begin
-            // Executing: pre-fetch next context (mirrors CU PC increment)
-            if (context_pc == 4'd15)
-                tile_prefetch_pc = 4'd0;
-            else
-                tile_prefetch_pc = context_pc + 4'd1;
-        end else begin
-            // Stalled or idle: hold at current pc (ensures first execution
-            // reads the correct context after the stall cycle pre-loads it)
-            tile_prefetch_pc = context_pc;
-        end
-    end
+    assign tile_prefetch_pc = next_context_pc;
 
     cgra_tile_memory #(
         .DATA_WIDTH(DATA_WIDTH),
