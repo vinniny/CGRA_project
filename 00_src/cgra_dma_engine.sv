@@ -18,14 +18,14 @@
 //   Other       → AXI External Memory
 //
 // DOUBLE-PUMP CONFIG PROTOCOL:
-//   1. Write high word to (addr | 0x4) - latches in config_high_reg
-//   2. Write low word to (addr) - commits full 64-bit to PE config RAM
+//   1. Write high word to (addr)        - latches upper 32b in config_high_reg  [addr[2]=0]
+//   2. Write low word to (addr | 0x4)   - commits full 64-bit to PE config RAM  [addr[2]=1]
 // ==============================================================================
 
 module cgra_dma_engine #(
     parameter DATA_WIDTH = 32,
     parameter ADDR_WIDTH = 32,
-    parameter FIFO_DEPTH = 8
+    parameter FIFO_DEPTH = 32
 )(
     input  logic clk,
     input  logic rst_n,

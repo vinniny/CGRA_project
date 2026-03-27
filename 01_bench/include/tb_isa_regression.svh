@@ -10,6 +10,8 @@
 //   - Logic: AND, OR, XOR
 //   - Shift: SHL, SHR (include full 5-bit range)
 //   - Compare: EQ, LT, GT
+//   - Special: ACC_CLR, PASS0, PASS1, RELU, MAX
+//   - Skipped (need special infra): NOP(0), LOAD_SPM(13), STORE_SPM(14), LIF(18)
 // =============================================================================
 
 task automatic run_suite_AD_isa_regression;
@@ -28,23 +30,31 @@ task automatic run_suite_AD_isa_regression;
         $display("   Target: 500 Iterations per Opcode");
         $display("========================================");
         
-        // Loop through opcodes (Values 1 to 12)
-        // 1=ADD, 2=SUB, 3=MUL, 4=MAC, 5=AND, 6=OR, 7=XOR, 8=SHL, 9=SHR, 10=GT, 11=LT, 12=EQ
-        for (op_idx = 1; op_idx <= 12; op_idx++) begin
-            
+        // Loop through all testable opcodes (1-12, 15-17, 19-20)
+        // Skipped: 0=NOP (no output), 13=LOAD_SPM, 14=STORE_SPM, 18=LIF (need special infra)
+        for (op_idx = 1; op_idx <= 20; op_idx++) begin
+
+            // Skip opcodes that need special test infrastructure
+            if (op_idx == 13 || op_idx == 14 || op_idx == 18) continue;
+
             case (op_idx)
-                1: op_name = "ADD";
-                2: op_name = "SUB";
-                3: op_name = "MUL";
-                4: op_name = "MAC";
-                5: op_name = "AND";
-                6: op_name = "OR";
-                7: op_name = "XOR";
-                8: op_name = "SHL";
-                9: op_name = "SHR";
+                1:  op_name = "ADD";
+                2:  op_name = "SUB";
+                3:  op_name = "MUL";
+                4:  op_name = "MAC";
+                5:  op_name = "AND";
+                6:  op_name = "OR";
+                7:  op_name = "XOR";
+                8:  op_name = "SHL";
+                9:  op_name = "SHR";
                 10: op_name = "CMP_GT";
                 11: op_name = "CMP_LT";
                 12: op_name = "CMP_EQ";
+                15: op_name = "ACC_CLR";
+                16: op_name = "PASS0";
+                17: op_name = "PASS1";
+                19: op_name = "RELU";
+                20: op_name = "MAX";
                 default: op_name = "UNKNOWN";
             endcase
             
@@ -131,7 +141,22 @@ task automatic run_suite_AD_isa_regression;
                     10: expected = ($signed(a) > $signed(b)) ? 1 : 0;
                     11: expected = ($signed(a) < $signed(b)) ? 1 : 0;
                     12: expected = (a == b) ? 1 : 0;
-                    
+
+                    // ACC_CLR: Clears accumulator, result = 0
+                    15: expected = 32'd0;
+
+                    // PASS0: Passthrough operand0 (a from tile/west)
+                    16: expected = a;
+
+                    // PASS1: Passthrough operand1 (b = sign-extended 16-bit IMM)
+                    17: expected = b;  // Already sign-extended at line 70
+
+                    // RELU: max(a, 0) — signed comparison
+                    19: expected = ($signed(a) < 0) ? 32'd0 : a;
+
+                    // MAX: max(signed(a), signed(b))
+                    20: expected = ($signed(a) > $signed(b)) ? a : b;
+
                     default: expected = 0;
                 endcase
                 
@@ -176,7 +201,7 @@ task automatic run_suite_AD_isa_regression;
                 check_pe_result(4'd0, expected, $sformatf("AD%02d_%03d: %s(0x%h, 0x%h)", op_idx, i, op_name, a, b));
             end
         end
-        $display("\n[SUITE AD COMPLETE] 6000 Randomized tests finished.\n");
+        $display("\n[SUITE AD COMPLETE] 8500 Randomized tests finished (17 opcodes × 500 vectors).\n");
     end
 endtask
 

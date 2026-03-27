@@ -256,24 +256,40 @@ module cgra_tile_memory #(
     // so only write-write conflicts are true hazards worth flagging.
     always_ff @(posedge clk) begin
         if (rst_n) begin
-            // FIX: Upgrade write-write conflicts from $warning to $error — these cause data corruption
-            if (bank0_write && ext_write && ext_bank_sel == 2'd0)
+            // Write-write conflicts cause undefined data in the memory array — fatal in simulation.
+            if (bank0_write && ext_write && ext_bank_sel == 2'd0) begin
                 $error("[TILE_MEM] Simultaneous bank0_write + ext_write on bank 0 — data corruption!");
-            if (bank1_write && ext_write && ext_bank_sel == 2'd1)
+                $fatal(0, "[TILE_MEM] Halting simulation on write-write conflict (bank 0)");
+            end
+            if (bank1_write && ext_write && ext_bank_sel == 2'd1) begin
                 $error("[TILE_MEM] Simultaneous bank1_write + ext_write on bank 1 — data corruption!");
-            if (bank2_write && ext_write && ext_bank_sel == 2'd2)
+                $fatal(0, "[TILE_MEM] Halting simulation on write-write conflict (bank 1)");
+            end
+            if (bank2_write && ext_write && ext_bank_sel == 2'd2) begin
                 $error("[TILE_MEM] Simultaneous bank2_write + ext_write on bank 2 — data corruption!");
-            if (bank3_write && ext_write && ext_bank_sel == 2'd3)
+                $fatal(0, "[TILE_MEM] Halting simulation on write-write conflict (bank 2)");
+            end
+            if (bank3_write && ext_write && ext_bank_sel == 2'd3) begin
                 $error("[TILE_MEM] Simultaneous bank3_write + ext_write on bank 3 — data corruption!");
-            // FIX: Also check read-read conflicts — ext_read wins the mux, corrupting bank rdata
-            if (bank0_read && ext_read && ext_bank_sel == 2'd0)
-                $warning("[TILE_MEM] Simultaneous bank0_read + ext_read on bank 0 — bank gets ext data!");
-            if (bank1_read && ext_read && ext_bank_sel == 2'd1)
-                $warning("[TILE_MEM] Simultaneous bank1_read + ext_read on bank 1 — bank gets ext data!");
-            if (bank2_read && ext_read && ext_bank_sel == 2'd2)
-                $warning("[TILE_MEM] Simultaneous bank2_read + ext_read on bank 2 — bank gets ext data!");
-            if (bank3_read && ext_read && ext_bank_sel == 2'd3)
-                $warning("[TILE_MEM] Simultaneous bank3_read + ext_read on bank 3 — bank gets ext data!");
+                $fatal(0, "[TILE_MEM] Halting simulation on write-write conflict (bank 3)");
+            end
+            // Read-read conflicts: ext_read wins the mux, so bank rdata is corrupted for one cycle.
+            if (bank0_read && ext_read && ext_bank_sel == 2'd0) begin
+                $error("[TILE_MEM] Simultaneous bank0_read + ext_read on bank 0 — bank gets ext data!");
+                $stop;
+            end
+            if (bank1_read && ext_read && ext_bank_sel == 2'd1) begin
+                $error("[TILE_MEM] Simultaneous bank1_read + ext_read on bank 1 — bank gets ext data!");
+                $stop;
+            end
+            if (bank2_read && ext_read && ext_bank_sel == 2'd2) begin
+                $error("[TILE_MEM] Simultaneous bank2_read + ext_read on bank 2 — bank gets ext data!");
+                $stop;
+            end
+            if (bank3_read && ext_read && ext_bank_sel == 2'd3) begin
+                $error("[TILE_MEM] Simultaneous bank3_read + ext_read on bank 3 — bank gets ext data!");
+                $stop;
+            end
         end
     end
     // synthesis translate_on

@@ -152,6 +152,45 @@ credentials/
 config.private.*
 *.credentials
 
+# Cloud & Service Credentials
+.aws/
+.boto
+.gcp/
+.azure/
+*.json.bak
+service-account*.json
+
+# Package Manager Auth Tokens
+.npmrc
+.pypirc
+.gem/credentials
+.yarnrc
+
+# Container & Orchestration Secrets
+.docker/
+.dockercfg
+kubeconfig
+*.kubeconfig
+
+# Terraform State (contains secrets in plaintext)
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# GPG & Signing Keys
+secring.*
+*.gpg
+*.asc
+
+# Java Keystores
+*.keystore
+*.jks
+*.p12
+
+# Web Server Auth
+.htpasswd
+.htaccess
+
 # ==============================================================================
 # Network & SSH Config (SENSITIVE)
 # ==============================================================================
@@ -160,6 +199,19 @@ config.private.*
 .rhosts
 hosts
 *.rdp
+authorized_keys
+.git-credentials
+
+# ==============================================================================
+# Shell History (can contain passwords/tokens typed on CLI)
+# ==============================================================================
+.*_history
+.bash_history
+.zsh_history
+.python_history
+.mysql_history
+.psql_history
+.node_repl_history
 
 # ==============================================================================
 # Database & Cache
@@ -236,6 +288,17 @@ backup/
 *.backup
 
 # ==============================================================================
+# Cadence Coverage Databases
+# ==============================================================================
+cov_work/
+coverage/
+*.cov
+*.ucdb
+*.ucd
+*.ucm
+*.vdb
+
+# ==============================================================================
 # Additional Cadence Tool Files
 # ==============================================================================
 .cadence/
@@ -248,10 +311,6 @@ xrun.log
 *.err.log
 xcelium.args
 *.cmdfile
-*.cov
-coverage/
-*.ucdb
-*.vdb
 
 # ==============================================================================
 # Waveform Databases (Large & Generated)
@@ -260,6 +319,19 @@ coverage/
 *.dsn
 *.wdb
 *.ghw
+
+# ==============================================================================
+# FPGA Bitstreams & Vendor IP (large binaries / proprietary)
+# ==============================================================================
+*.bit
+*.bin
+*.mcs
+*.hdf
+*.xsa
+*.bif
+*.elf
+*.xclbin
+*.ltx
 
 # ==============================================================================
 # Project Specific

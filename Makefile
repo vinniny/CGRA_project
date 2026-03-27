@@ -33,6 +33,18 @@ TEST_ITERS      ?= 500
 CYCLES          ?= 100
 CORE            ?= 4
 
+# Coverage (set COV=1 to enable code+functional coverage)
+COV             ?= 0
+COV_DIR         := cov_work
+COV_DUT         := cgra_top
+COV_TEST        ?= full_sim
+COV_ELAB_FLAGS  :=
+COV_SIM_FLAGS   :=
+ifeq ($(COV),1)
+COV_ELAB_FLAGS  := -coverage all -covdut $(COV_DUT)
+COV_SIM_FLAGS   := -covworkdir ../$(COV_DIR) -covoverwrite -covtest $(COV_TEST)
+endif
+
 # ==============================================================================
 # Source Files
 # ==============================================================================
@@ -81,7 +93,8 @@ LEC     := lec
 # Phony Targets
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
-        syn restore_syn lec full create_flist lint check_tools gui
+        syn restore_syn lec full create_flist lint check_tools gui \
+        cov cov_gui cov_report
 
 # ==============================================================================
 # Default Target
@@ -106,6 +119,11 @@ help:
 	@echo "   make wave         - Open Simvision waveform viewer"
 	@echo "   make gui          - Run Xcelium in GUI mode"
 	@echo ""
+	@echo " Coverage Targets:"
+	@echo "   make cov          - Simulate with coverage collection (COV=1)"
+	@echo "   make cov_report   - Generate text coverage summary from database"
+	@echo "   make cov_gui      - Open SimVision with coverage database"
+	@echo ""
 	@echo " Synthesis & Formal Targets:"
 	@echo "   make syn          - Run Genus synthesis"
 	@echo "   make restore_syn  - Restore Genus with synthesized design"
@@ -122,6 +140,8 @@ help:
 	@echo "   CYCLES=N                - Cycles for stress test (default 100)"
 	@echo "   TEST_ITERS=N            - Iterations per randomized testcase (default 500)"
 	@echo "   CORE=N                  - Number of cores for parallel tools (default 4)"
+	@echo "   COV=1                   - Enable coverage for build/run targets"
+	@echo "   COV_TEST=name           - Coverage test name (default: full_sim)"
 	@echo "   TOP_SYN=module          - Top module for synthesis (default cgra_top)"
 	@echo "   GENUS_GUI_ENABLE=1      - Enable Genus GUI"
 	@echo "   LEC_GUI_ENABLE=1        - Enable Conformal GUI"
@@ -158,6 +178,7 @@ build:
 	cd $(SIM_DIR) && $(XMELAB) \
 		-timescale 1ns/1ps \
 		-access +rwc \
+		$(COV_ELAB_FLAGS) \
 		-snapshot snap \
 		worklib.tb_top \
 		2>&1 | tee ../$(LOG_DIR)/elaborate.log
@@ -175,6 +196,7 @@ run:
 		+SEED=$(SEED) \
 		+TEST_ITERS=$(TEST_ITERS) \
 		+CYCLES=$(CYCLES) \
+		$(COV_SIM_FLAGS) \
 		2>&1 | tee ../$(LOG_DIR)/sim.log
 	@echo ""
 	@echo "[RUN] Done - see $(LOG_DIR)/sim.log"
@@ -237,6 +259,70 @@ gui: compile
 		-access +rwc \
 		-f flist \
 		-input ../$(TB_DIR)/restore.tcl
+
+# ==============================================================================
+# COVERAGE TARGETS (Xcelium Code & Functional Coverage)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Generate coverage database (compile + elaborate + run with coverage enabled)
+# ------------------------------------------------------------------------------
+cov:
+	@echo "=========================================================================="
+	@echo " [COV] Running simulation with coverage collection"
+	@echo " DUT scope: $(COV_DUT) | Output: $(COV_DIR)/"
+	@echo "=========================================================================="
+	@$(MAKE) compile
+	@$(MAKE) build COV=1
+	@echo "=========================================================================="
+	@echo " [COV-RUN] Running simulation with coverage + report"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	cd $(SIM_DIR) && $(XMSIM) snap \
+		+SEED=$(SEED) \
+		+TEST_ITERS=$(TEST_ITERS) \
+		+CYCLES=$(CYCLES) \
+		-covworkdir ../$(COV_DIR) -covoverwrite -covtest $(COV_TEST) \
+		-input ../$(SCRIPT_DIR)/cov_report.tcl \
+		2>&1 | tee ../$(LOG_DIR)/cov.log
+	@echo ""
+	@echo "[COV] Coverage database: $(COV_DIR)/"
+	@echo "[COV] Full log: $(LOG_DIR)/cov.log"
+	@echo "[COV] Run 'make cov_gui' to browse in SimVision"
+
+# ------------------------------------------------------------------------------
+# Generate text coverage report from existing database
+# ------------------------------------------------------------------------------
+cov_report:
+	@echo "=========================================================================="
+	@echo " [COV_REPORT] Coverage Database Summary"
+	@echo "=========================================================================="
+	@if [ ! -d "$(COV_DIR)" ]; then \
+		echo "ERROR: Coverage database $(COV_DIR)/ not found. Run 'make cov' first."; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "  Database location: $(COV_DIR)/"
+	@echo "  DUT scope:         $(COV_DUT)"
+	@echo ""
+	@echo "  Files:"
+	@find $(COV_DIR) -type f -exec ls -lh {} \; 2>/dev/null
+	@echo ""
+	@echo "  To view detailed coverage metrics, use one of:"
+	@echo "    make cov_gui          - Open SimVision coverage browser"
+	@echo "    imc -load $(COV_DIR)  - Open IMC (if installed)"
+	@echo ""
+
+# ------------------------------------------------------------------------------
+# Open SimVision with coverage database
+# ------------------------------------------------------------------------------
+cov_gui:
+	@echo "[COV_GUI] Opening SimVision with coverage data..."
+	@if [ ! -d "$(COV_DIR)" ]; then \
+		echo "ERROR: Coverage database $(COV_DIR)/ not found. Run 'make cov' first."; \
+		exit 1; \
+	fi
+	@cd $(SIM_DIR) && simvision -covworkdir ../$(COV_DIR) &
 
 # ------------------------------------------------------------------------------
 # Lint check
@@ -354,22 +440,27 @@ create_flist:
 # CLEAN TARGETS
 # ==============================================================================
 clean:
-	@echo "[CLEAN] Removing simulation artifacts..."
+	@echo "[CLEAN] Removing simulation & coverage artifacts..."
 	@echo "  - Cleaning $(SIM_DIR)/"
 	@rm -rf $(SIM_DIR)/worklib $(SIM_DIR)/xcelium.d $(SIM_DIR)/INCA_libs
 	@rm -rf $(SIM_DIR)/*.shm $(SIM_DIR)/*.key $(SIM_DIR)/*.diag $(SIM_DIR)/*.history
+	@rm -rf $(SIM_DIR)/*.err $(SIM_DIR)/*.dsn $(SIM_DIR)/*.trn
 	@rm -rf $(SIM_DIR)/flist
-	@echo "  - Cleaning $(LOG_DIR)/"
-	@rm -f $(LOG_DIR)/*.log
+	@echo "  - Cleaning $(COV_DIR)/"
+	@rm -rf $(COV_DIR)
+	@echo "  - Cleaning simulation logs"
+	@rm -f $(LOG_DIR)/compile.log $(LOG_DIR)/elaborate.log $(LOG_DIR)/sim.log
+	@rm -f $(LOG_DIR)/cov.log $(LOG_DIR)/cov_report.log $(LOG_DIR)/lint.log
 	@echo "  - Cleaning root directory artifacts"
 	@rm -rf xcelium.d INCA_libs xrun.* .simvision
-	@rm -f *.log *.key *.history *.diag
+	@rm -f *.log *.key *.history *.diag *.err
 	@echo "[CLEAN] Done"
 
 clean-all: clean
 	@echo "[CLEAN-ALL] Removing all generated directories..."
 	@rm -rf $(SIM_DIR)/* $(SYN_DIR)/* $(LEC_DIR)/*
 	@rm -rf obj_dir
+	@rm -f $(LOG_DIR)/*.log
 	@echo "[CLEAN-ALL] Done"
 
 # ==============================================================================
