@@ -182,8 +182,8 @@ task automatic run_suite_real_app;
             if (k == 0) begin
                 apb_read(ADDR_RESULT_ROW0, rd);
                 $display("[RAP_DBG] chunk0: result_row[0]=%08h  PE00_acc=%0h  PE03_alu=%08h",
-                         rd, u_dut.u_array.u_tile_00.u_pe.accumulator,
-                         u_dut.u_array.u_tile_03.u_pe.alu_result);
+                         rd, u_dut.u_array.row[0].col[0].u_tile.u_pe.accumulator,
+                         u_dut.u_array.row[0].col[3].u_tile.u_pe.alu_result);
             end
         `endif
 

@@ -73,12 +73,12 @@ waveform add -signals tb_top.axi_wdata -radix hex
 # PE Array (Sample: PE[0,0])
 # ==============================================================================
 waveform add -label "PE[0,0]" -comment
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.enable
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.op_code -radix unsigned
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.operand0 -radix hex
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.operand1 -radix hex
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result -radix hex
-waveform add -signals tb_top.u_dut.u_array.u_tile_00.u_pe.output_valid
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.enable
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.op_code -radix unsigned
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.operand0 -radix hex
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.operand1 -radix hex
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result -radix hex
+waveform add -signals tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.output_valid
 
 # ==============================================================================
 # Tile Memory Banks

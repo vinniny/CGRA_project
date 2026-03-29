@@ -1261,8 +1261,8 @@ task automatic run_suite_J_computation;
             logic [63:0] pe_config;
             
             // Read PE internals
-            west_data = tb_top.u_dut.u_array.u_tile_00.u_pe.data_in_w;
-            pe_config = tb_top.u_dut.u_array.u_tile_00.u_pe.active_config;
+            west_data = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.data_in_w;
+            pe_config = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.active_config;
             pe_opcode = pe_config[5:0];
             pe_src0 = pe_config[9:6];
             
@@ -1544,7 +1544,7 @@ task automatic run_suite_N_signed_math;
         wait_dma_done(100);
         
         run_cgra(3);
-        res9 = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res9 = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         // Check result
         $display("       N01 DEBUG: Op 9 Result: 0x%h (%0d signed)", res9, $signed(res9));
@@ -1571,7 +1571,7 @@ task automatic run_suite_N_signed_math;
         wait_dma_done(100);
         
         run_cgra(3);
-        res10 = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res10 = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         $display("       N02 DEBUG: Op 10 Result: 0x%h (%0d signed)", res10, $signed(res10));
         
@@ -1595,7 +1595,7 @@ task automatic run_suite_N_signed_math;
         wait_dma_done(100);
         
         run_cgra(3);
-        res9 = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res9 = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (res9 == 32'd0) pass("N03: SUB (5-5=0)");
         else fail("N03: SUB", $sformatf("Exp: 0, Got: %0d", res9));
@@ -1685,7 +1685,7 @@ task automatic run_suite_P_comparator;
         wait_dma_done(100);
         
         run_cgra(3);
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         $display("       P01 DEBUG: Op 12 (10 cmp 10) = %0d", res);
         
@@ -1709,7 +1709,7 @@ task automatic run_suite_P_comparator;
         dma_load_tile_bank(2'd0, 12'd0, 32'd5);
         
         run_cgra(3);  // Reuse same config
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         $display("       P02 DEBUG: Op 12 (5 cmp 5) = %0d", res);
         pass($sformatf("P02: Op 12 (5 cmp 5) = %0d", res));
@@ -1730,7 +1730,7 @@ task automatic run_suite_P_comparator;
         wait_dma_done(100);
         
         run_cgra(3);
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         $display("       P03 DEBUG: Op 13 (10 op 10) = %0d (0x%h)", res, res);
         if (res !== 32'hxxxxxxxx) pass($sformatf("P03: Op 13 = %0d", res));
@@ -1932,7 +1932,7 @@ task automatic run_suite_Q3_mac_stress;
         gold_acc = 0;
         
         // Verify accumulator cleared
-        hw_res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        hw_res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         if (hw_res !== 32'd0) begin
             $display("[INFO] Q3: Accumulator after clear = %0d (expected 0)", hw_res);
         end
@@ -1960,7 +1960,7 @@ task automatic run_suite_Q3_mac_stress;
         end
         
         // 3. Verify Final Accumulator Value (20-step sequence)
-        hw_res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        hw_res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (hw_res === gold_acc[31:0]) begin
             pass($sformatf("Q301: MAC 20-Step Sequence = %0d (Verified)", hw_res));
@@ -2029,7 +2029,7 @@ task automatic run_suite_Q4_spm_stress;
             config_pe(4'd0, 4'd0, config64);
             run_cgra(5);
             
-            hw_res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+            hw_res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
             
             if (shadow_valid[i]) begin
                 if (hw_res !== shadow_mem[i]) begin
@@ -2094,7 +2094,7 @@ task automatic run_suite_R_boundary;
         // The context_pc should have wrapped: 20 mod 16 = 4
         // But the actual PC depends on when we stopped
         
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         $display("       R01 DEBUG: After 20 cycles, alu_result = %0d", res);
         
         pass("R01: Execution continued past 16 cycles without hanging");
@@ -2160,7 +2160,7 @@ task automatic run_suite_S_reset;
         
         run_cgra(3);
         
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (res == 32'd20) begin  // 10+10=20
             pass("S01: System recovered and computed correctly after reset");
@@ -2290,7 +2290,7 @@ task automatic run_suite_U_diagnostics;
         config_pe(4'd0, 4'd0, config64);
         
         run_cgra(3);
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (res == 32'd1) begin
             $display("[DISCOVERY] U01: CMP_LT compares Src1 < Src0 (Swapped Order)");
@@ -2311,7 +2311,7 @@ task automatic run_suite_U_diagnostics;
         config_pe(4'd0, 4'd0, config64);
         
         run_cgra(3);
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (res == 32'h3C) begin
             $display("[DISCOVERY] U02: Op 9 is Variable SHR (0xF0 >> 2 = 0x3C)");
@@ -2335,7 +2335,7 @@ task automatic run_suite_U_diagnostics;
         config_pe(4'd0, 4'd0, config64);
         
         run_cgra(3);
-        res = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        res = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (res == 32'hF0) begin
             $display("[DISCOVERY] U03: Op 8 SHL is Variable (0x0F << 4 = 0xF0)");
@@ -2377,7 +2377,7 @@ task automatic run_suite_V_neuromorphic;
         config_pe(4'd0, 4'd0, config64);
         run_cgra(1);
         
-        spike = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        spike = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (spike == 32'd1) begin
             pass("V02: LIF Neuron Fired (Charge 5000 > Threshold)");
@@ -2389,7 +2389,7 @@ task automatic run_suite_V_neuromorphic;
         // V03: Input 0, should not fire (below threshold after leak)
         dma_load_tile_bank(2'd0, 12'd0, 32'd0);
         run_cgra(1);
-        spike = tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
+        spike = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
         
         if (spike == 32'd0) begin
             pass("V03: LIF Neuron Resting (no spike with 0 input)");

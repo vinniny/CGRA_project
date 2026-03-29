@@ -29,7 +29,7 @@ read design -golden -sv \
     ../00_src/cgra_pe.sv \
     ../00_src/cgra_router.sv \
     ../00_src/cgra_tile.sv \
-    ../00_src/cgra_array_4x4.sv \
+    ../00_src/cgra_array.sv \
     ../00_src/cgra_tile_memory.sv \
     ../00_src/cgra_apb_csr.sv \
     ../00_src/cgra_control_unit.sv \

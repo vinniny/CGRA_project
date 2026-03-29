@@ -437,22 +437,22 @@ function automatic logic [31:0] read_pe_result(input logic [3:0] pe_id);
     // Whitebox access - to be replaced with black-box DMA readback
     // This centralizes the access point for easier migration
     case (pe_id)
-        4'd0:  return tb_top.u_dut.u_array.u_tile_00.u_pe.alu_result;
-        4'd1:  return tb_top.u_dut.u_array.u_tile_01.u_pe.alu_result;
-        4'd2:  return tb_top.u_dut.u_array.u_tile_02.u_pe.alu_result;
-        4'd3:  return tb_top.u_dut.u_array.u_tile_03.u_pe.alu_result;
-        4'd4:  return tb_top.u_dut.u_array.u_tile_10.u_pe.alu_result;
-        4'd5:  return tb_top.u_dut.u_array.u_tile_11.u_pe.alu_result;
-        4'd6:  return tb_top.u_dut.u_array.u_tile_12.u_pe.alu_result;
-        4'd7:  return tb_top.u_dut.u_array.u_tile_13.u_pe.alu_result;
-        4'd8:  return tb_top.u_dut.u_array.u_tile_20.u_pe.alu_result;
-        4'd9:  return tb_top.u_dut.u_array.u_tile_21.u_pe.alu_result;
-        4'd10: return tb_top.u_dut.u_array.u_tile_22.u_pe.alu_result;
-        4'd11: return tb_top.u_dut.u_array.u_tile_23.u_pe.alu_result;
-        4'd12: return tb_top.u_dut.u_array.u_tile_30.u_pe.alu_result;
-        4'd13: return tb_top.u_dut.u_array.u_tile_31.u_pe.alu_result;
-        4'd14: return tb_top.u_dut.u_array.u_tile_32.u_pe.alu_result;
-        4'd15: return tb_top.u_dut.u_array.u_tile_33.u_pe.alu_result;
+        4'd0:  return tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.alu_result;
+        4'd1:  return tb_top.u_dut.u_array.row[0].col[1].u_tile.u_pe.alu_result;
+        4'd2:  return tb_top.u_dut.u_array.row[0].col[2].u_tile.u_pe.alu_result;
+        4'd3:  return tb_top.u_dut.u_array.row[0].col[3].u_tile.u_pe.alu_result;
+        4'd4:  return tb_top.u_dut.u_array.row[1].col[0].u_tile.u_pe.alu_result;
+        4'd5:  return tb_top.u_dut.u_array.row[1].col[1].u_tile.u_pe.alu_result;
+        4'd6:  return tb_top.u_dut.u_array.row[1].col[2].u_tile.u_pe.alu_result;
+        4'd7:  return tb_top.u_dut.u_array.row[1].col[3].u_tile.u_pe.alu_result;
+        4'd8:  return tb_top.u_dut.u_array.row[2].col[0].u_tile.u_pe.alu_result;
+        4'd9:  return tb_top.u_dut.u_array.row[2].col[1].u_tile.u_pe.alu_result;
+        4'd10: return tb_top.u_dut.u_array.row[2].col[2].u_tile.u_pe.alu_result;
+        4'd11: return tb_top.u_dut.u_array.row[2].col[3].u_tile.u_pe.alu_result;
+        4'd12: return tb_top.u_dut.u_array.row[3].col[0].u_tile.u_pe.alu_result;
+        4'd13: return tb_top.u_dut.u_array.row[3].col[1].u_tile.u_pe.alu_result;
+        4'd14: return tb_top.u_dut.u_array.row[3].col[2].u_tile.u_pe.alu_result;
+        4'd15: return tb_top.u_dut.u_array.row[3].col[3].u_tile.u_pe.alu_result;
         default: return 32'hDEAD_BEEF;
     endcase
 endfunction
@@ -475,100 +475,100 @@ task automatic check_pe_result(
     // Capture debug internals for the ACTUAL PE under test
     case (pe_id)
         4'd0: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_00.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_00.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_00.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.accumulator;
         end
         4'd1: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_01.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_01.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_01.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_01.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[0].col[1].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[0].col[1].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[0].col[1].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[0].col[1].u_tile.u_pe.accumulator;
         end
         4'd2: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_02.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_02.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_02.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_02.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[0].col[2].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[0].col[2].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[0].col[2].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[0].col[2].u_tile.u_pe.accumulator;
         end
         4'd3: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_03.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_03.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_03.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_03.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[0].col[3].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[0].col[3].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[0].col[3].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[0].col[3].u_tile.u_pe.accumulator;
         end
         4'd4: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_10.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_10.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_10.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_10.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[1].col[0].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[1].col[0].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[1].col[0].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[1].col[0].u_tile.u_pe.accumulator;
         end
         4'd5: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_11.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_11.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_11.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_11.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[1].col[1].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[1].col[1].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[1].col[1].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[1].col[1].u_tile.u_pe.accumulator;
         end
         4'd6: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_12.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_12.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_12.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_12.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[1].col[2].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[1].col[2].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[1].col[2].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[1].col[2].u_tile.u_pe.accumulator;
         end
         4'd7: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_13.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_13.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_13.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_13.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[1].col[3].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[1].col[3].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[1].col[3].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[1].col[3].u_tile.u_pe.accumulator;
         end
         4'd8: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_20.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_20.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_20.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_20.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[2].col[0].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[2].col[0].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[2].col[0].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[2].col[0].u_tile.u_pe.accumulator;
         end
         4'd9: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_21.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_21.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_21.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_21.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[2].col[1].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[2].col[1].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[2].col[1].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[2].col[1].u_tile.u_pe.accumulator;
         end
         4'd10: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_22.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_22.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_22.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_22.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[2].col[2].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[2].col[2].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[2].col[2].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[2].col[2].u_tile.u_pe.accumulator;
         end
         4'd11: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_23.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_23.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_23.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_23.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[2].col[3].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[2].col[3].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[2].col[3].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[2].col[3].u_tile.u_pe.accumulator;
         end
         4'd12: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_30.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_30.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_30.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_30.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[3].col[0].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[3].col[0].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[3].col[0].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[3].col[0].u_tile.u_pe.accumulator;
         end
         4'd13: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_31.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_31.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_31.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_31.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[3].col[1].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[3].col[1].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[3].col[1].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[3].col[1].u_tile.u_pe.accumulator;
         end
         4'd14: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_32.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_32.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_32.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_32.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[3].col[2].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[3].col[2].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[3].col[2].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[3].col[2].u_tile.u_pe.accumulator;
         end
         4'd15: begin
-            dbg_op0 = tb_top.u_dut.u_array.u_tile_33.u_pe.operand0;
-            dbg_op1 = tb_top.u_dut.u_array.u_tile_33.u_pe.operand1;
-            dbg_opcode = tb_top.u_dut.u_array.u_tile_33.u_pe.op_code;
-            dbg_acc = tb_top.u_dut.u_array.u_tile_33.u_pe.accumulator;
+            dbg_op0 = tb_top.u_dut.u_array.row[3].col[3].u_tile.u_pe.operand0;
+            dbg_op1 = tb_top.u_dut.u_array.row[3].col[3].u_tile.u_pe.operand1;
+            dbg_opcode = tb_top.u_dut.u_array.row[3].col[3].u_tile.u_pe.op_code;
+            dbg_acc = tb_top.u_dut.u_array.row[3].col[3].u_tile.u_pe.accumulator;
         end
         default: begin
             dbg_op0 = 32'hDEAD_BEEF;

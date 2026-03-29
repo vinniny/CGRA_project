@@ -639,12 +639,34 @@ module cgra_top #(
     // =========================================================================
     // Edge Output Wires for Synthesis Keeper
     // =========================================================================
-    logic [DATA_WIDTH-1:0] edge_n0, edge_n1, edge_n2, edge_n3;
-    logic [DATA_WIDTH-1:0] edge_s0, edge_s1, edge_s2, edge_s3;
-    logic [DATA_WIDTH-1:0] edge_e0, edge_e1, edge_e2, edge_e3;
-    logic [DATA_WIDTH-1:0] edge_w0, edge_w1, edge_w2, edge_w3;
-    
-    cgra_array_4x4 #(
+    // Edge output arrays (parameterized)
+    localparam ROWS = 4;
+    localparam COLS = 4;
+
+    logic [DATA_WIDTH-1:0] edge_out_n [0:COLS-1];
+    logic [DATA_WIDTH-1:0] edge_out_s [0:COLS-1];
+    logic [DATA_WIDTH-1:0] edge_out_e [0:ROWS-1];
+    logic [DATA_WIDTH-1:0] edge_out_w [0:ROWS-1];
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic                  edge_valid_out_n_unused [0:COLS-1];
+    logic                  edge_valid_out_s_unused [0:COLS-1];
+    logic                  edge_valid_out_e_unused [0:ROWS-1];
+    logic                  edge_valid_out_w_unused [0:ROWS-1];
+    /* verilator lint_on UNUSEDSIGNAL */
+
+    // Tie-off arrays for unused edge inputs
+    logic [DATA_WIDTH-1:0] edge_zero_data [0:3];
+    logic                  edge_zero_valid [0:3];
+    assign edge_zero_data  = '{default: '0};
+    assign edge_zero_valid = '{default: 1'b0};
+
+    // Config frame array (all zeros — PEs use internal BRAM)
+    logic [63:0] config_frame_zeros [0:ROWS*COLS-1];
+    assign config_frame_zeros = '{default: 64'd0};
+
+    cgra_array #(
+        .ROWS(ROWS),
+        .COLS(COLS),
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
         .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
@@ -655,25 +677,13 @@ module cgra_top #(
         .PC_WIDTH(4)
     ) u_array (
         .clk(clk),
-        .rst_n(rst_n & pe_reset_n),  // Combined reset
-        
-        // Configuration — PEs use internal BRAM (A2 optimization).
-        // config_valid=0 forces PEs to read from their internal BSG config RAM.
-        // The BSG SRAM's 1-cycle read latency provides natural pipeline staging.
-        .config_frame_00(64'd0), .config_frame_01(64'd0),
-        .config_frame_02(64'd0), .config_frame_03(64'd0),
-        .config_frame_10(64'd0), .config_frame_11(64'd0),
-        .config_frame_12(64'd0), .config_frame_13(64'd0),
-        .config_frame_20(64'd0), .config_frame_21(64'd0),
-        .config_frame_22(64'd0), .config_frame_23(64'd0),
-        .config_frame_30(64'd0), .config_frame_31(64'd0),
-        .config_frame_32(64'd0), .config_frame_33(64'd0),
-        .config_valid(1'b0),     // PEs always use internal BRAM config
+        .rst_n(rst_n & pe_reset_n),
 
-        // Multi-context interface — config writes via broadcast-aware mux
-        // next_context_pc feeds PE-internal BRAM read address (prefetch).
-        // BRAM 1-cycle read latency aligns with tile SRAM 1-cycle latency.
-        // PE _r pipeline adds 1 more cycle to both paths equally.
+        // Config (unused — PEs use internal BRAM)
+        .config_frame(config_frame_zeros),
+        .config_valid(1'b0),
+
+        // Multi-context + config write
         .context_pc(next_context_pc),
         .global_stall(global_stall),
         .cfg_wr_addr(cfg_wr_addr_mux),
@@ -681,92 +691,46 @@ module cgra_top #(
         .cfg_wr_pe_sel(cfg_wr_pe_sel_mux),
         .cfg_wr_en(cfg_wr_en_mux),
 
-        
-        // North edge inputs - tie off
-        .edge_data_in_n0(32'd0),
-        .edge_data_in_n1(32'd0),
-        .edge_data_in_n2(32'd0),
-        .edge_data_in_n3(32'd0),
-        .edge_valid_in_n0(1'b0),
-        .edge_valid_in_n1(1'b0),
-        .edge_valid_in_n2(1'b0),
-        .edge_valid_in_n3(1'b0),
-        
-        // South edge inputs - tie off
-        .edge_data_in_s0(32'd0),
-        .edge_data_in_s1(32'd0),
-        .edge_data_in_s2(32'd0),
-        .edge_data_in_s3(32'd0),
-        .edge_valid_in_s0(1'b0),
-        .edge_valid_in_s1(1'b0),
-        .edge_valid_in_s2(1'b0),
-        .edge_valid_in_s3(1'b0),
-        
-        // East edge inputs - tie off
-        .edge_data_in_e0(32'd0),
-        .edge_data_in_e1(32'd0),
-        .edge_data_in_e2(32'd0),
-        .edge_data_in_e3(32'd0),
-        .edge_valid_in_e0(1'b0),
-        .edge_valid_in_e1(1'b0),
-        .edge_valid_in_e2(1'b0),
-        .edge_valid_in_e3(1'b0),
-        
-        // West edge inputs - FROM TILE MEMORY (The Data Pipeline!)
-        .edge_data_in_w0(row_data_reg[0]),   // Bank 0 -> Row 0 PEs (registered)
-        .edge_data_in_w1(row_data_reg[1]),   // Bank 1 -> Row 1 PEs (registered)
-        .edge_data_in_w2(row_data_reg[2]),   // Bank 2 -> Row 2 PEs (registered)
-        .edge_data_in_w3(row_data_reg[3]),   // Bank 3 -> Row 3 PEs (registered)
-        .edge_valid_in_w0(row_valid_reg[0]),
-        .edge_valid_in_w1(row_valid_reg[1]),
-        .edge_valid_in_w2(row_valid_reg[2]),
-        .edge_valid_in_w3(row_valid_reg[3]),
-        
-        // Edge outputs - connected for synthesis keepalive
-        .edge_data_out_n0(edge_n0),
-        .edge_data_out_n1(edge_n1),
-        .edge_data_out_n2(edge_n2),
-        .edge_data_out_n3(edge_n3),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .edge_valid_out_n0(),  // Intentional: data captured by synthesis_keep
-        .edge_valid_out_n1(),
-        .edge_valid_out_n2(),
-        .edge_valid_out_n3(),
-        /* verilator lint_on PINCONNECTEMPTY */
-        
-        .edge_data_out_s0(edge_s0),
-        .edge_data_out_s1(edge_s1),
-        .edge_data_out_s2(edge_s2),
-        .edge_data_out_s3(edge_s3),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .edge_valid_out_s0(),
-        .edge_valid_out_s1(),
-        .edge_valid_out_s2(),
-        .edge_valid_out_s3(),
-        /* verilator lint_on PINCONNECTEMPTY */
-        
-        .edge_data_out_e0(edge_e0),
-        .edge_data_out_e1(edge_e1),
-        .edge_data_out_e2(edge_e2),
-        .edge_data_out_e3(edge_e3),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .edge_valid_out_e0(),
-        .edge_valid_out_e1(),
-        .edge_valid_out_e2(),
-        .edge_valid_out_e3(),
-        /* verilator lint_on PINCONNECTEMPTY */
-        
-        .edge_data_out_w0(edge_w0),
-        .edge_data_out_w1(edge_w1),
-        .edge_data_out_w2(edge_w2),
-        .edge_data_out_w3(edge_w3),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .edge_valid_out_w0(),
-        .edge_valid_out_w1(),
-        .edge_valid_out_w2(),
-        .edge_valid_out_w3()
-        /* verilator lint_on PINCONNECTEMPTY */
+        // North/South/East edge inputs — tied off
+        .edge_data_in_n(edge_zero_data[0:COLS-1]),
+        .edge_valid_in_n(edge_zero_valid[0:COLS-1]),
+        .edge_data_in_s(edge_zero_data[0:COLS-1]),
+        .edge_valid_in_s(edge_zero_valid[0:COLS-1]),
+        .edge_data_in_e(edge_zero_data[0:ROWS-1]),
+        .edge_valid_in_e(edge_zero_valid[0:ROWS-1]),
+
+        // West edge inputs — from Tile Memory
+        .edge_data_in_w(row_data_reg),
+        .edge_valid_in_w(row_valid_reg),
+
+        // Edge outputs
+        .edge_data_out_n(edge_out_n),
+        .edge_valid_out_n(edge_valid_out_n_unused),
+        .edge_data_out_s(edge_out_s),
+        .edge_valid_out_s(edge_valid_out_s_unused),
+        .edge_data_out_e(edge_out_e),
+        .edge_valid_out_e(edge_valid_out_e_unused),
+        .edge_data_out_w(edge_out_w),
+        .edge_valid_out_w(edge_valid_out_w_unused)
     );
+
+    // Backward-compatible aliases for synthesis_keep and result capture
+    wire [DATA_WIDTH-1:0] edge_e0 = edge_out_e[0];
+    wire [DATA_WIDTH-1:0] edge_e1 = edge_out_e[1];
+    wire [DATA_WIDTH-1:0] edge_e2 = edge_out_e[2];
+    wire [DATA_WIDTH-1:0] edge_e3 = edge_out_e[3];
+    wire [DATA_WIDTH-1:0] edge_n0 = edge_out_n[0];
+    wire [DATA_WIDTH-1:0] edge_n1 = edge_out_n[1];
+    wire [DATA_WIDTH-1:0] edge_n2 = edge_out_n[2];
+    wire [DATA_WIDTH-1:0] edge_n3 = edge_out_n[3];
+    wire [DATA_WIDTH-1:0] edge_s0 = edge_out_s[0];
+    wire [DATA_WIDTH-1:0] edge_s1 = edge_out_s[1];
+    wire [DATA_WIDTH-1:0] edge_s2 = edge_out_s[2];
+    wire [DATA_WIDTH-1:0] edge_s3 = edge_out_s[3];
+    wire [DATA_WIDTH-1:0] edge_w0 = edge_out_w[0];
+    wire [DATA_WIDTH-1:0] edge_w1 = edge_out_w[1];
+    wire [DATA_WIDTH-1:0] edge_w2 = edge_out_w[2];
+    wire [DATA_WIDTH-1:0] edge_w3 = edge_out_w[3];
     
     // =========================================================================
     // Synthesis Keeper: OR-reduce all edge outputs to single bit

@@ -65,7 +65,7 @@ RTL_SRCS := \
 	$(SRC_DIR)/cgra_pe.sv \
 	$(SRC_DIR)/cgra_router.sv \
 	$(SRC_DIR)/cgra_tile.sv \
-	$(SRC_DIR)/cgra_array_4x4.sv \
+	$(SRC_DIR)/cgra_array.sv \
 	$(SRC_DIR)/cgra_tile_memory.sv \
 	$(SRC_DIR)/cgra_apb_csr.sv \
 	$(SRC_DIR)/cgra_control_unit.sv \
