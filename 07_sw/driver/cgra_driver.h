@@ -1,8 +1,16 @@
 /* ===================================================================
- *  cgra_driver.h – CGRA 4×4 UIO+CMA Linux Driver (PYNQ-Z2)
+ *  cgra_driver.h – CGRA 4×4 Linux Driver (Zynq-7000)
+ *
+ *  Supports two access modes (auto-detected):
+ *    1. UIO mode  — /dev/uioN for register access + IRQ
+ *    2. devmem mode — /dev/mem for direct physical register access
+ *
+ *  CMA buffer allocation via:
+ *    1. /dev/udmabuf0 (if available)
+ *    2. /dev/mem at fixed physical address (fallback)
  *
  *  Register map mirrors cgra_apb_csr + cgra_top APB decode:
- *    0x00  DMA_CTRL        RW  [0]=start, [1]=wr_mode
+ *    0x00  DMA_CTRL        RW  [0]=start
  *    0x04  DMA_STATUS      RO  [0]=busy, [1]=done
  *    0x08  DMA_SRC         RW  Source address (AXI / physical)
  *    0x0C  DMA_DST         RW  Destination address
@@ -10,8 +18,9 @@
  *    0x20  CU_CTRL         RW  [0]=start, [1]=soft_reset
  *    0x24  CU_STATUS       RO  [0]=busy, [1]=done
  *    0x28  CU_CYCLES       RO  Execution cycle count
- *    0x30  IRQ_STATUS      RW  W1C: [0]=done, [1]=dma_done
- *    0x34  IRQ_MASK        RW  [0]=done_en, [1]=dma_done_en
+ *    0x2C  CU_TIMEOUT      RW  Max cycles (0=no limit)
+ *    0x30  IRQ_STATUS      RW  W1C: [0]=dma_done, [1]=cu_done
+ *    0x34  IRQ_MASK        RW  [0]=dma_done_en, [1]=cu_done_en
  *    0x40  RESULT_DATA     RO  PE[15] output (global_result)
  *    0x44  RESULT_STATUS   RO  [0]=result_valid
  *    0x48  LOOP_START      RW  HW-loop start PC [15:0]
@@ -43,6 +52,7 @@ extern "C" {
 #define CGRA_CU_CTRL          0x20
 #define CGRA_CU_STATUS        0x24
 #define CGRA_CU_CYCLES        0x28
+#define CGRA_CU_TIMEOUT       0x2C
 
 #define CGRA_IRQ_STATUS       0x30
 #define CGRA_IRQ_MASK         0x34
@@ -59,15 +69,8 @@ extern "C" {
 #define CGRA_RESULT_ROW2      0x60
 #define CGRA_RESULT_ROW3      0x64
 
-/* ── Zynq-7000 DDR physical memory map (PYNQ-Z2 CMA region) ──── */
-#define CGRA_DDR_BASE         0x10000000u  /* CMA region base            */
-#define CGRA_IMAGE_ADDR       0x10000000u  /* Image/tile data staging    */
-#define CGRA_CONFIG_ADDR      0x10100000u  /* PE config data staging     */
-#define CGRA_RESULT_ADDR      0x10200000u  /* DMA write-back destination */
-
 /* ── Bit masks ───────────────────────────────────────────────────── */
 #define DMA_CTRL_START        (1u << 0)
-#define DMA_CTRL_WR_MODE      (1u << 1)
 #define DMA_STATUS_BUSY       (1u << 0)
 #define DMA_STATUS_DONE       (1u << 1)
 
@@ -76,36 +79,89 @@ extern "C" {
 #define CU_STATUS_BUSY        (1u << 0)
 #define CU_STATUS_DONE        (1u << 1)
 
-#define IRQ_DONE              (1u << 0)
-#define IRQ_DMA_DONE          (1u << 1)
+#define IRQ_DMA_DONE          (1u << 0)
+#define IRQ_CU_DONE           (1u << 1)
+#define IRQ_DONE              IRQ_CU_DONE  /* Backward compat */
+
+/* ── Physical address configuration ─────────────────────────────── */
+
+/*
+ * CGRA IP base address in the Zynq PL address map.
+ * Must match the Vivado block design address assignment.
+ * Default: 0x43C00000 (typical AXI GP0 range on Zynq-7000)
+ * Override at compile time: -DCGRA_PHYS_BASE=0xNNNNNNNN
+ */
+#ifndef CGRA_PHYS_BASE
+#define CGRA_PHYS_BASE        0x43C00000u
+#endif
+#define CGRA_REG_SPAN         0x10000u     /* 64KB register region */
+
+/*
+ * DMA buffer physical addresses.
+ * Must be in low DDR (below highmem threshold) for USB DMA compat.
+ * On Zynq-7000 with 1GB DDR and cma=64M@0x0-0x30000000:
+ *   Safe range: 0x10000000 — 0x2FFFFFFF (256MB–768MB)
+ *
+ * Override at compile time if needed.
+ */
+#ifndef CGRA_DMA_BUF_PHYS
+#define CGRA_DMA_BUF_PHYS    0x10000000u   /* DMA buffer physical base */
+#endif
+#define CGRA_DMA_BUF_SIZE    0x00400000u   /* 4MB reserved for DMA */
+
+/* Convenience offsets within the DMA buffer region */
+#define CGRA_IMAGE_OFFSET     0x00000000u
+#define CGRA_CONFIG_OFFSET    0x00100000u
+#define CGRA_RESULT_OFFSET    0x00200000u
+
+#define CGRA_IMAGE_ADDR       (CGRA_DMA_BUF_PHYS + CGRA_IMAGE_OFFSET)
+#define CGRA_CONFIG_ADDR      (CGRA_DMA_BUF_PHYS + CGRA_CONFIG_OFFSET)
+#define CGRA_RESULT_ADDR      (CGRA_DMA_BUF_PHYS + CGRA_RESULT_OFFSET)
+
+/* ── DMA address space prefixes (matches RTL cgra_dma_engine.sv) ── */
+#define DMA_PREFIX_AXI        0x00000000u  /* [31:28]=0x0 → external DDR */
+#define DMA_PREFIX_TILE       0x10000000u  /* [31:28]=0x1 → tile memory  */
+#define DMA_PREFIX_CONFIG     0x20000000u  /* [31:28]=0x2 → PE config    */
+
+#define TILE_BANK(b)          (DMA_PREFIX_TILE | ((uint32_t)(b) << 12))
 
 /* ── CMA buffer descriptor ──────────────────────────────────────── */
 typedef struct {
     void       *virt;        /* User-space virtual address             */
     uint32_t    phys;        /* Physical (bus) address for DMA         */
     size_t      size;        /* Allocation size in bytes               */
-    int         fd;          /* CMA fd (for munmap / close)            */
+    int         fd;          /* Backing fd (for munmap / close)        */
+    int         is_devmem;   /* 1 if allocated via /dev/mem            */
 } cgra_cma_buf_t;
+
+/* ── Access mode ────────────────────────────────────────────────── */
+typedef enum {
+    CGRA_MODE_UIO,           /* /dev/uioN — register + IRQ             */
+    CGRA_MODE_DEVMEM         /* /dev/mem  — direct physical access     */
+} cgra_mode_t;
 
 /* ── Device handle ──────────────────────────────────────────────── */
 typedef struct {
     volatile uint32_t *regs; /* mmap'd register space                  */
-    int    uio_fd;           /* /dev/uioN file descriptor              */
-    size_t map_size;         /* Register region size (from sysfs)      */
+    int         fd;          /* UIO or /dev/mem file descriptor         */
+    size_t      map_size;    /* Register region size                    */
+    cgra_mode_t mode;        /* Access mode                             */
+    uint32_t    phys_base;   /* Physical base (devmem mode)             */
 } cgra_dev_t;
 
 /* ── Lifecycle ──────────────────────────────────────────────────── */
 
 /**
- * cgra_init - Open UIO device and mmap register space.
- * @dev:        Pointer to device handle (caller-allocated).
- * @uio_path:   e.g. "/dev/uio0"
+ * cgra_init - Open CGRA device.
+ * @dev:      Pointer to device handle (caller-allocated).
+ * @dev_path: "/dev/uio0" for UIO mode, or NULL for auto-detect.
+ *            Auto-detect tries UIO first, falls back to /dev/mem.
  * Returns 0 on success, -1 on error (errno set).
  */
-int  cgra_init(cgra_dev_t *dev, const char *uio_path);
+int  cgra_init(cgra_dev_t *dev, const char *dev_path);
 
 /**
- * cgra_close - Unmap registers and close UIO fd.
+ * cgra_close - Unmap registers and close device fd.
  */
 void cgra_close(cgra_dev_t *dev);
 
@@ -124,19 +180,19 @@ static inline uint32_t cgra_read(cgra_dev_t *dev, uint32_t offset)
 /* ── DMA helpers ─────────────────────────────────────────────────── */
 
 /**
- * cgra_dma_read - DMA read from external memory into CGRA tile memory.
- * @src_phys:  Physical source address (CMA buffer).
- * @dst_local: CGRA-local destination (e.g. 0x1000 for tile-mem bank 0).
+ * cgra_dma_read - DMA from external DDR into CGRA tile/config memory.
+ * @src_phys:  Physical source address in DDR.
+ * @dst_local: CGRA-local destination (0x1XXX=tile, 0x2XXX=config).
  * @bytes:     Transfer size in bytes (must be 4-byte aligned).
- * Blocks until DMA_STATUS.done is set.  Returns cycle count or -1 on timeout.
+ * Blocks until DMA_STATUS.done. Returns 0 or -1 on timeout.
  */
 int  cgra_dma_read(cgra_dev_t *dev, uint32_t src_phys,
                    uint32_t dst_local, uint32_t bytes);
 
 /**
- * cgra_dma_write - DMA write from CGRA tile memory to external memory.
- * @src_local: CGRA-local source (e.g. 0x1000).
- * @dst_phys:  Physical destination address (CMA buffer).
+ * cgra_dma_write - DMA from CGRA tile memory to external DDR.
+ * @src_local: CGRA-local source (0x1XXX=tile).
+ * @dst_phys:  Physical destination address in DDR.
  * @bytes:     Transfer size.
  */
 int  cgra_dma_write(cgra_dev_t *dev, uint32_t src_local,
@@ -156,16 +212,21 @@ int  cgra_run(cgra_dev_t *dev);
 void cgra_soft_reset(cgra_dev_t *dev);
 
 /**
- * cgra_set_loop - Program hardware loop parameters via APB.
- * @start_pc:  First PC of the loop body.
- * @end_pc:    Last PC of the loop body.
- * @count:     Number of iterations (0 = no looping).
+ * cgra_set_timeout - Set CU execution timeout (0=no limit).
+ */
+void cgra_set_timeout(cgra_dev_t *dev, uint32_t max_cycles);
+
+/**
+ * cgra_set_loop - Program hardware loop parameters.
+ * @start_pc: First PC of loop body.
+ * @end_pc:   Last PC of loop body.
+ * @count:    Iterations (0=no looping).
  */
 void cgra_set_loop(cgra_dev_t *dev, uint16_t start_pc,
                    uint16_t end_pc, uint16_t count);
 
 /**
- * cgra_get_results - Read east-edge row results into caller buffer.
+ * cgra_get_results - Read east-edge row results.
  * @out: array of at least 4 uint32_t.
  */
 void cgra_get_results(cgra_dev_t *dev, uint32_t out[4]);
@@ -173,42 +234,44 @@ void cgra_get_results(cgra_dev_t *dev, uint32_t out[4]);
 /* ── IRQ helpers ─────────────────────────────────────────────────── */
 
 /**
- * cgra_irq_enable - Unmask selected IRQ sources.
+ * cgra_irq_enable - Unmask IRQ sources. Only works in UIO mode.
  */
 void cgra_irq_enable(cgra_dev_t *dev, uint32_t mask);
 
 /**
- * cgra_irq_wait - Block on UIO interrupt, then return IRQ_STATUS bits.
+ * cgra_irq_wait - Block on interrupt (UIO) or poll status (devmem).
  * Clears matched bits via W1C before returning.
- * Returns 0 on timeout.
+ * Returns IRQ_STATUS bits, or 0 on timeout.
  */
 uint32_t cgra_irq_wait(cgra_dev_t *dev, int timeout_ms);
 
-/* ── CMA allocation (uses /dev/cma or xlnk) ─────────────────────── */
+/* ── CMA / DMA buffer allocation ────────────────────────────────── */
 
 /**
  * cgra_cma_alloc - Allocate physically contiguous DMA buffer.
- * @buf:   Pointer to CMA descriptor (filled on success).
+ * Tries /dev/udmabuf0, falls back to /dev/mem at fixed address.
+ * @buf:   Pointer to buffer descriptor (filled on success).
  * @bytes: Requested size.
  * Returns 0 on success, -1 on error.
  */
 int  cgra_cma_alloc(cgra_cma_buf_t *buf, size_t bytes);
 
 /**
- * cgra_cma_free - Release CMA buffer.
+ * cgra_cma_free - Release DMA buffer.
  */
 void cgra_cma_free(cgra_cma_buf_t *buf);
 
 /* ── Config memory helpers ───────────────────────────────────────── */
 
 /**
- * cgra_load_config - DMA a PE configuration bitstream into config memory.
- * @cfg_phys:  Physical address of config data (CMA buffer).
- * @slot:      Config slot index (0-15 for double-buffered contexts).
- * @n_words:   Number of 32-bit config words.
+ * cgra_load_config - DMA PE config data into CGRA config RAM.
+ * @cfg_phys: Physical address of config data in DDR.
+ * @pe_id:    Target PE (0-15).
+ * @slot:     Config slot (0-15, slot 0 = broadcast all).
+ * @n_words:  Number of 32-bit words (2 per 64-bit config entry).
  */
 int  cgra_load_config(cgra_dev_t *dev, uint32_t cfg_phys,
-                      uint32_t slot, uint32_t n_words);
+                      uint32_t pe_id, uint32_t slot, uint32_t n_words);
 
 #ifdef __cplusplus
 }

@@ -64,16 +64,14 @@
 #define DRAIN_CYCLES        3       /* col0→col3 pipeline latency    */
 #define MAC_PER_RUN         (CONTEXT_DEPTH - DRAIN_CYCLES)  /* = 13  */
 
-/* ── DMA Address Space (matches RTL cgra_dma_engine.sv decode) ──── */
-/*
- *   cfg_dst[31:28] == 0x0 → AXI external memory
- *   cfg_dst[31:28] == 0x1 → Tile memory  (bank = [13:12], addr = [11:0])
- *   cfg_dst[31:28] == 0x2 → PE config RAM (PE = [11:8], slot = [6:3],
- *                                           hi/lo = [2])
+/* DMA address space prefixes — use driver defines:
+ *   DMA_PREFIX_AXI    (0x0) → external DDR
+ *   DMA_PREFIX_TILE   (0x1) → tile memory
+ *   DMA_PREFIX_CONFIG (0x2) → PE config RAM
+ *   TILE_BANK(b)      → tile bank b base address
  */
-#define TILE_BASE           0x10000000u
-#define CONFIG_BASE         0x20000000u
-#define TILE_BANK(b)        (TILE_BASE | ((uint32_t)(b) << 12))
+#define TILE_BASE           DMA_PREFIX_TILE
+#define CONFIG_BASE         DMA_PREFIX_CONFIG
 
 
 /* ── PE ISA Opcodes (matches cgra_pe.sv / tb_defs.svh) ──────────── */

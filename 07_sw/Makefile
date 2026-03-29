@@ -40,9 +40,9 @@ APP_OBJ     = $(BUILD_DIR)/lpr_demo.o
 ALL_OBJS    = $(DRIVER_OBJ) $(TILER_OBJ) $(APP_OBJ)
 
 # ── Targets ───────────────────────────────────────────────────────
-.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex
+.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex lpr_live_demo
 
-all: $(BUILD_DIR) lpr_demo lpr_cgra_accel lpr_golden_test dump_cgra_hex
+all: $(BUILD_DIR) lpr_demo lpr_cgra_accel lpr_golden_test lpr_live_demo dump_cgra_hex
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -64,6 +64,14 @@ $(BUILD_DIR)/lpr_cgra_accel.o: $(APP_DIR)/lpr_cgra_accel.c $(DRIVER_DIR)/cgra_dr
 lpr_golden_test: $(BUILD_DIR)/lpr_golden_test.o $(GOLDEN_OBJ)
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
 	@echo "[BUILD] $(BUILD_DIR)/lpr_golden_test ready (no HW needed)"
+
+# Live camera demo (PS-only, no HW — uses framebuffer + V4L2)
+lpr_live_demo: $(BUILD_DIR)/lpr_live_demo.o $(GOLDEN_OBJ)
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
+	@echo "[BUILD] $(BUILD_DIR)/lpr_live_demo ready (camera + HDMI)"
+
+$(BUILD_DIR)/lpr_live_demo.o: $(APP_DIR)/lpr_live_demo.c $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
 
 # Convenience alias
 test: lpr_golden_test
