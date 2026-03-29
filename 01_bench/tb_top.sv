@@ -109,6 +109,7 @@ module tb_top;
     // =========================================================================
     `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators
     `include "include/tb_tasks.svh"             // Driver tasks (uses signals)
+    `include "include/tb_coverage.svh"          // Functional coverage (covergroups)
     `include "include/tb_protocol_checkers.svh" // Protocol monitors (uses signals)
     
     // CRV Suite Files (4 Pillars)
@@ -462,10 +463,13 @@ module tb_top;
         reset_dut(5);
         run_suite_real_app();
 
+        // Print functional coverage before finishing
+        print_functional_coverage();
+
         $display("\n================================================================");
         $display("  ALL TEST SUITES COMPLETE");
         $display("================================================================\n");
-        
+
         $finish;
     end
 
@@ -522,7 +526,7 @@ module tb_top;
         $display("    Stress cycles    : %0d", cov_stress_cycles);
         $display("    Reset tests      : %0d", cov_reset_tests);
 
-        // Section 4: Verdict
+        // Section 5: Verdict
         $display("");
         $display("  ================================================================");
         if (error_count == 0 && assertion_errors == 0)
