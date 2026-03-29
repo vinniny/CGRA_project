@@ -27,16 +27,28 @@ module tb_top;
     `include "include/tb_defs.svh"
 
     // =========================================================================
-    // 1. CLOCK & RESET GENERATION (Timing-driven for Verilator --timing)
+    // 1. DETERMINISTIC SEED & CLOCK/RESET GENERATION
     // =========================================================================
+    // TB-1: Deterministic random seed for reproducible test runs.
+    // The Makefile passes +SEED=N via xmsim plusargs.
+    // All $urandom calls in the TB use this seed via $srandom().
+    int sim_seed;
+    initial begin
+        if (!$value$plusargs("SEED=%d", sim_seed))
+            sim_seed = 42;  // Default seed if not specified
+        $srandom(sim_seed);
+        $display("[SEED] Simulation random seed: %0d", sim_seed);
+        $display("[SEED] To reproduce: make run SEED=%0d", sim_seed);
+    end
+
     logic clk;
     logic rst_n;
-    
+
     initial begin
         clk = 0;
         forever #5 clk = ~clk;
     end  // 100 MHz Clock
-    
+
     initial begin
         rst_n = 1'b0;
         #50 rst_n = 1'b1;
