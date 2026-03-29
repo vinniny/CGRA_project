@@ -197,13 +197,15 @@ task automatic wait_dma_done(input int timeout);
     assertion_errors = assertion_errors + 1;
 endtask
 
-task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst, 
+task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst,
                             input logic [31:0] size, input int timeout);
     apb_write(ADDR_DMA_SRC, src);
     apb_write(ADDR_DMA_DST, dst);
     apb_write(ADDR_DMA_SIZE, size);
     apb_write(ADDR_DMA_CTRL, 32'h1);
     wait_dma_done(timeout);
+    // TB-2: Sample functional coverage
+    cov_sample_dma(src, dst, size, (dst[31:28] == 4'h0) ? 1'b1 : 1'b0);
 endtask
 
 task automatic check_data(input logic [31:0] src, input logic [31:0] dst, 
@@ -421,6 +423,8 @@ task automatic config_pe_imm(
     cfg = build_pe_config(opcode, src0, src1, dst, route, imm);
     config_pe(pe_id, 4'd0, cfg);
     wait_cycles(3);
+    // TB-2: Sample PE ISA functional coverage
+    cov_sample_pe(opcode, src0, src1, 1'b0);
 endtask
 
 // ============================================================================
