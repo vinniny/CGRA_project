@@ -174,9 +174,13 @@ module cgra_top #(
     logic [31:0] dma_tile_rdata;  // Read data from tile memory (1-cycle latent)
     logic        dma_tile_valid;  // Read data valid from tile memory
     
-    // Row data from tile memory → Array
+    // Row data from tile memory (1-cycle SRAM latency)
     logic [31:0] row_data [0:3];
     logic        row_valid [0:3];
+
+    // Pipeline register: align tile data with config_frame_reg (both 1-cycle delayed)
+    logic [31:0] row_data_reg [0:3];
+    logic        row_valid_reg [0:3];
     
     // =========================================================================
     // Internal Wires: DMA → Config Bus (Recipe Book)
@@ -227,12 +231,78 @@ module cgra_top #(
     logic        csr_pslverr; // CSR module slave error
     
     // =========================================================================
-    // Internal Wires: Configuration (simplified for now)
+    // Config Path: DMA → PE-Internal BRAM (A2 timing optimization)
     // =========================================================================
-    // 2D config register array: [pe_id][context_slot]
-    // Combinational read via context_pc — zero latency, no BSG pipeline issue.
-    // Survives soft_reset (only cleared by global rst_n).
-    logic [CONFIG_WIDTH-1:0] config_frames [0:15][0:15];  // 16 PEs × 16 contexts
+    // PEs use their internal BSG config RAM (cgra_config_mem_bsg) for config
+    // storage. DMA config writes reach PEs via the cfg_wr_* bus. During
+    // execution, config_valid=0 so PEs read from their internal BRAM (1-cycle
+    // read latency, equivalent to the old config_frame_reg pipeline stage).
+    //
+    // Slot-0 Broadcast FSM: When DMA writes to slot 0, the broadcast FSM
+    // replays the write to slots 1-15 over 15 additional cycles. DMA is idle
+    // during config loading, so the extra cycles don't impact throughput.
+    // =========================================================================
+
+    // Broadcast FSM state
+    logic        bcast_active;
+    logic [3:0]  bcast_slot_counter;   // Current slot being written (1-15)
+    logic [3:0]  bcast_pe_sel;         // Target PE for broadcast
+    logic [63:0] bcast_data;           // Latched config data for broadcast
+
+    // Muxed config write signals (normal DMA write OR broadcast replay)
+    logic [3:0]  cfg_wr_addr_mux;
+    logic [63:0] cfg_wr_data_mux;
+    logic [3:0]  cfg_wr_pe_sel_mux;
+    logic        cfg_wr_en_mux;
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            bcast_active       <= 1'b0;
+            bcast_slot_counter <= 4'd0;
+            bcast_pe_sel       <= 4'd0;
+            bcast_data         <= 64'd0;
+        end else if (config_commit_en && dma_cfg_addr[6:3] == 4'd0 && !bcast_active) begin
+            // Slot-0 write detected: latch data and start broadcast to slots 1-15
+            bcast_active       <= 1'b1;
+            bcast_slot_counter <= 4'd1;
+            bcast_pe_sel       <= dma_cfg_pe_sel;
+            bcast_data         <= config_full_word;
+        end else if (bcast_active) begin
+            if (bcast_slot_counter == 4'd15) begin
+                bcast_active <= 1'b0;  // Done broadcasting
+            end else begin
+                bcast_slot_counter <= bcast_slot_counter + 4'd1;
+            end
+        end
+    end
+
+    // Mux: broadcast replay takes priority over normal DMA writes
+    // (DMA cannot issue new config writes while broadcast is active because
+    //  the DMA write path is sequential — next double-pump hasn't started yet)
+    always_comb begin
+        if (bcast_active) begin
+            cfg_wr_addr_mux   = bcast_slot_counter;
+            cfg_wr_data_mux   = bcast_data;
+            cfg_wr_pe_sel_mux = bcast_pe_sel;
+            cfg_wr_en_mux     = 1'b1;
+        end else begin
+            cfg_wr_addr_mux   = dma_cfg_addr[6:3];
+            cfg_wr_data_mux   = config_full_word;
+            cfg_wr_pe_sel_mux = dma_cfg_pe_sel;
+            cfg_wr_en_mux     = config_commit_en;
+        end
+    end
+
+    // Tile data alignment: Both tile SRAM and PE config BRAM have 1-cycle
+    // read latency. Tile prefetch uses next_context_pc to compensate.
+    // No extra pipeline register needed — row_data and config_ram_data
+    // are naturally aligned (both 1 cycle from address to output).
+    always_comb begin
+        for (int i = 0; i < 4; i++) begin
+            row_data_reg[i]  = row_data[i];
+            row_valid_reg[i] = row_valid[i];
+        end
+    end
 
     // =========================================================================
     // Internal Wires: Control Unit → Flow Control
@@ -256,22 +326,9 @@ module cgra_top #(
     // Addressed write: writing to slot 1-15 updates only that specific slot.
     //   Multi-context drivers (e.g. FC layer) write slot 0 first (broadcast),
     //   then overwrite slots 1-15 with per-context configs.
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            for (int i = 0; i < 16; i++)
-                for (int j = 0; j < 16; j++)
-                    config_frames[i][j] <= 64'd0;
-        end else if (config_commit_en) begin
-            if (dma_cfg_addr[6:3] == 4'd0) begin
-                // Slot 0: broadcast to all 16 context slots
-                for (int s = 0; s < 16; s++)
-                    config_frames[dma_cfg_pe_sel][s] <= config_full_word;
-            end else begin
-                // Slot 1-15: addressed write to specific context slot
-                config_frames[dma_cfg_pe_sel][dma_cfg_addr[6:3]] <= config_full_word;
-            end
-        end
-    end
+    // Config writes now go directly to PE-internal BRAM via cfg_wr_* bus.
+    // The old config_frames[16][16] register array has been removed (A2).
+    // Broadcast (slot-0) is handled by the broadcast FSM above.
 
     // =========================================================================
     // TEMPORARY: Placeholder assignment for config PE selection
@@ -573,6 +630,10 @@ module cgra_top #(
     
     // Trigger array_done after 16 cycles (configurable via parameter)
     // This causes the CU to transition to FINISH state
+    // 16 cycles: one complete context sweep (PC 0-15).
+    // The PE ALU pipeline (_r registers) adds 1-cycle latency, but this is
+    // absorbed by the BRAM read latency (both paths: BRAM and tile SRAM
+    // have matching 1-cycle prefetch latency).
     assign array_done = auto_stop_armed && (auto_stop_counter == 5'd16);
     
     // =========================================================================
@@ -596,33 +657,29 @@ module cgra_top #(
         .clk(clk),
         .rst_n(rst_n & pe_reset_n),  // Combined reset
         
-        // Configuration - FIX: Wire from config_frames array (loaded by DMA)
-        // Combinational MUX: config_frames[pe_id][context_pc] — zero latency
-        .config_frame_00(config_frames[0][context_pc]),
-        .config_frame_01(config_frames[1][context_pc]),
-        .config_frame_02(config_frames[2][context_pc]),
-        .config_frame_03(config_frames[3][context_pc]),
-        .config_frame_10(config_frames[4][context_pc]),
-        .config_frame_11(config_frames[5][context_pc]),
-        .config_frame_12(config_frames[6][context_pc]),
-        .config_frame_13(config_frames[7][context_pc]),
-        .config_frame_20(config_frames[8][context_pc]),
-        .config_frame_21(config_frames[9][context_pc]),
-        .config_frame_22(config_frames[10][context_pc]),
-        .config_frame_23(config_frames[11][context_pc]),
-        .config_frame_30(config_frames[12][context_pc]),
-        .config_frame_31(config_frames[13][context_pc]),
-        .config_frame_32(config_frames[14][context_pc]),
-        .config_frame_33(config_frames[15][context_pc]),
-        .config_valid(cu_busy),    // FIX: Enable PE execution when CU is running
-        
-        // Multi-context interface - FIX 2: Double-pump config path
-        .context_pc(context_pc),
+        // Configuration — PEs use internal BRAM (A2 optimization).
+        // config_valid=0 forces PEs to read from their internal BSG config RAM.
+        // The BSG SRAM's 1-cycle read latency provides natural pipeline staging.
+        .config_frame_00(64'd0), .config_frame_01(64'd0),
+        .config_frame_02(64'd0), .config_frame_03(64'd0),
+        .config_frame_10(64'd0), .config_frame_11(64'd0),
+        .config_frame_12(64'd0), .config_frame_13(64'd0),
+        .config_frame_20(64'd0), .config_frame_21(64'd0),
+        .config_frame_22(64'd0), .config_frame_23(64'd0),
+        .config_frame_30(64'd0), .config_frame_31(64'd0),
+        .config_frame_32(64'd0), .config_frame_33(64'd0),
+        .config_valid(1'b0),     // PEs always use internal BRAM config
+
+        // Multi-context interface — config writes via broadcast-aware mux
+        // next_context_pc feeds PE-internal BRAM read address (prefetch).
+        // BRAM 1-cycle read latency aligns with tile SRAM 1-cycle latency.
+        // PE _r pipeline adds 1 more cycle to both paths equally.
+        .context_pc(next_context_pc),
         .global_stall(global_stall),
-        .cfg_wr_addr(dma_cfg_addr[6:3]),         // Config slot address (skip bit 2 used for hi/lo)
-        .cfg_wr_data(config_full_word),          // FIX 2: Full 64-bit config
-        .cfg_wr_pe_sel(dma_cfg_pe_sel),          // From address decode
-        .cfg_wr_en(config_commit_en),            // FIX 2: Only commit on low word write
+        .cfg_wr_addr(cfg_wr_addr_mux),
+        .cfg_wr_data(cfg_wr_data_mux),
+        .cfg_wr_pe_sel(cfg_wr_pe_sel_mux),
+        .cfg_wr_en(cfg_wr_en_mux),
 
         
         // North edge inputs - tie off
@@ -656,14 +713,14 @@ module cgra_top #(
         .edge_valid_in_e3(1'b0),
         
         // West edge inputs - FROM TILE MEMORY (The Data Pipeline!)
-        .edge_data_in_w0(row_data[0]),   // Bank 0 -> Row 0 PEs
-        .edge_data_in_w1(row_data[1]),   // Bank 1 -> Row 1 PEs
-        .edge_data_in_w2(row_data[2]),   // Bank 2 -> Row 2 PEs
-        .edge_data_in_w3(row_data[3]),   // Bank 3 -> Row 3 PEs
-        .edge_valid_in_w0(row_valid[0]),
-        .edge_valid_in_w1(row_valid[1]),
-        .edge_valid_in_w2(row_valid[2]),
-        .edge_valid_in_w3(row_valid[3]),
+        .edge_data_in_w0(row_data_reg[0]),   // Bank 0 -> Row 0 PEs (registered)
+        .edge_data_in_w1(row_data_reg[1]),   // Bank 1 -> Row 1 PEs (registered)
+        .edge_data_in_w2(row_data_reg[2]),   // Bank 2 -> Row 2 PEs (registered)
+        .edge_data_in_w3(row_data_reg[3]),   // Bank 3 -> Row 3 PEs (registered)
+        .edge_valid_in_w0(row_valid_reg[0]),
+        .edge_valid_in_w1(row_valid_reg[1]),
+        .edge_valid_in_w2(row_valid_reg[2]),
+        .edge_valid_in_w3(row_valid_reg[3]),
         
         // Edge outputs - connected for synthesis keepalive
         .edge_data_out_n0(edge_n0),

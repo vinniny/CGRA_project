@@ -307,7 +307,49 @@ module cgra_pe #(
     end
     
     // =========================================================================
-    // ALU/MAC Unit
+    // Pipeline Register: Decode/Fetch → Execute
+    // =========================================================================
+    // Cuts the critical path between operand mux and ALU compute.
+    // Stage 1 (this cycle): config decode + operand mux → latch into _r regs
+    // Stage 2 (next cycle): ALU compute on registered operands → alu_result
+    // Enables DSP48 input pipelining (AREG=1, BREG=1) for timing closure.
+    logic [DATA_WIDTH-1:0] operand0_r, operand1_r;
+    logic [5:0]            op_code_r;
+    logic [3:0]            dst_sel_r;
+    logic [4:0]            route_mask_r;
+    logic                  pred_en_r, pred_inv_r;
+    logic [15:0]           immediate_r;
+    logic                  config_active_r;
+    logic [DATA_WIDTH-1:0] spm_rdata_r;
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            operand0_r     <= '0;
+            operand1_r     <= '0;
+            op_code_r      <= '0;
+            dst_sel_r      <= '0;
+            route_mask_r   <= '0;
+            pred_en_r      <= 1'b0;
+            pred_inv_r     <= 1'b0;
+            immediate_r    <= '0;
+            config_active_r <= 1'b0;
+            spm_rdata_r    <= '0;
+        end else if (!stall) begin
+            operand0_r     <= operand0;
+            operand1_r     <= operand1;
+            op_code_r      <= op_code;
+            dst_sel_r      <= dst_sel;
+            route_mask_r   <= route_mask;
+            pred_en_r      <= pred_en;
+            pred_inv_r     <= pred_inv;
+            immediate_r    <= immediate;
+            config_active_r <= config_active;
+            spm_rdata_r    <= spm_rdata;
+        end
+    end
+
+    // =========================================================================
+    // ALU/MAC Unit (operates on REGISTERED operands from pipeline stage)
     // =========================================================================
     logic [31:0]           alu_result;
     logic signed [39:0]    accumulator;
@@ -357,17 +399,12 @@ module cgra_pe #(
     localparam OP_MAX   = 6'd20;  // MAX: max(A, B) signed for pooling
     
     always_comb begin
-        op0_ext = {{(40-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0};
-        op1_ext = {{(40-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1};
-        // FIX: Use 64-bit temporary to prevent 32-bit overflow interpretation (e.g. 0x80000000 becoming -2^31 instead of +2^31)
-        // FIX: Use 64-bit temporary to prevent 32-bit overflow and handle >40-bit products
-        
-        // FIX: Widen operands to 64-bit BEFORE multiply so the product is
-        // computed at full precision.  Without this, SystemVerilog self-determines
-        // the multiply width as max(32,32)=32, silently truncating products that
-        // exceed the 32-bit signed range before they reach mult_full[63:0].
-        mult_full = $signed({{(64-DATA_WIDTH){operand0[DATA_WIDTH-1]}}, operand0})
-                  * $signed({{(64-DATA_WIDTH){operand1[DATA_WIDTH-1]}}, operand1});
+        op0_ext = {{(40-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r};
+        op1_ext = {{(40-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r};
+
+        // Widen registered operands to 64-bit BEFORE multiply for full precision.
+        mult_full = $signed({{(64-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r})
+                  * $signed({{(64-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r});
         
         // Check for 40-bit overflow
         // If all bits from [63:39] are NOT identical, we have overflow beyond 40 bits.
@@ -453,8 +490,8 @@ module cgra_pe #(
     logic execute_enable;
     
     always_comb begin
-        if (pred_en) begin
-            execute_enable = pred_inv ? ~predicate_flag : predicate_flag;
+        if (pred_en_r) begin
+            execute_enable = pred_inv_r ? ~predicate_flag : predicate_flag;
         end else begin
             execute_enable = 1'b1;
         end
@@ -468,8 +505,8 @@ module cgra_pe #(
             // run_cgra() stops execution via soft_reset which triggers pe_reset_n → 0.
             // If alu_result were reset, the computed result would be wiped before
             // the testbench reads it. NOP preserves alu_result (no-op).
-        end else if (config_active && !stall && execute_enable) begin  // FIX: Predicate gates ALL ALU side-effects (accumulator, predicate_flag, alu_result)
-            unique case (op_code)
+        end else if (config_active_r && !stall && execute_enable) begin
+            unique case (op_code_r)
                 OP_NOP: begin
                     // FIX: NOP preserves alu_result (no-op means no change).
                     // Previously zeroed alu_result, which destroyed routed data
@@ -493,47 +530,47 @@ module cgra_pe #(
                     alu_result <= mac_result_sat;
                 end
                 OP_AND: begin
-                    alu_result <= operand0 & operand1;
+                    alu_result <= operand0_r & operand1_r;
                 end
                 OP_OR: begin
-                    alu_result <= operand0 | operand1;
+                    alu_result <= operand0_r | operand1_r;
                 end
                 OP_XOR: begin
-                    alu_result <= operand0 ^ operand1;
+                    alu_result <= operand0_r ^ operand1_r;
                 end
                 OP_SHL: begin
-                    alu_result <= operand0 << operand1[4:0];  // 5-bit shift (0-31)
+                    alu_result <= operand0_r << operand1_r[4:0];
                 end
                 OP_SHR: begin
-                    alu_result <= $signed(operand0) >>> operand1[4:0];  // Arithmetic shift right
+                    alu_result <= $signed(operand0_r) >>> operand1_r[4:0];
                 end
                 OP_CMP_GT: begin
-                    predicate_flag <= ($signed(operand0) > $signed(operand1));
-                    alu_result <= ($signed(operand0) > $signed(operand1)) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0_r) > $signed(operand1_r));
+                    alu_result <= ($signed(operand0_r) > $signed(operand1_r)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_LT: begin
-                    predicate_flag <= ($signed(operand0) < $signed(operand1));
-                    alu_result <= ($signed(operand0) < $signed(operand1)) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0_r) < $signed(operand1_r));
+                    alu_result <= ($signed(operand0_r) < $signed(operand1_r)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_EQ: begin
-                    predicate_flag <= (operand0 == operand1);
-                    alu_result <= (operand0 == operand1) ? 32'd1 : 32'd0;
+                    predicate_flag <= (operand0_r == operand1_r);
+                    alu_result <= (operand0_r == operand1_r) ? 32'd1 : 32'd0;
                 end
                 OP_LOAD_SPM: begin
-                    alu_result <= spm_rdata;
+                    alu_result <= spm_rdata_r;
                 end
                 OP_STORE_SPM: begin
-                    alu_result <= operand0;
+                    alu_result <= operand0_r;
                 end
                 OP_ACC_CLR: begin
                     accumulator <= '0;
                     alu_result <= '0;
                 end
                 OP_PASS0: begin
-                    alu_result <= operand0;
+                    alu_result <= operand0_r;
                 end
                 OP_PASS1: begin
-                    alu_result <= operand1;
+                    alu_result <= operand1_r;
                 end
                 OP_LIF: begin
                     if (lif_next_v >= op1_ext) begin
@@ -549,11 +586,11 @@ module cgra_pe #(
                 OP_RELU: begin
                     // ReLU activation: max(0, A) — used by ANN/LPR layers
                     // Treats operand0 as signed; clamps negative to zero
-                    alu_result <= ($signed(operand0) > 0) ? operand0 : 32'd0;
+                    alu_result <= ($signed(operand0_r) > 0) ? operand0_r : 32'd0;
                 end
                 OP_MAX: begin
                     // Signed maximum: max(A, B) — used for max-pooling layers
-                    alu_result <= ($signed(operand0) > $signed(operand1)) ? operand0 : operand1;
+                    alu_result <= ($signed(operand0_r) > $signed(operand1_r)) ? operand0_r : operand1_r;
                 end
                 default: begin
                     alu_result <= '0;
@@ -567,15 +604,15 @@ module cgra_pe #(
     // =========================================================================
     always_comb begin
         rf_we = 1'b0;
-        rf_waddr = dst_sel;
+        rf_waddr = dst_sel_r;
         rf_wdata = alu_result[DATA_WIDTH-1:0];
-        
+
         spm_we = 1'b0;
-        spm_addr = operand1[$clog2(SPM_DEPTH)-1:0];
-        spm_wdata = operand0;
-        
-        if (config_active && execute_enable && !stall) begin  // FIX: config_active for multi-context
-            unique case (op_code)
+        spm_addr = operand1_r[$clog2(SPM_DEPTH)-1:0];
+        spm_wdata = operand0_r;
+
+        if (config_active_r && execute_enable && !stall) begin
+            unique case (op_code_r)
                 OP_STORE_SPM: begin
                     spm_we = 1'b1;
                 end
@@ -617,9 +654,9 @@ module cgra_pe #(
         // broadcast (not XY routing), full 32-bit precision is required.
         output_data = alu_result;
         // FIX: Gate output_valid with !stall to prevent re-consumption of stale data
-        output_valid = config_active && execute_enable && !stall;
+        output_valid = config_active_r && execute_enable && !stall;
     end
-    
+
     // Route mask: [4] = local, [3] = N, [2] = E, [1] = S, [0] = W
     always_comb begin
         data_out_n = output_data;
@@ -627,12 +664,12 @@ module cgra_pe #(
         data_out_s = output_data;
         data_out_w = output_data;
         data_out_local = output_data;
-        
-        valid_out_n = output_valid && route_mask[3];
-        valid_out_e = output_valid && route_mask[2];
-        valid_out_s = output_valid && route_mask[1];
-        valid_out_w = output_valid && route_mask[0];
-        valid_out_local = output_valid && route_mask[4];  // Only output if route_mask[4] set
+
+        valid_out_n = output_valid && route_mask_r[3];
+        valid_out_e = output_valid && route_mask_r[2];
+        valid_out_s = output_valid && route_mask_r[1];
+        valid_out_w = output_valid && route_mask_r[0];
+        valid_out_local = output_valid && route_mask_r[4];
     end
 
 endmodule
