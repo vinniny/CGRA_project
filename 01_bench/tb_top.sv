@@ -106,6 +106,9 @@ module tb_top;
     `include "include/tb_suite_lpr.svh"          // LPR demo feature tests (RELU, MAX, Loop CSRs)
     `include "include/tb_suite_dma_writeback.svh"  // DMA Write-Back Verification (Suite AE)
     `include "include/tb_suite_dma_readback.svh"  // DMA Tile Read-Back Verification (Suite AF)
+    `include "include/tb_suite_pipeline.svh"      // PE Pipeline Register (Suite AG)
+    `include "include/tb_suite_axi_error.svh"     // AXI Error Handling (Suite AH)
+    `include "include/tb_suite_tile_depth.svh"    // Tile Memory Depth (Suite AI)
     `include "include/tb_suite_real_app.svh"      // Suite RAP: Real Application E2E
 
     // =========================================================================
@@ -434,6 +437,15 @@ module tb_top;
 
         reset_dut(5);
         run_suite_AF_dma_readback();
+
+        reset_dut(5);
+        run_suite_AG_pipeline();
+
+        reset_dut(5);
+        run_suite_AH_axi_error();
+
+        reset_dut(5);
+        run_suite_AI_tile_depth();
 
         reset_dut(5);
         run_suite_real_app();
