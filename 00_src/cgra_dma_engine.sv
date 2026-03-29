@@ -60,6 +60,7 @@ module cgra_dma_engine #(
     input  logic                  m_axi_wready,
     // Write Response Channel
     input  logic                  m_axi_bvalid,
+    input  logic [1:0]            m_axi_bresp,     // Write response (00=OKAY, 10=SLVERR, 11=DECERR)
     output logic                  m_axi_bready,
     // Read Address Channel
     output logic [ADDR_WIDTH-1:0] m_axi_araddr,
@@ -72,8 +73,15 @@ module cgra_dma_engine #(
     input  logic [DATA_WIDTH-1:0] m_axi_rdata,
     input  logic                  m_axi_rlast,     // Last beat in burst
     input  logic                  m_axi_rvalid,
+    input  logic [1:0]            m_axi_rresp,     // Read response
     output logic                  m_axi_rready,
-    
+
+    // =========================================================================
+    // Error Status Output
+    // =========================================================================
+    output logic [1:0]            error_code,      // Captured BRESP/RRESP error
+    output logic                  error_valid,     // Pulse on error detection
+
     // =========================================================================
     // Local Memory Interface (To Tile Memory)
     // =========================================================================
@@ -778,11 +786,10 @@ module cgra_dma_engine #(
                     if (m_axi_bvalid) begin
                         // Response received - de-assert ready until next burst is queued
                         m_axi_bready <= 1'b0;
-                        
-                        // Note: In production code, should check m_axi_bresp:
-                        // 2'b00 = OKAY, 2'b01 = EXOKAY, 2'b10 = SLVERR, 2'b11 = DECERR
-                        // For now, we assume OKAY response (can add error handling later)
-                        
+
+                        // BRESP error detection handled by status block via
+                        // combinational bresp_error signal (see below).
+
                         // Check if all words written
                         if (write_words_remaining == 32'd0) begin
                             // Transfer complete
@@ -928,6 +935,21 @@ module cgra_dma_engine #(
     logic transfer_active;
     logic transfer_started;  // FIX: One-cycle delay to let FSMs leave IDLE
     
+    // =========================================================================
+    // Error Capture (AXI BRESP/RRESP monitoring)
+    // =========================================================================
+    // error_code_reg is sticky (holds last error). Cleared on new cfg_start.
+    // Combinational detection signals feed the status always_ff block.
+    logic [1:0] error_code_reg;
+    logic       error_flag;
+
+    assign error_code  = error_code_reg;
+    assign error_valid = error_flag;
+
+    // Combinational error detection from AXI responses
+    wire bresp_error = m_axi_bvalid && m_axi_bready && m_axi_bresp[1];
+    wire rresp_error = m_axi_rvalid && m_axi_rready && m_axi_rresp[1];
+
     // Robust busy check: stays HIGH until ALL components are idle
     // This prevents producer-consumer mismatch where Write FSM finishes early
     // NOTE: Drain states are NOT idle — busy stays high during AXI-safe abort drain
@@ -940,6 +962,8 @@ module cgra_dma_engine #(
             status_busy <= 1'b0;
             status_done <= 1'b0;
             irq_done <= 1'b0;
+            error_code_reg <= 2'b00;
+            error_flag <= 1'b0;
         end else if (cfg_abort) begin
             // Abort clears transfer state but keeps busy HIGH while drain is active.
             // This prevents a new cfg_start from colliding with the AXI drain.
@@ -961,8 +985,17 @@ module cgra_dma_engine #(
             // Default: clear done pulse
             status_done <= 1'b0;
             irq_done <= 1'b0;
-            
+
+            // Capture AXI error responses (sticky — cleared on next cfg_start)
+            if (bresp_error || rresp_error) begin
+                error_code_reg <= bresp_error ? m_axi_bresp : m_axi_rresp;
+                error_flag <= 1'b1;
+            end
+
             if (cfg_start && !status_busy) begin
+                // Clear error on new transfer start
+                error_code_reg <= 2'b00;
+                error_flag <= 1'b0;
                 if (cfg_size != '0) begin
                     // Start new transfer
                     transfer_active <= 1'b1;

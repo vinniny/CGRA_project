@@ -427,6 +427,7 @@ module cgra_top #(
         .m_axi_wvalid(m_axi_wvalid),
         .m_axi_wready(m_axi_wready),
         .m_axi_bvalid(m_axi_bvalid),
+        .m_axi_bresp(2'b00),         // Tied to OKAY — top-level doesn't expose BRESP
         .m_axi_bready(m_axi_bready),
         .m_axi_araddr(m_axi_araddr),
         .m_axi_arlen(m_axi_arlen),
@@ -437,8 +438,13 @@ module cgra_top #(
         .m_axi_rdata(m_axi_rdata),
         .m_axi_rlast(m_axi_rlast),
         .m_axi_rvalid(m_axi_rvalid),
+        .m_axi_rresp(2'b00),         // Tied to OKAY — top-level doesn't expose RRESP
         .m_axi_rready(m_axi_rready),
-        
+
+        // Error status (connected to CSR for software visibility)
+        .error_code(),               // TODO: wire to DMA_ERROR CSR when APB CSR is updated
+        .error_valid(),              // TODO: wire to IRQ_STATUS[2]
+
         // Local Memory Interface (To Tile Memory)
         .tile_addr_o(dma_tile_addr),
         .tile_bank_sel_o(dma_tile_bank_sel),
@@ -520,7 +526,7 @@ module cgra_top #(
     cgra_tile_memory #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(12),
-        .BANK_DEPTH(1024),
+        .BANK_DEPTH(4096),   // C1: 4× larger tile memory (64KB total)
         .NUM_BANKS(4)
     ) u_tile_mem (
         .clk(clk),
