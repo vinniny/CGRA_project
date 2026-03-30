@@ -432,6 +432,9 @@ module cgra_top #(
         /* verilator lint_on PINCONNECTEMPTY */
         
         // AXI4 Master (with Burst Support)
+        /* verilator lint_off PINCONNECTEMPTY */
+        .m_axi_awid(),              // AXI ID not exposed at top level
+        /* verilator lint_on PINCONNECTEMPTY */
         .m_axi_awaddr(m_axi_awaddr),
         .m_axi_awlen(m_axi_awlen),
         .m_axi_awsize(m_axi_awsize),
@@ -443,9 +446,13 @@ module cgra_top #(
         .m_axi_wlast(m_axi_wlast),
         .m_axi_wvalid(m_axi_wvalid),
         .m_axi_wready(m_axi_wready),
+        .m_axi_bid({4{1'b0}}),          // AXI ID not used at top level
         .m_axi_bvalid(m_axi_bvalid),
         .m_axi_bresp(2'b00),         // Tied to OKAY — top-level doesn't expose BRESP
         .m_axi_bready(m_axi_bready),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .m_axi_arid(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .m_axi_araddr(m_axi_araddr),
         .m_axi_arlen(m_axi_arlen),
         .m_axi_arsize(m_axi_arsize),
@@ -455,6 +462,7 @@ module cgra_top #(
         .m_axi_rdata(m_axi_rdata),
         .m_axi_rlast(m_axi_rlast),
         .m_axi_rvalid(m_axi_rvalid),
+        .m_axi_rid({4{1'b0}}),
         .m_axi_rresp(2'b00),         // Tied to OKAY — top-level doesn't expose RRESP
         .m_axi_rready(m_axi_rready),
 

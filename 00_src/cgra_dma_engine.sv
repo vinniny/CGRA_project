@@ -25,7 +25,8 @@
 module cgra_dma_engine #(
     parameter DATA_WIDTH = 32,
     parameter ADDR_WIDTH = 32,
-    parameter FIFO_DEPTH = 32
+    parameter FIFO_DEPTH = 32,
+    parameter AXI_ID_WIDTH = 4
 )(
     input  logic clk,
     input  logic rst_n,
@@ -49,6 +50,7 @@ module cgra_dma_engine #(
     // AXI4 Master Interface (Full AXI4 with Burst Support)
     // =========================================================================
     // Write Address Channel
+    output logic [AXI_ID_WIDTH-1:0] m_axi_awid,
     output logic [ADDR_WIDTH-1:0] m_axi_awaddr,
     output logic [7:0]            m_axi_awlen,     // Burst length (0 = 1 beat, 255 = 256 beats)
     output logic [2:0]            m_axi_awsize,    // Beat size (2 = 4 bytes)
@@ -62,10 +64,12 @@ module cgra_dma_engine #(
     output logic                  m_axi_wvalid,
     input  logic                  m_axi_wready,
     // Write Response Channel
+    input  logic [AXI_ID_WIDTH-1:0] m_axi_bid,
     input  logic                  m_axi_bvalid,
     input  logic [1:0]            m_axi_bresp,     // Write response (00=OKAY, 10=SLVERR, 11=DECERR)
     output logic                  m_axi_bready,
     // Read Address Channel
+    output logic [AXI_ID_WIDTH-1:0] m_axi_arid,
     output logic [ADDR_WIDTH-1:0] m_axi_araddr,
     output logic [7:0]            m_axi_arlen,     // Burst length (0 = 1 beat)
     output logic [2:0]            m_axi_arsize,    // Beat size (2 = 4 bytes)
@@ -73,6 +77,7 @@ module cgra_dma_engine #(
     output logic                  m_axi_arvalid,
     input  logic                  m_axi_arready,
     // Read Data Channel
+    input  logic [AXI_ID_WIDTH-1:0] m_axi_rid,
     input  logic [DATA_WIDTH-1:0] m_axi_rdata,
     input  logic                  m_axi_rlast,     // Last beat in burst
     input  logic                  m_axi_rvalid,
@@ -930,6 +935,10 @@ module cgra_dma_engine #(
     
     assign config_addr_o   = local_write_addr;
     assign config_wdata_o  = write_data_reg;
+
+    // AXI ID: constant value (single master, no reordering)
+    assign m_axi_awid = {AXI_ID_WIDTH{1'b0}};
+    assign m_axi_arid = {AXI_ID_WIDTH{1'b0}};
     assign config_we_o     = local_write_en && dst_is_config;
     
     // =========================================================================
