@@ -66,7 +66,11 @@ module cgra_tile #(
     input  logic                   ready_in_n,
     input  logic                   ready_in_e,
     input  logic                   ready_in_s,
-    input  logic                   ready_in_w
+    input  logic                   ready_in_w,
+
+    // B4: Branch output (from PE to CU)
+    output logic [PC_WIDTH-1:0]    branch_target_o,
+    output logic                   branch_taken_o
 );
 
     // Internal PE <-> Router links
@@ -192,7 +196,9 @@ module cgra_tile #(
         .data_out_local(pe_to_router_data),
         .valid_out_local(pe_to_router_valid),
         .ready_in(router_to_pe_ready),
-        .ready_out(pe_to_router_ready)
+        .ready_out(pe_to_router_ready),
+        .branch_target_o(branch_target_o),
+        .branch_taken_o(branch_taken_o)
     );
     
     // =========================================================================

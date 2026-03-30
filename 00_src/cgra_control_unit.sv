@@ -62,7 +62,11 @@ module cgra_control_unit #(
     // Nested Loop (Level 2) — B3
     input  logic [15:0] loop2_start_pc_i,
     input  logic [15:0] loop2_end_pc_i,
-    input  logic [15:0] loop2_count_i
+    input  logic [15:0] loop2_count_i,
+
+    // B4: Dynamic branch from PE array
+    input  logic [PC_WIDTH-1:0] branch_target_i,
+    input  logic                branch_taken_i
 );
 
     // =========================================================================
@@ -241,12 +245,14 @@ module cgra_control_unit #(
         end else if (pe_enable && !global_stall_o) begin
             // Increment PC only when running and not stalled
             
-            // Loop jump logic: inner loop (level 1) takes priority.
-            // When inner loop count > 0: jump back to loop_start.
-            // When inner exhausted but outer > 0: also jump back (outer reloads inner).
+            // Priority: loop jump > branch > normal increment
             if ((pc_counter == loop_end_reg) &&
                 (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0)) begin
+                // Loop takes highest priority
                 pc_counter <= loop_start_reg;
+            end else if (branch_taken_i) begin
+                // B4: Dynamic branch (when predicate condition met)
+                pc_counter <= branch_target_i;
             end else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1)) begin
                 // Natural wrap-around at context depth boundary
                 pc_counter <= '0;
@@ -271,6 +277,8 @@ module cgra_control_unit #(
             if ((pc_counter == loop_end_reg) &&
                 (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0))
                 next_context_pc_o = loop_start_reg;
+            else if (branch_taken_i)
+                next_context_pc_o = branch_target_i;
             else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1))
                 next_context_pc_o = '0;
             else

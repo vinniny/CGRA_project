@@ -106,7 +106,11 @@ module cgra_pe #(
 
     // Backpressure (from/to router local port)
     input  logic                  ready_in,
-    output logic                  ready_out
+    output logic                  ready_out,
+
+    // B4: Dynamic branch output (from PE to CU via top level)
+    output logic [PC_WIDTH-1:0]   branch_target_o,
+    output logic                  branch_taken_o
 );
 
     // =========================================================================
@@ -124,6 +128,9 @@ module cgra_pe #(
     logic [COORD_WIDTH-1:0] cfg_dest_x;
     logic [COORD_WIDTH-1:0] cfg_dest_y;
     logic                   cfg_multicast;
+    // B4: Dynamic branching
+    logic [PC_WIDTH-1:0]   branch_target;
+    logic                  branch_en;
 
     localparam int HEADER_WIDTH  = DATA_WIDTH - PAYLOAD_WIDTH;
     localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
@@ -195,6 +202,9 @@ module cgra_pe #(
         cfg_dest_x = extended[COORD_WIDTH-1:0];
         cfg_dest_y = extended[(2 * COORD_WIDTH)-1:COORD_WIDTH];
         cfg_multicast = extended[2 * COORD_WIDTH];
+        // B4: Branch target from config frame bits [47:44] = extended[7:4]
+        branch_target = extended[PC_WIDTH+3:4];
+        branch_en = extended[PC_WIDTH+4];  // bit [48] = extended[8]: enable branch
     end
     
     // =========================================================================
@@ -321,6 +331,8 @@ module cgra_pe #(
     logic [15:0]           immediate_r;
     logic                  config_active_r;
     logic [DATA_WIDTH-1:0] spm_rdata_r;
+    logic [PC_WIDTH-1:0]   branch_target_r;
+    logic                  branch_en_r;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -334,6 +346,8 @@ module cgra_pe #(
             immediate_r    <= '0;
             config_active_r <= 1'b0;
             spm_rdata_r    <= '0;
+            branch_target_r <= '0;
+            branch_en_r    <= 1'b0;
         end else if (!stall) begin
             operand0_r     <= operand0;
             operand1_r     <= operand1;
@@ -345,8 +359,14 @@ module cgra_pe #(
             immediate_r    <= immediate;
             config_active_r <= config_active;
             spm_rdata_r    <= spm_rdata;
+            branch_target_r <= branch_target;
+            branch_en_r    <= branch_en;
         end
     end
+
+    // B4: branch_target_o assigned here; branch_taken_o assigned after execute_enable decl
+
+    assign branch_target_o = branch_target_r;
 
     // =========================================================================
     // ALU/MAC Unit (operates on REGISTERED operands from pipeline stage)
@@ -497,6 +517,9 @@ module cgra_pe #(
         end
     end
     
+    // B4: Branch taken when branch enabled in config AND predicate condition met
+    assign branch_taken_o = config_active_r && !stall && branch_en_r && execute_enable;
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             accumulator <= '0;
