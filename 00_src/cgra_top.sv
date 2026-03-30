@@ -155,6 +155,9 @@ module cgra_top #(
     logic [15:0] cu_loop_start_pc;
     logic [15:0] cu_loop_end_pc;
     logic [15:0] cu_loop_count;
+    logic [15:0] cu_loop2_start_pc;
+    logic [15:0] cu_loop2_end_pc;
+    logic [15:0] cu_loop2_count;
     
     // East-edge result registers (4 rows for LPR 4×4 output capture)
     logic [DATA_WIDTH-1:0] result_row [0:3];
@@ -394,7 +397,10 @@ module cgra_top #(
         // Hardware Loop (NEW - LPR: programmable via CSR 0x48-0x50)
         .loop_start_pc(cu_loop_start_pc),
         .loop_end_pc(cu_loop_end_pc),
-        .loop_count(cu_loop_count)
+        .loop_count(cu_loop_count),
+        .loop2_start_pc(cu_loop2_start_pc),
+        .loop2_end_pc(cu_loop2_end_pc),
+        .loop2_count(cu_loop2_count)
     );
     
     // =========================================================================
@@ -511,7 +517,10 @@ module cgra_top #(
         // Hardware Loop Configuration
         .loop_start_pc_i(cu_loop_start_pc),
         .loop_end_pc_i(cu_loop_end_pc),
-        .loop_count_i(cu_loop_count)
+        .loop_count_i(cu_loop_count),
+        .loop2_start_pc_i(cu_loop2_start_pc),
+        .loop2_end_pc_i(cu_loop2_end_pc),
+        .loop2_count_i(cu_loop2_count)
     );
     
     // =========================================================================

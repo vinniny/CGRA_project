@@ -57,7 +57,12 @@ module cgra_control_unit #(
     // =========================================================================
     input  logic [15:0] loop_start_pc_i, // Loop start address (context PC)
     input  logic [15:0] loop_end_pc_i,   // Loop end address (inclusive)
-    input  logic [15:0] loop_count_i     // Loop iteration count (0 = disabled)
+    input  logic [15:0] loop_count_i,    // Loop iteration count (0 = disabled)
+
+    // Nested Loop (Level 2) — B3
+    input  logic [15:0] loop2_start_pc_i,
+    input  logic [15:0] loop2_end_pc_i,
+    input  logic [15:0] loop2_count_i
 );
 
     // =========================================================================
@@ -83,7 +88,13 @@ module cgra_control_unit #(
     logic [15:0] loop_count_reg;  // Remaining loop iterations (internal counter)
     logic [PC_WIDTH-1:0] loop_start_reg;  // FIX: Latched loop start PC (prevents mid-run corruption)
     logic [PC_WIDTH-1:0] loop_end_reg;    // FIX: Latched loop end PC
-    
+
+    // Nested Loop (Level 2) Registers — B3
+    logic [15:0] loop2_count_reg;
+    logic [PC_WIDTH-1:0] loop2_start_reg;
+    logic [PC_WIDTH-1:0] loop2_end_reg;
+    logic [15:0] loop1_count_reload;       // Saved initial loop1 count for reload
+
     // =========================================================================
     // Timeout Detection — uses wall_counter for DMA-hang protection
     // =========================================================================
@@ -149,6 +160,10 @@ module cgra_control_unit #(
             loop_count_reg <= 16'd0;
             loop_start_reg <= '0;
             loop_end_reg   <= '0;
+            loop2_count_reg <= 16'd0;
+            loop2_start_reg <= '0;
+            loop2_end_reg   <= '0;
+            loop1_count_reload <= 16'd0;
         end else begin
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
                 // FIX: Match FSM guard - reload only when actually transitioning to RUN
@@ -165,6 +180,16 @@ module cgra_control_unit #(
                     loop_count_reg <= 16'd0;
                 else
                     loop_count_reg <= loop_count_i;
+                // B3: Latch nested loop (level 2) parameters
+                loop2_start_reg <= loop2_start_pc_i[PC_WIDTH-1:0];
+                loop2_end_reg   <= loop2_end_pc_i[PC_WIDTH-1:0];
+                if (loop2_count_i > 16'd0 &&
+                    loop2_start_pc_i[PC_WIDTH-1:0] > loop2_end_pc_i[PC_WIDTH-1:0])
+                    loop2_count_reg <= 16'd0;
+                else
+                    loop2_count_reg <= loop2_count_i;
+                // Save initial loop1 count for reload on outer loop iteration
+                loop1_count_reload <= loop_count_i;
             end else if (state == STATE_RUN) begin
                 // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
                 wall_counter <= wall_counter + 32'd1;
@@ -172,12 +197,20 @@ module cgra_control_unit #(
                 if (!global_stall_o)
                     cycle_counter <= cycle_counter + 32'd1;
                 
-                // CRITICAL: Decrement loop counter when PC matches end address
-                // This is the ONLY place loop_count_reg is decremented
-                // FIX: Use latched loop_end_reg instead of live input
-                if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0) && 
-                    (pe_enable && !global_stall_o)) begin
-                    loop_count_reg <= loop_count_reg - 16'd1;
+                // CRITICAL: Loop counter management (inner + outer)
+                // When inner loop (level 1) reaches loop_end:
+                //   - If loop_count_reg > 0: decrement inner count (normal loop)
+                //   - If loop_count_reg == 0 AND loop2_count_reg > 0:
+                //     inner loop exhausted, outer loop iteration:
+                //     reload inner count, decrement outer count
+                if ((pc_counter == loop_end_reg) && (pe_enable && !global_stall_o)) begin
+                    if (loop_count_reg > 16'd0) begin
+                        loop_count_reg <= loop_count_reg - 16'd1;
+                    end else if (loop2_count_reg > 16'd0) begin
+                        // B3: Outer loop iteration — reload inner, decrement outer
+                        loop_count_reg  <= loop1_count_reload;
+                        loop2_count_reg <= loop2_count_reg - 16'd1;
+                    end
                 end
             end
         end
@@ -208,10 +241,11 @@ module cgra_control_unit #(
         end else if (pe_enable && !global_stall_o) begin
             // Increment PC only when running and not stalled
             
-            // FIX: Use latched loop registers instead of live inputs
-            if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0)) begin
-                // Loop active and at end address - jump back to start
-                // NOTE: loop_count_reg is decremented in Cycle Counter block
+            // Loop jump logic: inner loop (level 1) takes priority.
+            // When inner loop count > 0: jump back to loop_start.
+            // When inner exhausted but outer > 0: also jump back (outer reloads inner).
+            if ((pc_counter == loop_end_reg) &&
+                (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0)) begin
                 pc_counter <= loop_start_reg;
             end else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1)) begin
                 // Natural wrap-around at context depth boundary
@@ -234,7 +268,8 @@ module cgra_control_unit #(
     // the wrong address for one cycle.
     always_comb begin
         if (pe_enable && !global_stall_o) begin
-            if ((pc_counter == loop_end_reg) && (loop_count_reg > 16'd0))
+            if ((pc_counter == loop_end_reg) &&
+                (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0))
                 next_context_pc_o = loop_start_reg;
             else if (pc_counter == PC_WIDTH'(CONTEXT_DEPTH - 1))
                 next_context_pc_o = '0;

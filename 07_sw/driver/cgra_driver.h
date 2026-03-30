@@ -67,6 +67,10 @@ extern "C" {
 #define CGRA_LOOP_END         0x4C
 #define CGRA_LOOP_COUNT       0x50
 
+#define CGRA_LOOP2_START      0x68    /* Nested loop start PC */
+#define CGRA_LOOP2_END        0x6C    /* Nested loop end PC */
+#define CGRA_LOOP2_COUNT      0x70    /* Nested loop iterations (0=disabled) */
+
 #define CGRA_RESULT_ROW0      0x58
 #define CGRA_RESULT_ROW1      0x5C
 #define CGRA_RESULT_ROW2      0x60

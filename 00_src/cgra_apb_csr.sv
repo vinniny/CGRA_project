@@ -73,7 +73,12 @@ module cgra_apb_csr #(
     // =========================================================================
     output logic [15:0]           loop_start_pc,
     output logic [15:0]           loop_end_pc,
-    output logic [15:0]           loop_count
+    output logic [15:0]           loop_count,
+
+    // Nested Loop (Level 2) — B3
+    output logic [15:0]           loop2_start_pc,
+    output logic [15:0]           loop2_end_pc,
+    output logic [15:0]           loop2_count
 );
 
     // =========================================================================
@@ -103,6 +108,11 @@ module cgra_apb_csr #(
     localparam ADDR_LOOP_START = 8'h48;  // RW: Loop start PC
     localparam ADDR_LOOP_END   = 8'h4C;  // RW: Loop end PC
     localparam ADDR_LOOP_COUNT = 8'h50;  // RW: Loop iteration count
+
+    // Nested Loop (Level 2) Region — B3
+    localparam ADDR_LOOP2_START = 8'h68; // RW: Outer loop start PC
+    localparam ADDR_LOOP2_END   = 8'h6C; // RW: Outer loop end PC
+    localparam ADDR_LOOP2_COUNT = 8'h70; // RW: Outer loop iterations (0=disabled)
     
     // =========================================================================
     // Internal Registers
@@ -124,7 +134,12 @@ module cgra_apb_csr #(
     logic [31:0] reg_loop_start;
     logic [31:0] reg_loop_end;
     logic [31:0] reg_loop_count;
-    
+
+    // Nested Loop (Level 2) registers — B3
+    logic [31:0] reg_loop2_start;
+    logic [31:0] reg_loop2_end;
+    logic [31:0] reg_loop2_count;
+
     // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
     logic        cu_done_latch;
@@ -197,6 +212,9 @@ module cgra_apb_csr #(
             reg_loop_start <= 32'd0;       // Default: PC 0
             reg_loop_end   <= 32'd15;      // Default: PC 15 (full range)
             reg_loop_count <= 32'd0;       // Default: no looping
+            reg_loop2_start <= 32'd0;
+            reg_loop2_end   <= 32'd15;
+            reg_loop2_count <= 32'd0;
         end else begin
             // APB Write Phase
             // FIX: Reject writes to DMA config regs while DMA is busy, and
@@ -215,7 +233,10 @@ module cgra_apb_csr #(
                     ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
                     ADDR_LOOP_START: if (!cu_busy_i) reg_loop_start <= pwdata;
                     ADDR_LOOP_END:   if (!cu_busy_i) reg_loop_end   <= pwdata;
-                    ADDR_LOOP_COUNT: if (!cu_busy_i) reg_loop_count <= pwdata;
+                    ADDR_LOOP_COUNT:  if (!cu_busy_i) reg_loop_count  <= pwdata;
+                    ADDR_LOOP2_START: if (!cu_busy_i) reg_loop2_start <= pwdata;
+                    ADDR_LOOP2_END:   if (!cu_busy_i) reg_loop2_end   <= pwdata;
+                    ADDR_LOOP2_COUNT: if (!cu_busy_i) reg_loop2_count <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
                 endcase
@@ -251,7 +272,10 @@ module cgra_apb_csr #(
             ADDR_IRQ_MASK:   prdata = reg_irq_mask;
             ADDR_LOOP_START: prdata = reg_loop_start;
             ADDR_LOOP_END:   prdata = reg_loop_end;
-            ADDR_LOOP_COUNT: prdata = reg_loop_count;
+            ADDR_LOOP_COUNT:  prdata = reg_loop_count;
+            ADDR_LOOP2_START: prdata = reg_loop2_start;
+            ADDR_LOOP2_END:   prdata = reg_loop2_end;
+            ADDR_LOOP2_COUNT: prdata = reg_loop2_count;
             default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
@@ -275,6 +299,11 @@ module cgra_apb_csr #(
     assign loop_start_pc = reg_loop_start[15:0];
     assign loop_end_pc   = reg_loop_end[15:0];
     assign loop_count    = reg_loop_count[15:0];
+
+    // Nested Loop (Level 2) outputs
+    assign loop2_start_pc = reg_loop2_start[15:0];
+    assign loop2_end_pc   = reg_loop2_end[15:0];
+    assign loop2_count    = reg_loop2_count[15:0];
     
     // =========================================================================
     // IRQ Generation
