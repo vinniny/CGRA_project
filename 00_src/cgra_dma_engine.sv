@@ -36,6 +36,9 @@ module cgra_dma_engine #(
     input  logic [31:0]           cfg_src,
     input  logic [31:0]           cfg_dst,
     input  logic [31:0]           cfg_size,
+    input  logic [31:0]           cfg_src_stride,   // 2D: row stride (bytes)
+    input  logic [31:0]           cfg_rows,          // 2D: number of rows (0=1D)
+    input  logic [31:0]           cfg_cols,           // 2D: columns per row (bytes)
     input  logic                  cfg_start,
     input  logic                  cfg_abort,    // FIX: Abort/soft-reset to clear stuck busy
     output logic                  status_busy,

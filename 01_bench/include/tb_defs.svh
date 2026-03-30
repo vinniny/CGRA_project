@@ -93,7 +93,10 @@ localparam logic [31:0] ADDR_DMA_CTRL   = 32'h00;
 localparam logic [31:0] ADDR_DMA_STATUS = 32'h04;
 localparam logic [31:0] ADDR_DMA_SRC    = 32'h08;
 localparam logic [31:0] ADDR_DMA_DST    = 32'h0C;
-localparam logic [31:0] ADDR_DMA_SIZE   = 32'h10;
+localparam logic [31:0] ADDR_DMA_SIZE       = 32'h10;
+localparam logic [31:0] ADDR_DMA_SRC_STRIDE = 32'h14;
+localparam logic [31:0] ADDR_DMA_ROWS       = 32'h18;
+localparam logic [31:0] ADDR_DMA_COLS       = 32'h1C;
 
 // ============================================================================
 // ADDRESS MAP CONSTANTS - Control Unit
