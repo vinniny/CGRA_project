@@ -134,6 +134,9 @@ module cgra_top #(
     logic [31:0] dma_src;
     logic [31:0] dma_dst;
     logic [31:0] dma_size;
+    logic [31:0] dma_src_stride;
+    logic [31:0] dma_rows;
+    logic [31:0] dma_cols;
     logic        dma_start;
     logic        dma_busy;
     logic        dma_done;
@@ -370,6 +373,9 @@ module cgra_top #(
         .dma_src(dma_src),
         .dma_dst(dma_dst),
         .dma_size(dma_size),
+        .dma_src_stride(dma_src_stride),
+        .dma_rows(dma_rows),
+        .dma_cols(dma_cols),
         .dma_start(dma_start),
         .dma_busy_i(dma_busy),
         .dma_done_i(dma_done),
@@ -406,6 +412,9 @@ module cgra_top #(
         .cfg_src(dma_src),
         .cfg_dst(dma_dst),
         .cfg_size(dma_size),
+        .cfg_src_stride(dma_src_stride),
+        .cfg_rows(dma_rows),
+        .cfg_cols(dma_cols),
         .cfg_start(dma_start),
         .cfg_abort(cu_soft_reset),    // FIX: Use CU soft reset to abort stuck DMA
         .status_busy(dma_busy),

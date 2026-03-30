@@ -46,6 +46,9 @@ module cgra_apb_csr #(
     output logic [31:0]           dma_src,
     output logic [31:0]           dma_dst,
     output logic [31:0]           dma_size,
+    output logic [31:0]           dma_src_stride,   // 2D stride
+    output logic [31:0]           dma_rows,          // 2D row count
+    output logic [31:0]           dma_cols,           // 2D cols/row
     output logic                  dma_start,      // Auto-clearing pulse
     input  logic                  dma_busy_i,
     input  logic                  dma_done_i,
@@ -82,7 +85,10 @@ module cgra_apb_csr #(
     localparam ADDR_DMA_SRC    = 8'h08;  // RW: Source address
     localparam ADDR_DMA_DST    = 8'h0C;  // RW: Dest address
     localparam ADDR_DMA_SIZE   = 8'h10;  // RW: Transfer size (bytes)
-    
+    localparam ADDR_DMA_SRC_STRIDE = 8'h14; // RW: 2D source row stride (bytes)
+    localparam ADDR_DMA_ROWS       = 8'h18; // RW: 2D number of rows (0=1D mode)
+    localparam ADDR_DMA_COLS       = 8'h1C; // RW: 2D columns per row (bytes)
+
     // Control Unit Region
     localparam ADDR_CU_CTRL    = 8'h20;  // RW: [0] Start, [1] Soft Reset
     localparam ADDR_CU_STATUS  = 8'h24;  // RO: [0] Busy, [1] Done
@@ -105,7 +111,10 @@ module cgra_apb_csr #(
     logic [31:0] reg_dma_src;
     logic [31:0] reg_dma_dst;
     logic [31:0] reg_dma_size;
-    
+    logic [31:0] reg_dma_src_stride;  // 2D stride
+    logic [31:0] reg_dma_rows;        // 2D row count (0=1D)
+    logic [31:0] reg_dma_cols;        // 2D cols per row (bytes)
+
     logic [31:0] reg_cu_ctrl;
     logic [31:0] reg_cu_timeout;  // Programmable timeout limit
     
@@ -179,6 +188,9 @@ module cgra_apb_csr #(
             reg_dma_src  <= 32'd0;
             reg_dma_dst  <= 32'd0;
             reg_dma_size <= 32'd0;
+            reg_dma_src_stride <= 32'd0;
+            reg_dma_rows       <= 32'd0;
+            reg_dma_cols       <= 32'd0;
             reg_cu_ctrl  <= 32'd0;
             reg_cu_timeout <= 32'd0;  // Default: no timeout
             reg_irq_mask <= 32'd0;
@@ -194,7 +206,10 @@ module cgra_apb_csr #(
                     ADDR_DMA_CTRL:   reg_dma_ctrl <= pwdata;
                     ADDR_DMA_SRC:    if (!dma_busy_i) reg_dma_src  <= pwdata;
                     ADDR_DMA_DST:    if (!dma_busy_i) reg_dma_dst  <= pwdata;
-                    ADDR_DMA_SIZE:   if (!dma_busy_i) reg_dma_size <= pwdata;
+                    ADDR_DMA_SIZE:       if (!dma_busy_i) reg_dma_size       <= pwdata;
+                    ADDR_DMA_SRC_STRIDE: if (!dma_busy_i) reg_dma_src_stride <= pwdata;
+                    ADDR_DMA_ROWS:       if (!dma_busy_i) reg_dma_rows       <= pwdata;
+                    ADDR_DMA_COLS:       if (!dma_busy_i) reg_dma_cols       <= pwdata;
                     ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
                     ADDR_CU_TIMEOUT: if (!cu_busy_i) reg_cu_timeout <= pwdata;
                     ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
@@ -224,7 +239,10 @@ module cgra_apb_csr #(
             ADDR_DMA_STATUS: prdata = reg_dma_status;
             ADDR_DMA_SRC:    prdata = reg_dma_src;
             ADDR_DMA_DST:    prdata = reg_dma_dst;
-            ADDR_DMA_SIZE:   prdata = reg_dma_size;
+            ADDR_DMA_SIZE:       prdata = reg_dma_size;
+            ADDR_DMA_SRC_STRIDE: prdata = reg_dma_src_stride;
+            ADDR_DMA_ROWS:       prdata = reg_dma_rows;
+            ADDR_DMA_COLS:       prdata = reg_dma_cols;
             ADDR_CU_CTRL:    prdata = reg_cu_ctrl;
             ADDR_CU_STATUS:  prdata = reg_cu_status;
             ADDR_CU_CYCLES:  prdata = cu_cycles_i;
@@ -243,7 +261,10 @@ module cgra_apb_csr #(
     // =========================================================================
     assign dma_src  = reg_dma_src;
     assign dma_dst  = reg_dma_dst;
-    assign dma_size = reg_dma_size;
+    assign dma_size       = reg_dma_size;
+    assign dma_src_stride = reg_dma_src_stride;
+    assign dma_rows       = reg_dma_rows;
+    assign dma_cols       = reg_dma_cols;
     assign dma_start = reg_dma_ctrl[0];
     
     assign cu_start = reg_cu_ctrl[0];

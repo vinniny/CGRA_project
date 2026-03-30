@@ -48,6 +48,9 @@ extern "C" {
 #define CGRA_DMA_SRC          0x08
 #define CGRA_DMA_DST          0x0C
 #define CGRA_DMA_SIZE         0x10
+#define CGRA_DMA_SRC_STRIDE   0x14    /* 2D: source row stride (bytes) */
+#define CGRA_DMA_ROWS         0x18    /* 2D: number of rows (0=1D mode) */
+#define CGRA_DMA_COLS         0x1C    /* 2D: columns per row (bytes) */
 
 #define CGRA_CU_CTRL          0x20
 #define CGRA_CU_STATUS        0x24
