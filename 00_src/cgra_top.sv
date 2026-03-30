@@ -159,6 +159,8 @@ module cgra_top #(
     logic [15:0] cu_loop2_end_pc;
     logic [15:0] cu_loop2_count;
     logic        tile_bank_sel_csr;
+    logic [3:0]  array_branch_target;
+    logic        array_branch_taken;
     
     // East-edge result registers (4 rows for LPR 4×4 output capture)
     logic [DATA_WIDTH-1:0] result_row [0:3];
@@ -530,7 +532,9 @@ module cgra_top #(
         .loop_count_i(cu_loop_count),
         .loop2_start_pc_i(cu_loop2_start_pc),
         .loop2_end_pc_i(cu_loop2_end_pc),
-        .loop2_count_i(cu_loop2_count)
+        .loop2_count_i(cu_loop2_count),
+        .branch_target_i(array_branch_target),
+        .branch_taken_i(array_branch_taken)
     );
     
     // =========================================================================
@@ -746,7 +750,11 @@ module cgra_top #(
         .edge_data_out_e(edge_out_e),
         .edge_valid_out_e(edge_valid_out_e_unused),
         .edge_data_out_w(edge_out_w),
-        .edge_valid_out_w(edge_valid_out_w_unused)
+        .edge_valid_out_w(edge_valid_out_w_unused),
+
+        // B4: Branch from PE[0][0]
+        .branch_target_o(array_branch_target),
+        .branch_taken_o(array_branch_taken)
     );
 
     // Backward-compatible aliases for synthesis_keep and result capture

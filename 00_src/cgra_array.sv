@@ -73,7 +73,11 @@ module cgra_array #(
 
     // Edge outputs — West (one per row)
     output logic [DATA_WIDTH-1:0] edge_data_out_w  [0:ROWS-1],
-    output logic                  edge_valid_out_w [0:ROWS-1]
+    output logic                  edge_valid_out_w [0:ROWS-1],
+
+    // B4: Branch output from PE[0][0] (designated branch source)
+    output logic [PC_WIDTH-1:0]   branch_target_o,
+    output logic                  branch_taken_o
 );
 
     // =========================================================================
@@ -87,6 +91,10 @@ module cgra_array #(
     logic [DATA_WIDTH-1:0] tile_out_e_data  [0:ROWS-1][0:COLS-1];
     logic                  tile_out_e_valid [0:ROWS-1][0:COLS-1];
     logic                  tile_out_e_ready [0:ROWS-1][0:COLS-1]; // ready_out_e
+
+    // B4: Per-tile branch outputs (only PE[0][0] used at array level)
+    logic [PC_WIDTH-1:0]   tile_branch_target [0:ROWS-1][0:COLS-1];
+    logic                  tile_branch_taken  [0:ROWS-1][0:COLS-1];
 
     logic [DATA_WIDTH-1:0] tile_out_s_data  [0:ROWS-1][0:COLS-1];
     logic                  tile_out_s_valid [0:ROWS-1][0:COLS-1];
@@ -197,7 +205,11 @@ module cgra_array #(
                     .ready_out_w   (tile_out_w_ready[y][x]),
                     .data_out_w    (tile_out_w_data[y][x]),
                     .valid_out_w   (tile_out_w_valid[y][x]),
-                    .ready_in_w    (in_w_ready)
+                    .ready_in_w    (in_w_ready),
+
+                    // B4: Branch
+                    .branch_target_o(tile_branch_target[y][x]),
+                    .branch_taken_o (tile_branch_taken[y][x])
                 );
 
             end // col
@@ -222,5 +234,11 @@ module cgra_array #(
             assign edge_valid_out_w[y] = tile_out_w_valid[y][0];
         end
     endgenerate
+
+    // =========================================================================
+    // B4: Branch output from PE[0][0] (designated branch source)
+    // =========================================================================
+    assign branch_target_o = tile_branch_target[0][0];
+    assign branch_taken_o  = tile_branch_taken[0][0];
 
 endmodule
