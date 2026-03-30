@@ -70,6 +70,7 @@ extern "C" {
 #define CGRA_LOOP2_START      0x68    /* Nested loop start PC */
 #define CGRA_LOOP2_END        0x6C    /* Nested loop end PC */
 #define CGRA_LOOP2_COUNT      0x70    /* Nested loop iterations (0=disabled) */
+#define CGRA_TILE_BANK_SEL    0x74    /* Double-buffer PE selector (bit[0]) */
 
 #define CGRA_RESULT_ROW0      0x58
 #define CGRA_RESULT_ROW1      0x5C
