@@ -131,6 +131,8 @@ module cgra_pe #(
     // B4: Dynamic branching
     logic [PC_WIDTH-1:0]   branch_target;
     logic                  branch_en;
+    // B1: Mixed-precision mode
+    logic [1:0]            data_mode;  // 00=INT32, 01=INT16x2, 10=INT8x4
 
     localparam int HEADER_WIDTH  = DATA_WIDTH - PAYLOAD_WIDTH;
     localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
@@ -205,6 +207,8 @@ module cgra_pe #(
         // B4: Branch target from config frame bits [47:44] = extended[7:4]
         branch_target = extended[PC_WIDTH+3:4];
         branch_en = extended[PC_WIDTH+4];  // bit [48] = extended[8]: enable branch
+        // B1: Data mode from config frame bits [50:49] = extended[10:9]
+        data_mode = extended[10:9];
     end
     
     // =========================================================================
@@ -333,6 +337,7 @@ module cgra_pe #(
     logic [DATA_WIDTH-1:0] spm_rdata_r;
     logic [PC_WIDTH-1:0]   branch_target_r;
     logic                  branch_en_r;
+    logic [1:0]            data_mode_r;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -348,6 +353,7 @@ module cgra_pe #(
             spm_rdata_r    <= '0;
             branch_target_r <= '0;
             branch_en_r    <= 1'b0;
+            data_mode_r    <= 2'b00;
         end else if (!stall) begin
             operand0_r     <= operand0;
             operand1_r     <= operand1;
@@ -361,6 +367,7 @@ module cgra_pe #(
             spm_rdata_r    <= spm_rdata;
             branch_target_r <= branch_target;
             branch_en_r    <= branch_en;
+            data_mode_r    <= data_mode;
         end
     end
 
@@ -418,11 +425,49 @@ module cgra_pe #(
     localparam OP_RELU  = 6'd19;  // ReLU: max(0, A) for ANN activation
     localparam OP_MAX   = 6'd20;  // MAX: max(A, B) signed for pooling
     
+    // =========================================================================
+    // B1: Mixed-Precision SIMD Computation
+    // =========================================================================
+    // INT8×4 dot-product: 4 signed byte multiplies summed into 32-bit
+    // INT16×2 dot-product: 2 signed halfword multiplies summed into 32-bit
+    logic signed [31:0] simd_dot_product;
+
+    // INT8 lane extraction (signed)
+    wire signed [7:0] op0_b3 = operand0_r[31:24];
+    wire signed [7:0] op0_b2 = operand0_r[23:16];
+    wire signed [7:0] op0_b1 = operand0_r[15:8];
+    wire signed [7:0] op0_b0 = operand0_r[7:0];
+    wire signed [7:0] op1_b3 = operand1_r[31:24];
+    wire signed [7:0] op1_b2 = operand1_r[23:16];
+    wire signed [7:0] op1_b1 = operand1_r[15:8];
+    wire signed [7:0] op1_b0 = operand1_r[7:0];
+
+    // INT16 lane extraction (signed)
+    wire signed [15:0] op0_h1 = operand0_r[31:16];
+    wire signed [15:0] op0_h0 = operand0_r[15:0];
+    wire signed [15:0] op1_h1 = operand1_r[31:16];
+    wire signed [15:0] op1_h0 = operand1_r[15:0];
+
+    always_comb begin
+        case (data_mode_r)
+            2'b10:   // INT8×4: sum of 4 byte products
+                simd_dot_product = (32'(op0_b3) * 32'(op1_b3)) +
+                                   (32'(op0_b2) * 32'(op1_b2)) +
+                                   (32'(op0_b1) * 32'(op1_b1)) +
+                                   (32'(op0_b0) * 32'(op1_b0));
+            2'b01:   // INT16×2: sum of 2 halfword products
+                simd_dot_product = (32'(op0_h1) * 32'(op1_h1)) +
+                                   (32'(op0_h0) * 32'(op1_h0));
+            default: // INT32: standard single multiply (lower 32 bits)
+                simd_dot_product = operand0_r * operand1_r;
+        endcase
+    end
+
     always_comb begin
         op0_ext = {{(40-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r};
         op1_ext = {{(40-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r};
 
-        // Widen registered operands to 64-bit BEFORE multiply for full precision.
+        // INT32 mode: full 64-bit multiply for overflow detection
         mult_full = $signed({{(64-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r})
                   * $signed({{(64-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r});
         
@@ -544,13 +589,23 @@ module cgra_pe #(
                     alu_result <= sub_result_sat;
                 end
                 OP_MUL: begin
-                    // FIX: Reuse mult_full (already computed above) instead of
-                    // inferring a second 32×32 multiplier per PE.
-                    alu_result <= mult_full[31:0];
+                    // B1: In SIMD modes, use dot-product; in INT32, use full multiply
+                    if (data_mode_r != 2'b00)
+                        alu_result <= simd_dot_product;
+                    else
+                        alu_result <= mult_full[31:0];
                 end
                 OP_MAC: begin
-                    accumulator <= mac_sum;
-                    alu_result <= mac_result_sat;
+                    // B1: In SIMD modes, accumulate dot-product into INT32 accumulator
+                    if (data_mode_r != 2'b00) begin
+                        // Simple INT32 accumulation (no 40-bit overflow concern
+                        // since SIMD dot-products are small: max INT8x4 = 4*127*127 = 64516)
+                        accumulator <= accumulator + {{8{simd_dot_product[31]}}, simd_dot_product};
+                        alu_result  <= accumulator[31:0] + simd_dot_product;
+                    end else begin
+                        accumulator <= mac_sum;
+                        alu_result <= mac_result_sat;
+                    end
                 end
                 OP_AND: begin
                     alu_result <= operand0_r & operand1_r;
