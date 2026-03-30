@@ -158,6 +158,7 @@ module cgra_top #(
     logic [15:0] cu_loop2_start_pc;
     logic [15:0] cu_loop2_end_pc;
     logic [15:0] cu_loop2_count;
+    logic        tile_bank_sel_csr;
     
     // East-edge result registers (4 rows for LPR 4×4 output capture)
     logic [DATA_WIDTH-1:0] result_row [0:3];
@@ -400,7 +401,8 @@ module cgra_top #(
         .loop_count(cu_loop_count),
         .loop2_start_pc(cu_loop2_start_pc),
         .loop2_end_pc(cu_loop2_end_pc),
-        .loop2_count(cu_loop2_count)
+        .loop2_count(cu_loop2_count),
+        .tile_bank_sel(tile_bank_sel_csr)
     );
     
     // =========================================================================
@@ -549,7 +551,8 @@ module cgra_top #(
     ) u_tile_mem (
         .clk(clk),
         .rst_n(rst_n),
-        
+        .bank_sel_i(tile_bank_sel_csr),  // C2: double-buffer PE selector
+
         // FIX 3: Dynamic Memory Addressing (Streaming Mode)
         // Each bank address = context_pc, enabling 16-word streaming per run
         
@@ -586,7 +589,7 @@ module cgra_top #(
         .bank3_valid(row_valid[3]),
         
         // External/DMA port - Write access
-        .ext_addr({2'b00, dma_tile_addr[11:2]}), // FIX: Convert byte address to word index (pad to 12-bit)
+        .ext_addr({2'b00, dma_tile_addr[11:2]}),  // Convert byte addr to 12-bit word index
         .ext_bank_sel(dma_tile_bank_sel),
         .ext_read(dma_tile_re),      // DMA tile read-back path (was 1'b0)
         .ext_write(dma_tile_we),

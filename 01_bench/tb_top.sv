@@ -123,6 +123,7 @@ module tb_top;
     `include "include/tb_suite_axi_error.svh"     // AXI Error Handling (Suite AH)
     `include "include/tb_suite_tile_depth.svh"    // Tile Memory Depth (Suite AI)
     `include "include/tb_suite_loops.svh"        // Hardware Loop Execution (Suite AJ)
+    `include "include/tb_suite_doublebuf.svh"   // Double-Buffered Tile Memory (Suite AK)
     `include "include/tb_suite_real_app.svh"      // Suite RAP: Real Application E2E
 
     // =========================================================================
@@ -463,6 +464,9 @@ module tb_top;
 
         reset_dut(5);
         run_suite_AJ_loops();
+
+        reset_dut(5);
+        run_suite_AK_doublebuf();
 
         reset_dut(5);
         run_suite_real_app();

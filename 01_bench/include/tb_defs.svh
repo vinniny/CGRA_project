@@ -102,6 +102,7 @@ localparam logic [31:0] ADDR_DMA_COLS       = 32'h1C;
 localparam logic [31:0] ADDR_LOOP2_START   = 32'h68;
 localparam logic [31:0] ADDR_LOOP2_END     = 32'h6C;
 localparam logic [31:0] ADDR_LOOP2_COUNT   = 32'h70;
+localparam logic [31:0] ADDR_TILE_BANK_SEL = 32'h74;
 
 // ============================================================================
 // ADDRESS MAP CONSTANTS - Control Unit
