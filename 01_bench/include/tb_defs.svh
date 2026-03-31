@@ -24,51 +24,71 @@
 // ASSERTION MACROS (Protocol-check aware)
 // ============================================================================
 // All macros respect protocol_check_enable and rst_n.
-// ASSERT_TRUE: Non-fatal — increments assertion_errors
+// Severity prefixes: [INFO], [WARNING], [ERROR], [FATAL]
+// All include simulation time. Error threshold stops sim after MAX_ERRORS.
+//
+// ASSERT_TRUE:  Non-fatal — increments assertion_errors, checks threshold
 // ASSERT_FATAL: Fatal — stops simulation immediately
+// CHECK_*:      Non-fatal comparison macros with detailed mismatch context
+
+`ifndef MAX_ERRORS
+    `define MAX_ERRORS 50
+`endif
 
 `define ASSERT_TRUE(cond, msg) \
     assert (!(protocol_check_enable && rst_n) || (cond)) \
     else begin \
-        $error("[ASSERT] %s @ %0t", msg, $time); \
+        $error("[ERROR] [%0t] %s", $time, msg); \
         assertion_errors = assertion_errors + 1; \
+        if (assertion_errors >= `MAX_ERRORS) begin \
+            $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d errors). Stopping simulation.", $time, `MAX_ERRORS); \
+        end \
     end
 
 `define ASSERT_FATAL(cond, msg) \
     assert (!(protocol_check_enable && rst_n) || (cond)) \
-    else begin $error("[FATAL] %s @ %0t", msg, $time); $finish; end
+    else begin $fatal(0, "[FATAL] [%0t] %s", $time, msg); end
 
-// Simple assertion - stops on failure
+// Simple assertion - increments error counter, checks threshold
 `define ASSERT(cond, msg) \
-    assert(cond) else begin $error("[ASSERT] %s at time %0t", msg, $time); assertion_errors++; end
-
-// Assertion with error counter (for non-fatal checks)
-`define CHECK(cond, msg) \
-    if (!(cond)) begin \
-        $error("[CHECK FAIL] %s at time %0t", msg, $time); \
+    assert(cond) else begin \
+        $error("[ERROR] [%0t] %s", $time, msg); \
         assertion_errors++; \
+        if (assertion_errors >= `MAX_ERRORS) \
+            $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d)", $time, `MAX_ERRORS); \
     end
 
-// Value comparison with expected
+// Assertion with error counter
+`define CHECK(cond, msg) \
+    if (!(cond)) begin \
+        $error("[ERROR] [%0t] %s", $time, msg); \
+        assertion_errors++; \
+        if (assertion_errors >= `MAX_ERRORS) \
+            $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d)", $time, `MAX_ERRORS); \
+    end
+
+// Value comparison with expected — detailed mismatch context
 `define CHECK_EQ(actual, expected, msg) \
     if ((actual) !== (expected)) begin \
-        $error("[CHECK_EQ FAIL] %s: expected=0x%h, got=0x%h at time %0t", \
-               msg, (expected), (actual), $time); \
+        $error("[ERROR] [%0t] %s: Expected=0x%h, Actual=0x%h", \
+               $time, msg, (expected), (actual)); \
         assertion_errors++; \
+        if (assertion_errors >= `MAX_ERRORS) \
+            $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d)", $time, `MAX_ERRORS); \
     end
 
 // Non-zero check
 `define CHECK_NZ(value, msg) \
     if ((value) === 0) begin \
-        $error("[CHECK_NZ FAIL] %s: expected non-zero at time %0t", msg, $time); \
+        $error("[ERROR] [%0t] %s: Expected non-zero, got 0", $time, msg); \
         assertion_errors++; \
     end
 
 // Bit check
 `define CHECK_BIT(value, bit, expected, msg) \
     if ((value)[(bit)] !== (expected)) begin \
-        $error("[CHECK_BIT FAIL] %s: bit[%0d] expected=%b, got=%b at time %0t", \
-               msg, (bit), (expected), (value)[(bit)], $time); \
+        $error("[ERROR] [%0t] %s: bit[%0d] Expected=%b, Actual=%b", \
+               $time, msg, (bit), (expected), (value)[(bit)]); \
         assertion_errors++; \
     end
 

@@ -199,11 +199,17 @@ endtask
 
 task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst,
                             input logic [31:0] size, input int timeout);
+    `ifdef TB_VERBOSE
+    $display("[INFO] [%0t] DMA transfer: src=0x%08h dst=0x%08h size=%0d bytes", $time, src, dst, size);
+    `endif
     apb_write(ADDR_DMA_SRC, src);
     apb_write(ADDR_DMA_DST, dst);
     apb_write(ADDR_DMA_SIZE, size);
     apb_write(ADDR_DMA_CTRL, 32'h1);
     wait_dma_done(timeout);
+    `ifdef TB_VERBOSE
+    $display("[INFO] [%0t] DMA transfer complete: src=0x%08h size=%0d", $time, src, size);
+    `endif
     // TB-2: Sample functional coverage
     cov_sample_dma(src, dst, size, (dst[31:28] == 4'h0) ? 1'b1 : 1'b0);
 endtask
@@ -283,8 +289,11 @@ task automatic pass(input string msg);
 endtask
 
 task automatic fail(input string msg, input string reason);
-    $display("  [FAIL] %s - %s", msg, reason);
+    $error("  [FAIL] %s - %s", msg, reason);
     error_count++;
+    if (error_count >= `MAX_ERRORS) begin
+        $fatal(0, "[FATAL] [%0t] Test error threshold reached (%0d failures). Stopping.", $time, `MAX_ERRORS);
+    end
 endtask
 
 // ============================================================================
@@ -351,16 +360,17 @@ task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
 endtask
 
 task automatic run_cgra(input int cycles);
-    // FIX: Increase soft reset duration to ensure PE accumulator is cleared
-    // The pe_reset_n signal is registered, so need extra cycles for reset to propagate
+    `ifdef TB_VERBOSE
+    $display("[INFO] [%0t] CGRA execution: %0d cycles", $time, cycles);
+    `endif
     apb_write(ADDR_CU_CTRL, 32'd2);  // Assert soft_reset
-    wait_cycles(3);                   // Hold reset for 3 cycles (was 1)
+    wait_cycles(3);
     apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
-    wait_cycles(2);                   // Wait for reset to deassert (was 1)
-    apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution (auto-clears after 1 cycle)
+    wait_cycles(2);
+    apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution
     wait_cycles(cycles);
-    apb_write(ADDR_CU_CTRL, 32'd2);  // Stop via soft_reset (triggers FSM FINISH)
-    wait_cycles(1);                   // Wait for FSM to reach FINISH state
+    apb_write(ADDR_CU_CTRL, 32'd2);  // Stop via soft_reset
+    wait_cycles(1);
     apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
 endtask
 

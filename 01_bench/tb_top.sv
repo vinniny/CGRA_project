@@ -493,6 +493,8 @@ module tb_top;
         $display("####################################################################");
         $display("#                    END-OF-SIMULATION REPORT                      #");
         $display("####################################################################");
+        $display("  Seed: %0d | Max Errors: %0d | Cycles: %0d",
+                 sim_seed, `MAX_ERRORS, cycle_count);
 
         // Section 1: Test Results
         $display("");
