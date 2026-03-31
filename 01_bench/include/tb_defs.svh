@@ -56,7 +56,7 @@
 `define ASSERT_TRUE(cond, msg) \
     assert (!(protocol_check_enable && rst_n) || (cond)) \
     else begin \
-        $error("[ERROR] [%0t] %s", $time, msg); \
+        $error("[ERROR] [%0t] [%m] %s", $time, msg); \
         assertion_errors = assertion_errors + 1; \
         if (assertion_errors >= `MAX_ERRORS) begin \
             $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d errors). Stopping simulation.", $time, `MAX_ERRORS); \
@@ -65,11 +65,11 @@
 
 `define ASSERT_FATAL(cond, msg) \
     assert (!(protocol_check_enable && rst_n) || (cond)) \
-    else begin $fatal(0, "[FATAL] [%0t] %s", $time, msg); end
+    else begin $fatal(0, "[FATAL] [%0t] [%m] %s", $time, msg); end
 
 `define ASSERT(cond, msg) \
     assert(cond) else begin \
-        $error("[ERROR] [%0t] %s", $time, msg); \
+        $error("[ERROR] [%0t] [%m] %s", $time, msg); \
         assertion_errors++; \
         if (assertion_errors >= `MAX_ERRORS) \
             $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d)", $time, `MAX_ERRORS); \
@@ -77,7 +77,7 @@
 
 `define CHECK(cond, msg) \
     if (!(cond)) begin \
-        $error("[ERROR] [%0t] %s", $time, msg); \
+        $error("[ERROR] [%0t] [%m] %s", $time, msg); \
         assertion_errors++; \
         if (assertion_errors >= `MAX_ERRORS) \
             $fatal(0, "[FATAL] [%0t] Error threshold reached (%0d)", $time, `MAX_ERRORS); \
@@ -85,7 +85,7 @@
 
 `define CHECK_EQ(actual, expected, msg) \
     if ((actual) !== (expected)) begin \
-        $error("[ERROR] [%0t] %s: Expected=0x%h, Actual=0x%h", \
+        $error("[ERROR] [%0t] [%m] %s: Expected=0x%h, Actual=0x%h", \
                $time, msg, (expected), (actual)); \
         assertion_errors++; \
         if (assertion_errors >= `MAX_ERRORS) \
@@ -94,13 +94,13 @@
 
 `define CHECK_NZ(value, msg) \
     if ((value) === 0) begin \
-        $error("[ERROR] [%0t] %s: Expected non-zero, got 0", $time, msg); \
+        $error("[ERROR] [%0t] [%m] %s: Expected non-zero, got 0", $time, msg); \
         assertion_errors++; \
     end
 
 `define CHECK_BIT(value, bit, expected, msg) \
     if ((value)[(bit)] !== (expected)) begin \
-        $error("[ERROR] [%0t] %s: bit[%0d] Expected=%b, Actual=%b", \
+        $error("[ERROR] [%0t] [%m] %s: bit[%0d] Expected=%b, Actual=%b", \
                $time, msg, (bit), (expected), (value)[(bit)]); \
         assertion_errors++; \
     end
