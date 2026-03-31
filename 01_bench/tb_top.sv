@@ -33,12 +33,18 @@ module tb_top;
     // The Makefile passes +SEED=N via xmsim plusargs.
     // All $urandom calls in the TB use this seed via $srandom().
     int sim_seed;
+    int verbosity;  // 0=quiet, 1=normal, 2=verbose
     initial begin
         if (!$value$plusargs("SEED=%d", sim_seed))
-            sim_seed = 42;  // Default seed if not specified
+            sim_seed = 42;
+        if (!$value$plusargs("VERBOSITY=%d", verbosity))
+            verbosity = 1;
         $srandom(sim_seed);
-        $display("[SEED] Simulation random seed: %0d", sim_seed);
-        $display("[SEED] To reproduce: make run SEED=%0d", sim_seed);
+        $display("[INFO] [%0t] ============================================", $time);
+        $display("[INFO] [%0t]   CGRA 4x4 Verification Suite", $time);
+        $display("[INFO] [%0t]   Seed: %0d | Verbosity: %0d | Max Errors: %0d", $time, sim_seed, verbosity, `MAX_ERRORS);
+        $display("[INFO] [%0t]   Reproduce: make run SEED=%0d", $time, sim_seed);
+        $display("[INFO] [%0t] ============================================", $time);
     end
 
     logic clk;
@@ -540,20 +546,23 @@ module tb_top;
         $display("    Stress cycles    : %0d", cov_stress_cycles);
         $display("    Reset tests      : %0d", cov_reset_tests);
 
-        // Section 5: Verdict
+        // Section 5: Definitive Verdict Banner
         $display("");
-        $display("  ================================================================");
-        if (error_count == 0 && assertion_errors == 0)
-            $display("    VERDICT: PASS   (%0d tests, 0 failures, 0 violations)",
+        if (error_count == 0 && assertion_errors == 0) begin
+            $display("  ================================================================");
+            $display("  ***                    TEST PASSED                           ***");
+            $display("  ***  %0d tests, 0 failures, 0 violations                     ***",
                      pass_count);
-        else begin
-            $display("    VERDICT: FAIL");
+            $display("  ================================================================");
+        end else begin
+            $display("  ================================================================");
+            $display("  ***                    TEST FAILED                           ***");
             if (error_count > 0)
-                $display("      - %0d test(s) failed", error_count);
+                $display("  ***  %0d test(s) failed                                     ***", error_count);
             if (assertion_errors > 0)
-                $display("      - %0d protocol violation(s)", assertion_errors);
+                $display("  ***  %0d protocol violation(s)                               ***", assertion_errors);
+            $display("  ================================================================");
         end
-        $display("  ================================================================");
         $display("####################################################################");
         $display("");
     end
