@@ -686,5 +686,69 @@ task automatic check_write_burst_protocol();
     else fail("Write burst", "WLAST not asserted or timeout");
 endtask
 
+// ============================================================================
+// CLOCKING-BLOCK APB DRIVER — Race-Condition Immune
+// ============================================================================
+// These tasks use the apb_cb clocking block declared in tb_top.sv.
+// Drives are scheduled at (posedge + 1ns), samples at (posedge - 1step).
+// Use these for new test suites; existing suites keep the raw-clock driver
+// for backward compatibility (both produce identical DUT behavior).
+// ============================================================================
+
+task automatic apb_cb_write(input logic [31:0] addr, input logic [31:0] data);
+    @(apb_cb);
+    apb_cb.paddr   <= addr;
+    apb_cb.pwdata  <= data;
+    apb_cb.pwrite  <= 1'b1;
+    apb_cb.psel    <= 1'b1;
+    apb_cb.penable <= 1'b0;
+
+    @(apb_cb);
+    apb_cb.penable <= 1'b1;
+
+    @(apb_cb);
+    begin : apb_cb_wr_wait
+        int cnt = 0;
+        while (!apb_cb.pready && cnt < 1000) begin
+            @(apb_cb);
+            cnt++;
+        end
+        if (!apb_cb.pready) $error("[APB-CB] PREADY timeout on write to 0x%08h", addr);
+    end
+
+    if (apb_cb.pslverr) $warning("[APB-CB] Write to 0x%08h returned PSLVERR", addr);
+
+    apb_cb.psel    <= 1'b0;
+    apb_cb.penable <= 1'b0;
+    apb_cb.pwrite  <= 1'b0;
+endtask
+
+task automatic apb_cb_read(input logic [31:0] addr, output logic [31:0] data);
+    @(apb_cb);
+    apb_cb.paddr   <= addr;
+    apb_cb.pwrite  <= 1'b0;
+    apb_cb.psel    <= 1'b1;
+    apb_cb.penable <= 1'b0;
+
+    @(apb_cb);
+    apb_cb.penable <= 1'b1;
+
+    @(apb_cb);
+    begin : apb_cb_rd_wait
+        int cnt = 0;
+        while (!apb_cb.pready && cnt < 1000) begin
+            @(apb_cb);
+            cnt++;
+        end
+        if (!apb_cb.pready) $error("[APB-CB] PREADY timeout on read from 0x%08h", addr);
+    end
+
+    if (apb_cb.pslverr) $warning("[APB-CB] Read from 0x%08h returned PSLVERR", addr);
+
+    data = apb_cb.prdata;
+
+    apb_cb.psel    <= 1'b0;
+    apb_cb.penable <= 1'b0;
+endtask
 
 `endif

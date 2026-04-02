@@ -111,6 +111,28 @@ module tb_top;
     always @(posedge clk) cycle_count = cycle_count + 1;  // FIX: Blocking for TB counter consistency
 
     // =========================================================================
+    // 3b. CLOCKING BLOCKS — Race-Condition Immunity
+    // =========================================================================
+    // APB clocking block: drives outputs 1ns after posedge, samples inputs
+    // 1 step before posedge. Eliminates delta-cycle races between TB and DUT.
+    clocking apb_cb @(posedge clk);
+        default input #1step output #1;
+        output psel, penable, pwrite, paddr, pwdata;
+        input  prdata, pready, pslverr;
+    endclocking
+
+    // AXI monitor clocking block: sample-only for protocol checkers.
+    clocking axi_cb @(posedge clk);
+        default input #1step;
+        input axi_awaddr, axi_awvalid, axi_awready, axi_awlen, axi_awsize, axi_awburst;
+        input axi_wdata, axi_wvalid, axi_wready, axi_wstrb, axi_wlast;
+        input axi_bvalid, axi_bready;
+        input axi_araddr, axi_arvalid, axi_arready, axi_arlen, axi_arsize, axi_arburst;
+        input axi_rdata, axi_rvalid, axi_rready, axi_rlast_reg;
+        input irq_done;
+    endclocking
+
+    // =========================================================================
     // 4. INCLUDE MODULAR LAYERS (Order matters!)
     // =========================================================================
     `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators
@@ -132,6 +154,18 @@ module tb_top;
     `include "include/tb_suite_doublebuf.svh"   // Double-Buffered Tile Memory (Suite AK)
     `include "include/tb_suite_mixed_prec.svh" // Mixed-Precision INT8/INT16 (Suite AL)
     `include "include/tb_suite_real_app.svh"      // Suite RAP: Real Application E2E
+
+    // Phase 1: Barebone FPGA Deployment Verification
+    `include "include/tb_suite_apb_sanity.svh"    // Suite AM: APB Register Sanity
+    `include "include/tb_suite_dma_smoke.svh"     // Suite AN: DMA Smoke Test
+    `include "include/tb_suite_compute_smoke.svh" // Suite AO: Compute Smoke Test
+
+    // Phase 2: PetaLinux Deployment Verification
+    `include "include/tb_suite_driver_replay.svh"   // Suite AP: Driver Transaction Replay
+    `include "include/tb_suite_irq_w1c.svh"         // Suite AQ: IRQ W1C Sequence
+    `include "include/tb_suite_dma_physaddr.svh"     // Suite AR: DMA Physical Address Range
+    `include "include/tb_suite_soft_reset.svh"       // Suite AS: Soft Reset Recovery
+    `include "include/tb_suite_error_recovery.svh"   // Suite AT: Error Recovery Path
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -480,6 +514,36 @@ module tb_top;
 
         reset_dut(5);
         run_suite_real_app();
+
+        // =====================================================================
+        // DEPLOYMENT VERIFICATION — Phase 1: Barebone FPGA
+        // =====================================================================
+        reset_dut(5);
+        run_suite_AM_apb_sanity();
+
+        reset_dut(5);
+        run_suite_AN_dma_smoke();
+
+        reset_dut(5);
+        run_suite_AO_compute_smoke();
+
+        // =====================================================================
+        // DEPLOYMENT VERIFICATION — Phase 2: PetaLinux
+        // =====================================================================
+        reset_dut(5);
+        run_suite_AP_driver_replay();
+
+        reset_dut(5);
+        run_suite_AQ_irq_w1c();
+
+        reset_dut(5);
+        run_suite_AR_dma_physaddr();
+
+        reset_dut(5);
+        run_suite_AS_soft_reset();
+
+        reset_dut(5);
+        run_suite_AT_error_recovery();
 
         // Print functional coverage before finishing
         print_functional_coverage();

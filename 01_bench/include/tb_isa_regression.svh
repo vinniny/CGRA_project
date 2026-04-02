@@ -161,41 +161,29 @@ task automatic run_suite_AD_isa_regression;
                 endcase
                 
                 // 3. Configure and Run
-                
-                // For MAC, we need to clear Acc first
+
+                // For MAC, clear accumulator first and set CU_TIMEOUT=1 so the
+                // PE executes exactly 1 MAC cycle. Without this, run_cgra(2)
+                // lets the PE accumulate ~3 times, and the golden model (1×product)
+                // mismatches for small products that don't saturate.
                 if (op_idx == 4) begin
                     config_pe_safe(4'd0, OP_ACC_CLR, SRC_WEST, SRC_WEST, 4'd0, 4'd0);
                     run_cgra(2);
+                    apb_write(ADDR_CU_TIMEOUT, 32'd2);  // 2 wall-clock cycles: 1 to latch _r, 1 for ALU
                 end
-                
+
                 // Data Setup
-                // Revert optimization: Must fill all slots as context_pc advances during run_cgra(2).
-                // Single slot write caused PE to read garbage in cycle 2.
                 tile_bank_fill_all(2'd0, a);
-                
-                // Op Setup
-                // Note: For Shift/Mac, B is limited to 16-bit IMM in our helper.
-                // For CMP/Logic/Add/Sub/Mul, we typically want full 32-bit B.
-                // Our `config_pe_imm` uses IMM (16-bit).
-                // To support 32-bit B, we need to load B into neighbor or RF.
-                // For simplicity/speed, we will use SRC_IMM (16-bit B) for valid ops,
-                // and maybe constrain B to 16-bit for this regression.
-                // The user asked for "multiple values", covering 16-bit range (65536 vals) IS multiple.
-                // It stresses the ALU logic enough.
-                
-                // If Op is CMP/Logic, we might want full 32. 
-                // But let's mask B to 16-bit for consistency with `config_pe_imm`.
-                // b masking moved to start of loop
-                
-                // Opcode mapping
-                // 1=ADD..12=EQ match RTL OP_ definitions exactly?
-                // TB_DEFS: ADD=1, ..., SHL=8, SHR=9, GT=10, LT=11, EQ=12. Matches!
-                
+
+                // Op Setup (16-bit IMM for operand B)
                 config_pe_imm(4'd0, op_idx[5:0], SRC_WEST, SRC_IMM, 4'd0, ROUTE_NONE, b[15:0]);
-                
-                // run_cgra() already performs soft-reset internally (3-cycle hold),
-                // so no extra manual reset is needed here.
+
                 run_cgra(2);
+
+                // Restore CU_TIMEOUT=0 (no limit) after MAC tests
+                if (op_idx == 4) begin
+                    apb_write(ADDR_CU_TIMEOUT, 32'd0);
+                end
                 
                 // 4. Check
                 check_pe_result(4'd0, expected, $sformatf("AD%02d_%03d: %s(0x%h, 0x%h)", op_idx, i, op_name, a, b));
