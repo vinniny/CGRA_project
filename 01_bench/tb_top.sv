@@ -515,6 +515,12 @@ module tb_top;
         reset_dut(5);
         run_suite_real_app();
 
+        reset_dut(5);
+        run_suite_V_neuromorphic();
+
+        reset_dut(5);
+        run_suite_W_dma_hang();
+
         // =====================================================================
         // DEPLOYMENT VERIFICATION — Phase 1: Barebone FPGA
         // =====================================================================
