@@ -660,11 +660,13 @@ module cgra_top #(
     end
 
     // array_done: program has completed when the PC reaches the last context
-    // slot AND all loop iterations are exhausted. All signals are registered
-    // (no combinational dependency on global_stall or array_done itself).
+    // slot AND all loop iterations are exhausted AND no dynamic branch is
+    // redirecting execution elsewhere. Without the branch guard, a branch
+    // at context_pc=15 would be killed by premature array_done assertion.
     assign array_done = auto_stop_armed
                      && cu_loops_done
-                     && (context_pc == 4'(CONTEXT_DEPTH - 1));
+                     && (context_pc == 4'(CONTEXT_DEPTH - 1))
+                     && !array_branch_taken;
     
     // =========================================================================
     // Edge Output Wires for Synthesis Keeper

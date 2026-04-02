@@ -52,10 +52,10 @@ task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
     pwrite = 1'b1;
     psel = 1'b1;
     penable = 1'b0;
-    
+
     @(posedge clk);
     penable = 1'b1;
-    
+
     @(posedge clk);
     // FIX: Bounded pready wait — prevents infinite hang if slave stalls
     begin : apb_wr_wait
@@ -66,12 +66,15 @@ task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
         end
         if (!pready) $error("[APB] PREADY timeout on write to 0x%08h", addr);
     end
-    
+
     if (pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
-    
+
     psel = 1'b0;
     penable = 1'b0;
     pwrite = 1'b0;
+
+    // APB register access coverage
+    cov_sample_apb(addr, 1'b1);
 endtask
 
 // ============================================================================
@@ -101,9 +104,12 @@ task automatic apb_read(input logic [31:0] addr, output logic [31:0] data);
     if (pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
     
     data = prdata;      // FIX: Sample BEFORE deasserting psel/penable
-    
+
     psel = 1'b0;
     penable = 1'b0;
+
+    // APB register access coverage
+    cov_sample_apb(addr, 1'b0);
 endtask
 
 // ============================================================================
@@ -333,15 +339,15 @@ task automatic tile_bank_fill_all(input logic [1:0] bank, input logic [31:0] val
     end
 endtask
 
-task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot, 
+task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
                          input logic [63:0] config_data);
     logic [31:0] cfg_addr_base;
     logic [31:0] data_high, data_low;
-    
+
     cfg_addr_base = BASE_CONFIG | (32'({24'd0, pe_id}) << 7) | (32'({28'd0, slot}) << 3);
     data_low  = config_data[31:0];
     data_high = config_data[63:32];
-    
+
     // HI word first: addr bit[2]=0 latches upper 32 bits
     ram_write(32'h0000_1004, data_high);
     apb_write(ADDR_DMA_SRC, 32'h0000_1004);
@@ -357,18 +363,33 @@ task automatic config_pe(input logic [3:0] pe_id, input logic [3:0] slot,
     apb_write(ADDR_DMA_SIZE, 32'd4);
     apb_write(ADDR_DMA_CTRL, 32'd1);
     wait_dma_done(100);
+
+    // ISA coverage: extract opcode/src from config frame bits
+    cov_sample_pe(config_data[5:0], config_data[9:6], config_data[13:10], config_data[22]);
 endtask
 
 task automatic run_cgra(input int cycles);
+    logic [31:0] cu_stat, loop_cnt;
+    logic        had_loop;
     `ifdef TB_VERBOSE
     $display("[INFO] [%0t] CGRA execution: %0d cycles", $time, cycles);
     `endif
+    // Check if loops are configured before starting
+    apb_read(ADDR_LOOP_COUNT, loop_cnt);
+    had_loop = (loop_cnt != 32'd0);
     apb_write(ADDR_CU_CTRL, 32'd2);  // Assert soft_reset
     wait_cycles(3);
     apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
     wait_cycles(2);
     apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution
     wait_cycles(cycles);
+    // Check if CU auto-stopped (done=1) before our soft_reset
+    apb_read(ADDR_CU_STATUS, cu_stat);
+    if (cu_stat[1]) begin
+        cov_sample_cu(2'b00, had_loop);  // auto-stop
+    end else begin
+        cov_sample_cu(2'b10, had_loop);  // soft-reset stop
+    end
     apb_write(ADDR_CU_CTRL, 32'd2);  // Stop via soft_reset
     wait_cycles(1);
     apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
