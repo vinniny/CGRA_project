@@ -149,6 +149,7 @@ module cgra_top #(
     logic [31:0] cu_max_cycles;  // Programmable timeout (CSR @ 0x2C)
     logic        cu_busy;
     logic        cu_done;
+    logic        cu_loops_done;  // All internal loop counters exhausted
     logic [31:0] cu_cycles;
     
     // Hardware Loop Configuration (from CSR)
@@ -534,7 +535,8 @@ module cgra_top #(
         .loop2_end_pc_i(cu_loop2_end_pc),
         .loop2_count_i(cu_loop2_count),
         .branch_target_i(array_branch_target),
-        .branch_taken_i(array_branch_taken)
+        .branch_taken_i(array_branch_taken),
+        .loops_done_o(cu_loops_done)
     );
     
     // =========================================================================
@@ -625,55 +627,44 @@ module cgra_top #(
     // =========================================================================
     
     // =========================================================================
-    // AUTO-STOP FEATURE: Programmable Cycle Counter
+    // AUTO-STOP FEATURE: Loop-Aware Program Completion
     // =========================================================================
-    // The CPU can program a cycle limit. When the counter reaches 1, array_done
-    // is asserted to signal the Control Unit to stop execution automatically.
+    // Asserts array_done when the PE program has completed:
+    //   - context_pc reaches CONTEXT_DEPTH-1 (last slot)
+    //   - All hardware loop iterations are exhausted (cu_loops_done)
     //
-    // Usage:
-    // 1. Write cycle count to cycle_limit register (via CSR or hardcode)
-    // 2. Start execution - counter decrements each cycle
-    // 3. When counter == 1, array_done pulses to trigger auto-stop
+    // With loops active, the CU's PC jumps back on loop boundaries, so
+    // context_pc only reaches slot 15 after all loops finish. This is
+    // detected via cu_loops_done from the CU's internal loop counters.
     //
-    // For now, we use a simple approach: tie array_done to context_pc overflow
-    // This triggers auto-stop after 16 contexts (one complete sweep)
-    // More sophisticated: Use a dedicated CSR register for arbitrary counts
-    
-    // Simple Auto-Stop: Trigger after 16 context cycles (context_pc wraps)
-    // This is suitable for single-pass dataflow computations
-    logic [4:0] auto_stop_counter;
-    logic       auto_stop_armed;
-    
+    // Without loops (loop_count=0): cu_loops_done=1 from start, so
+    // array_done fires after the first sweep (0-15), same as before.
+    //
+    // Timing: array_done fires on the same cycle context_pc==15 is
+    // executed. The _r pipeline latency is absorbed by the BRAM
+    // prefetch latency (both are 1-cycle).
+
+    logic auto_stop_armed;
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b0;
         end else if (cu_soft_reset) begin
-            // Soft reset clears the counter
-            auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b0;
         end else if (cu_start && !cu_busy && !cu_soft_reset) begin
-            // FIX: Arm on start, not soft_reset. Gate with !cu_busy to prevent
-            // mid-execution cu_start from resetting the counter spuriously.
-            // FIX: Also gate with !cu_soft_reset — if start is asserted in the
-            // same cycle as soft_reset, arming must not occur.
-            auto_stop_counter <= 5'd0;
             auto_stop_armed <= 1'b1;
-        end else if (pe_enable && auto_stop_armed && !global_stall && !array_done) begin
-            // FIX: Only count when PEs actually execute (not stalled by DMA)
-            // Gate with !array_done to prevent counter overshooting to 17
-            // during the 1-cycle pe_enable pipeline lag after FINISH.
-            auto_stop_counter <= auto_stop_counter + 1'b1;
+        end else if (array_done) begin
+            // Disarm after firing to prevent re-triggering if PE lingers
+            auto_stop_armed <= 1'b0;
         end
     end
-    
-    // Trigger array_done after 16 cycles (configurable via parameter)
-    // This causes the CU to transition to FINISH state
-    // 16 cycles: one complete context sweep (PC 0-15).
-    // The PE ALU pipeline (_r registers) adds 1-cycle latency, but this is
-    // absorbed by the BRAM read latency (both paths: BRAM and tile SRAM
-    // have matching 1-cycle prefetch latency).
-    assign array_done = auto_stop_armed && (auto_stop_counter == 5'd16);
+
+    // array_done: program has completed when the PC reaches the last context
+    // slot AND all loop iterations are exhausted. All signals are registered
+    // (no combinational dependency on global_stall or array_done itself).
+    assign array_done = auto_stop_armed
+                     && cu_loops_done
+                     && (context_pc == 4'(CONTEXT_DEPTH - 1));
     
     // =========================================================================
     // Edge Output Wires for Synthesis Keeper

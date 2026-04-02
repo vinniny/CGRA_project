@@ -66,7 +66,10 @@ module cgra_control_unit #(
 
     // B4: Dynamic branch from PE array
     input  logic [PC_WIDTH-1:0] branch_target_i,
-    input  logic                branch_taken_i
+    input  logic                branch_taken_i,
+
+    // Loop completion status (for auto-stop gating in cgra_top)
+    output logic                loops_done_o
 );
 
     // =========================================================================
@@ -331,6 +334,10 @@ module cgra_control_unit #(
     
     // Cycle count - always show running value
     assign cycle_count_o = cycle_counter;
+
+    // Loop completion: all internal loop counters exhausted.
+    // Used by cgra_top auto-stop to wait for loops before asserting array_done.
+    assign loops_done_o = (loop_count_reg == 16'd0) && (loop2_count_reg == 16'd0);
 
     // =========================================================================
     // SAFETY ASSERTIONS (synthesis translate_off)
