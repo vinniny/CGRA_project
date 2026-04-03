@@ -181,9 +181,10 @@ localparam logic [31:0] ADDR_CU_STATUS      = 32'h24;  // [0] Busy, [1] Done
 localparam logic [31:0] ADDR_CU_CYCLES      = 32'h28;  // Execution cycle count
 localparam logic [31:0] ADDR_CU_TIMEOUT     = 32'h2C;  // Max cycles (0=no limit)
 
-// --- IRQ Registers (0x30-0x34) ---
-localparam logic [31:0] ADDR_IRQ_STATUS     = 32'h30;  // W1C: [0] DMA Done, [1] CU Done
-localparam logic [31:0] ADDR_IRQ_MASK       = 32'h34;  // [1:0] IRQ enable mask
+// --- IRQ Registers (0x30-0x38) ---
+localparam logic [31:0] ADDR_IRQ_STATUS     = 32'h30;  // W1C: [0] DMA Done, [1] CU Done, [2] DMA Error
+localparam logic [31:0] ADDR_IRQ_MASK       = 32'h34;  // [2:0] IRQ enable mask
+localparam logic [31:0] ADDR_DMA_ERROR      = 32'h38;  // RO: [0] error flag, [2:1] error code
 
 // --- Result Registers (0x40-0x44, muxed in cgra_top) ---
 localparam logic [31:0] ADDR_RESULT_DATA    = 32'h40;  // PE[3,3] output

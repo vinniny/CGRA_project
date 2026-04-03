@@ -371,43 +371,14 @@ module cgra_pe #(
         end
     end
 
-    // B4: branch_target_o assigned here; branch_taken_o assigned after execute_enable decl
-
-    assign branch_target_o = branch_target_r;
-
     // =========================================================================
-    // ALU/MAC Unit (operates on REGISTERED operands from pipeline stage)
+    // OpCode Definitions
     // =========================================================================
-    logic [31:0]           alu_result;
-    logic signed [39:0]    accumulator;
-    logic                  predicate_flag;
-    logic signed [39:0]    op0_ext;
-    logic signed [39:0]    op1_ext;
-    logic signed [39:0]    mult_ext;
-    logic signed [39:0]    lif_next_v;
-    logic signed [39:0]    add_result;
-    logic signed [39:0]    sub_result;
-    localparam signed [39:0] LIF_LEAK = 40'sd10;
-    
-    // Pre-computed saturated values (replacing function)
-    logic [31:0] add_result_sat;
-    logic [31:0] sub_result_sat;
-    logic [31:0] mac_result_sat;
-    logic signed [39:0] mac_sum;
-    logic signed [40:0] mac_sum_temp;
-    logic signed [40:0] lif_sum_temp;   // FIX: 41-bit intermediate for LIF overflow saturation
-    logic signed [63:0] mult_full;
-    
-    // Saturation constants
-    localparam signed [39:0] MAX_VAL = 40'sd2147483647;
-    localparam signed [39:0] MIN_VAL = -40'sd2147483648;
-    
-    // OpCode definitions
     localparam OP_NOP   = 6'd0;
     localparam OP_ADD   = 6'd1;
     localparam OP_SUB   = 6'd2;
     localparam OP_MUL   = 6'd3;
-    localparam OP_MAC   = 6'd4;  // Multiply-Accumulate
+    localparam OP_MAC   = 6'd4;
     localparam OP_AND   = 6'd5;
     localparam OP_OR    = 6'd6;
     localparam OP_XOR   = 6'd7;
@@ -422,15 +393,31 @@ module cgra_pe #(
     localparam OP_PASS0 = 6'd16;
     localparam OP_PASS1 = 6'd17;
     localparam OP_LIF   = 6'd18;
-    localparam OP_RELU  = 6'd19;  // ReLU: max(0, A) for ANN activation
-    localparam OP_MAX   = 6'd20;  // MAX: max(A, B) signed for pooling
-    
+    localparam OP_RELU  = 6'd19;
+    localparam OP_MAX   = 6'd20;
+
+    // Saturation constants
+    localparam signed [39:0] LIF_LEAK = 40'sd10;
+
+    // Forward declarations for cross-stage signals
+    logic [31:0]           alu_result;
+    logic signed [39:0]    accumulator;
+    logic                  predicate_flag;
+
     // =========================================================================
-    // B1: Mixed-Precision SIMD Computation
+    // Stage 2 Combinational: Multiply + SIMD + Extend (feeds _r2 registers)
     // =========================================================================
-    // INT8×4 dot-product: 4 signed byte multiplies summed into 32-bit
-    // INT16×2 dot-product: 2 signed halfword multiplies summed into 32-bit
-    logic signed [31:0] simd_dot_product;
+    // This is the first half of the old monolithic ALU comb block.
+    // Critical path: DSP48 multiply + 40-bit overflow check (~10ns)
+    logic signed [39:0]    op0_ext;
+    logic signed [39:0]    op1_ext;
+    logic signed [63:0]    mult_full;
+    logic signed [39:0]    mult_ext;
+    logic signed [39:0]    add_result;
+    logic signed [39:0]    sub_result;
+    logic signed [39:0]    lif_next_v;
+    logic signed [40:0]    lif_sum_temp;
+    logic signed [31:0]    simd_dot_product;
 
     // INT8 lane extraction (signed)
     wire signed [7:0] op0_b3 = operand0_r[31:24];
@@ -448,291 +435,300 @@ module cgra_pe #(
     wire signed [15:0] op1_h1 = operand1_r[31:16];
     wire signed [15:0] op1_h0 = operand1_r[15:0];
 
+    // SIMD dot-product (reads _r operands)
     always_comb begin
         case (data_mode_r)
-            2'b10:   // INT8×4: sum of 4 byte products
-                simd_dot_product = (32'(op0_b3) * 32'(op1_b3)) +
-                                   (32'(op0_b2) * 32'(op1_b2)) +
-                                   (32'(op0_b1) * 32'(op1_b1)) +
-                                   (32'(op0_b0) * 32'(op1_b0));
-            2'b01:   // INT16×2: sum of 2 halfword products
-                simd_dot_product = (32'(op0_h1) * 32'(op1_h1)) +
-                                   (32'(op0_h0) * 32'(op1_h0));
-            default: // INT32: standard single multiply (lower 32 bits)
-                simd_dot_product = operand0_r * operand1_r;
+            2'b10:   simd_dot_product = (32'(op0_b3) * 32'(op1_b3)) +
+                                        (32'(op0_b2) * 32'(op1_b2)) +
+                                        (32'(op0_b1) * 32'(op1_b1)) +
+                                        (32'(op0_b0) * 32'(op1_b0));
+            2'b01:   simd_dot_product = (32'(op0_h1) * 32'(op1_h1)) +
+                                        (32'(op0_h0) * 32'(op1_h0));
+            default: simd_dot_product = operand0_r * operand1_r;
         endcase
     end
 
+    // Multiply, extend, add/sub, LIF (all read _r operands)
     always_comb begin
         op0_ext = {{(40-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r};
         op1_ext = {{(40-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r};
 
-        // INT32 mode: full 64-bit multiply for overflow detection
+        // 64-bit multiply for overflow detection
         mult_full = $signed({{(64-DATA_WIDTH){operand0_r[DATA_WIDTH-1]}}, operand0_r})
                   * $signed({{(64-DATA_WIDTH){operand1_r[DATA_WIDTH-1]}}, operand1_r});
-        
-        // Check for 40-bit overflow
-        // If all bits from [63:39] are NOT identical, we have overflow beyond 40 bits.
-        // (Sign bit [63] must match effectively the sign of the 40-bit result [39]).
-        // Actually, valid 40-bit number has [63:39] all 0 (positive) or all 1 (negative).
-        // So we check if mult_full[63:39] are ALL 0 or ALL 1.
-        if (&mult_full[63:39] == 1'b1 || |mult_full[63:39] == 1'b0) begin
-            // No overflow, fits in 40 bits
+
+        // 40-bit overflow check + saturation
+        if (&mult_full[63:39] == 1'b1 || |mult_full[63:39] == 1'b0)
             mult_ext = mult_full[39:0];
-        end else begin
-            // Overflow. Saturate to MAX/MIN 40-bit value based on sign (bit 63)
-            if (mult_full[63] == 1'b0) mult_ext = 40'sd549755813887;  // MAX_POS (2^39 - 1)
-            else                       mult_ext = -40'sd549755813888; // MIN_NEG (-2^39)
-        end
-        
+        else if (mult_full[63] == 1'b0)
+            mult_ext = 40'sd549755813887;   // MAX_POS_40
+        else
+            mult_ext = -40'sd549755813888;  // MIN_NEG_40
+
         add_result = op0_ext + op1_ext;
         sub_result = op0_ext - op1_ext;
-        
-        // ========================================================================
-        // LIF SATURATION FIX — January 2026
-        // ========================================================================
-        // Problem: lif_next_v = accumulator + op0_ext - LIF_LEAK could overflow
-        //          the 40-bit signed range if accumulator is near saturation.
-        // Solution: Use 41-bit intermediate (lif_sum_temp) to detect overflow,
-        //           then saturate to 40-bit MAX_POS/MIN_NEG, matching MAC pattern.
-        // ========================================================================
-        lif_sum_temp = {accumulator[39], accumulator} + {op0_ext[39], op0_ext} - {{1{LIF_LEAK[39]}}, LIF_LEAK};
+
+        // LIF: accumulator + input - leak, with 41-bit overflow detection
+        lif_sum_temp = {accumulator[39], accumulator} + {op0_ext[39], op0_ext}
+                     - {{1{LIF_LEAK[39]}}, LIF_LEAK};
         if (lif_sum_temp > 41'sd549755813887)
-            lif_next_v = 40'sd549755813887;   // MAX_POS_40 = 2^39 - 1
+            lif_next_v = 40'sd549755813887;
         else if (lif_sum_temp < -41'sd549755813888)
-            lif_next_v = -40'sd549755813888;  // MIN_NEG_40 = -2^39
+            lif_next_v = -40'sd549755813888;
         else
             lif_next_v = lif_sum_temp[39:0];
-        
-        // ========================================================================
-        // MULTIPLY-ACCUMULATE (MAC) SATURATION FIX - January 2026
-        // ========================================================================
-        // Problem: 40-bit accumulator can overflow when adding 40-bit mult_ext.
-        //          Simple addition `accumulator + mult_ext` wraps at 40 bits.
-        // Solution: Use 41-bit intermediate (mac_sum_temp) to detect overflow,
-        //           then saturate to 40-bit MAX_POS/MIN_NEG before storing.
-        // ========================================================================
-        mac_sum_temp = accumulator + mult_ext;
-        if (mac_sum_temp > 41'sd549755813887) begin
-            mac_sum = 40'sd549755813887;  // MAX_POS_40 = 2^39 - 1
-        end else if (mac_sum_temp < -41'sd549755813888) begin
-            mac_sum = -40'sd549755813888; // MIN_NEG_40 = -2^39
-        end else begin
-            mac_sum = mac_sum_temp[39:0];
-        end
-        
-        // Inline saturation for ADD result (FIX: Use explicit 40-bit signed literals)
-        if (add_result > 40'sd2147483647) begin
-            add_result_sat = 32'h7FFFFFFF;
-        end else if (add_result < -40'sd2147483648) begin
-            add_result_sat = 32'h80000000;
-        end else begin
-            add_result_sat = add_result[31:0];
-        end
-        
-        // Inline saturation for SUB result (FIX: Use explicit 40-bit signed literals)
-        if (sub_result > 40'sd2147483647) begin
-            sub_result_sat = 32'h7FFFFFFF;
-        end else if (sub_result < -40'sd2147483648) begin
-            sub_result_sat = 32'h80000000;
-        end else begin
-            sub_result_sat = sub_result[31:0];
-        end
-        
-        // Inline saturation for MAC result (FIX: Saturate to 32-bit signed range)
-        if (mac_sum > 40'sd2147483647) begin
-            mac_result_sat = 32'h7FFFFFFF;
-        end else if (mac_sum < -40'sd2147483648) begin
-            mac_result_sat = 32'h80000000;
-        end else begin
-            mac_result_sat = mac_sum[31:0];
-        end
     end
-    
+
     // =========================================================================
-    // Predicate Execution Logic (must precede ALU for Xcelium forward-ref)
+    // Predicate Execution Logic (Stage 2 — feeds execute_enable into _r2)
     // =========================================================================
     logic execute_enable;
-    
+
     always_comb begin
-        if (pred_en_r) begin
+        if (pred_en_r)
             execute_enable = pred_inv_r ? ~predicate_flag : predicate_flag;
-        end else begin
+        else
             execute_enable = 1'b1;
+    end
+
+    // =========================================================================
+    // Pipeline Register: Compute → Execute/Saturate (_r2)
+    // =========================================================================
+    // 3rd pipeline stage: registers between multiply and saturation/writeback.
+    // Splits the ~18ns critical path into ~10ns (multiply) + ~7ns (saturate).
+    logic signed [39:0] mult_ext_r2;
+    logic        [31:0] mult_lower_r2;      // mult_full[31:0] for OP_MUL
+    logic signed [31:0] simd_dot_r2;
+    logic signed [39:0] add_result_r2;
+    logic signed [39:0] sub_result_r2;
+    logic signed [39:0] lif_next_v_r2;
+    logic signed [39:0] op1_ext_r2;         // For LIF threshold compare
+
+    // Control pipeline
+    logic [5:0]  op_code_r2;
+    logic [1:0]  data_mode_r2;
+    logic        config_active_r2;
+    logic        execute_enable_r2;
+    logic [31:0] operand0_r2, operand1_r2;  // For simple ops
+    logic [3:0]  dst_sel_r2;
+    logic [4:0]  route_mask_r2;
+    logic        pred_en_r2, pred_inv_r2;
+    logic [31:0] spm_rdata_r2;
+    logic [PC_WIDTH-1:0] branch_target_r2;
+    logic        branch_en_r2;
+
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            mult_ext_r2      <= '0;
+            mult_lower_r2    <= '0;
+            simd_dot_r2      <= '0;
+            add_result_r2    <= '0;
+            sub_result_r2    <= '0;
+            lif_next_v_r2    <= '0;
+            op1_ext_r2       <= '0;
+            op_code_r2       <= '0;
+            data_mode_r2     <= 2'b00;
+            config_active_r2 <= 1'b0;
+            execute_enable_r2 <= 1'b0;
+            operand0_r2      <= '0;
+            operand1_r2      <= '0;
+            dst_sel_r2       <= '0;
+            route_mask_r2    <= '0;
+            pred_en_r2       <= 1'b0;
+            pred_inv_r2      <= 1'b0;
+            spm_rdata_r2     <= '0;
+            branch_target_r2 <= '0;
+            branch_en_r2     <= 1'b0;
+        end else if (!stall) begin
+            mult_ext_r2      <= mult_ext;
+            mult_lower_r2    <= mult_full[31:0];
+            simd_dot_r2      <= simd_dot_product;
+            add_result_r2    <= add_result;
+            sub_result_r2    <= sub_result;
+            lif_next_v_r2    <= lif_next_v;
+            op1_ext_r2       <= op1_ext;
+            op_code_r2       <= op_code_r;
+            data_mode_r2     <= data_mode_r;
+            config_active_r2 <= config_active_r;
+            execute_enable_r2 <= execute_enable;
+            operand0_r2      <= operand0_r;
+            operand1_r2      <= operand1_r;
+            dst_sel_r2       <= dst_sel_r;
+            route_mask_r2    <= route_mask_r;
+            pred_en_r2       <= pred_en_r;
+            pred_inv_r2      <= pred_inv_r;
+            spm_rdata_r2     <= spm_rdata_r;
+            branch_target_r2 <= branch_target_r;
+            branch_en_r2     <= branch_en_r;
         end
     end
-    
-    // B4: Branch taken when branch enabled in config AND predicate condition met
-    assign branch_taken_o = config_active_r && !stall && branch_en_r && execute_enable;
 
+    // Branch outputs use _r2 (matches pipeline depth)
+    assign branch_target_o = branch_target_r2;
+    assign branch_taken_o  = config_active_r2 && !stall && branch_en_r2 && execute_enable_r2;
+
+    // =========================================================================
+    // Stage 3 Combinational: Saturation (reads _r2 + accumulator feedback)
+    // =========================================================================
+    // This is the second half: accumulate + saturate (~7ns)
+    logic [31:0]           add_result_sat;
+    logic [31:0]           sub_result_sat;
+    logic [31:0]           mac_result_sat;
+    logic signed [39:0]    mac_sum;
+    logic signed [40:0]    mac_sum_temp;
+
+    always_comb begin
+        // MAC: accumulator + mult_ext_r2 (accumulator is fresh, mult is pipelined)
+        mac_sum_temp = accumulator + mult_ext_r2;
+        if (mac_sum_temp > 41'sd549755813887)
+            mac_sum = 40'sd549755813887;
+        else if (mac_sum_temp < -41'sd549755813888)
+            mac_sum = -40'sd549755813888;
+        else
+            mac_sum = mac_sum_temp[39:0];
+
+        // ADD saturation (40-bit → 32-bit)
+        if (add_result_r2 > 40'sd2147483647)
+            add_result_sat = 32'h7FFFFFFF;
+        else if (add_result_r2 < -40'sd2147483648)
+            add_result_sat = 32'h80000000;
+        else
+            add_result_sat = add_result_r2[31:0];
+
+        // SUB saturation
+        if (sub_result_r2 > 40'sd2147483647)
+            sub_result_sat = 32'h7FFFFFFF;
+        else if (sub_result_r2 < -40'sd2147483648)
+            sub_result_sat = 32'h80000000;
+        else
+            sub_result_sat = sub_result_r2[31:0];
+
+        // MAC saturation (40-bit → 32-bit)
+        if (mac_sum > 40'sd2147483647)
+            mac_result_sat = 32'h7FFFFFFF;
+        else if (mac_sum < -40'sd2147483648)
+            mac_result_sat = 32'h80000000;
+        else
+            mac_result_sat = mac_sum[31:0];
+    end
+
+    // =========================================================================
+    // ALU Sequential: Execute + Writeback (reads _r2 signals)
+    // =========================================================================
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             accumulator <= '0;
             predicate_flag <= 1'b0;
-            // NOTE: alu_result intentionally NOT reset here.
-            // run_cgra() stops execution via soft_reset which triggers pe_reset_n → 0.
-            // If alu_result were reset, the computed result would be wiped before
-            // the testbench reads it. NOP preserves alu_result (no-op).
-        end else if (config_active_r && !stall && execute_enable) begin
-            unique case (op_code_r)
+        end else if (config_active_r2 && !stall && execute_enable_r2) begin
+            unique case (op_code_r2)
                 OP_NOP: begin
-                    // FIX: NOP preserves alu_result (no-op means no change).
-                    // Previously zeroed alu_result, which destroyed routed data
-                    // mid-pipeline in multi-context execution scenarios.
+                    // Preserves alu_result (no-op)
                 end
                 OP_ADD: begin
-                    accumulator <= add_result;
+                    accumulator <= add_result_r2;
                     alu_result <= add_result_sat;
                 end
                 OP_SUB: begin
-                    accumulator <= sub_result;
+                    accumulator <= sub_result_r2;
                     alu_result <= sub_result_sat;
                 end
                 OP_MUL: begin
-                    // B1: In SIMD modes, use dot-product; in INT32, use full multiply
-                    if (data_mode_r != 2'b00)
-                        alu_result <= simd_dot_product;
+                    if (data_mode_r2 != 2'b00)
+                        alu_result <= simd_dot_r2;
                     else
-                        alu_result <= mult_full[31:0];
+                        alu_result <= mult_lower_r2;
                 end
                 OP_MAC: begin
-                    // B1: In SIMD modes, accumulate dot-product into INT32 accumulator
-                    if (data_mode_r != 2'b00) begin
-                        // Simple INT32 accumulation (no 40-bit overflow concern
-                        // since SIMD dot-products are small: max INT8x4 = 4*127*127 = 64516)
-                        accumulator <= accumulator + {{8{simd_dot_product[31]}}, simd_dot_product};
-                        alu_result  <= accumulator[31:0] + simd_dot_product;
+                    if (data_mode_r2 != 2'b00) begin
+                        accumulator <= accumulator + {{8{simd_dot_r2[31]}}, simd_dot_r2};
+                        alu_result  <= accumulator[31:0] + simd_dot_r2;
                     end else begin
                         accumulator <= mac_sum;
                         alu_result <= mac_result_sat;
                     end
                 end
-                OP_AND: begin
-                    alu_result <= operand0_r & operand1_r;
-                end
-                OP_OR: begin
-                    alu_result <= operand0_r | operand1_r;
-                end
-                OP_XOR: begin
-                    alu_result <= operand0_r ^ operand1_r;
-                end
-                OP_SHL: begin
-                    alu_result <= operand0_r << operand1_r[4:0];
-                end
-                OP_SHR: begin
-                    alu_result <= $signed(operand0_r) >>> operand1_r[4:0];
-                end
+                OP_AND:     alu_result <= operand0_r2 & operand1_r2;
+                OP_OR:      alu_result <= operand0_r2 | operand1_r2;
+                OP_XOR:     alu_result <= operand0_r2 ^ operand1_r2;
+                OP_SHL:     alu_result <= operand0_r2 << operand1_r2[4:0];
+                OP_SHR:     alu_result <= $signed(operand0_r2) >>> operand1_r2[4:0];
                 OP_CMP_GT: begin
-                    predicate_flag <= ($signed(operand0_r) > $signed(operand1_r));
-                    alu_result <= ($signed(operand0_r) > $signed(operand1_r)) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0_r2) > $signed(operand1_r2));
+                    alu_result <= ($signed(operand0_r2) > $signed(operand1_r2)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_LT: begin
-                    predicate_flag <= ($signed(operand0_r) < $signed(operand1_r));
-                    alu_result <= ($signed(operand0_r) < $signed(operand1_r)) ? 32'd1 : 32'd0;
+                    predicate_flag <= ($signed(operand0_r2) < $signed(operand1_r2));
+                    alu_result <= ($signed(operand0_r2) < $signed(operand1_r2)) ? 32'd1 : 32'd0;
                 end
                 OP_CMP_EQ: begin
-                    predicate_flag <= (operand0_r == operand1_r);
-                    alu_result <= (operand0_r == operand1_r) ? 32'd1 : 32'd0;
+                    predicate_flag <= (operand0_r2 == operand1_r2);
+                    alu_result <= (operand0_r2 == operand1_r2) ? 32'd1 : 32'd0;
                 end
-                OP_LOAD_SPM: begin
-                    alu_result <= spm_rdata_r;
-                end
-                OP_STORE_SPM: begin
-                    alu_result <= operand0_r;
-                end
+                OP_LOAD_SPM:  alu_result <= spm_rdata_r2;
+                OP_STORE_SPM: alu_result <= operand0_r2;
                 OP_ACC_CLR: begin
                     accumulator <= '0;
                     alu_result <= '0;
                 end
-                OP_PASS0: begin
-                    alu_result <= operand0_r;
-                end
-                OP_PASS1: begin
-                    alu_result <= operand1_r;
-                end
+                OP_PASS0:   alu_result <= operand0_r2;
+                OP_PASS1:   alu_result <= operand1_r2;
                 OP_LIF: begin
-                    if (lif_next_v >= op1_ext) begin
+                    if (lif_next_v_r2 >= op1_ext_r2) begin
                         predicate_flag <= 1'b1;
                         accumulator <= 40'sd0;
                         alu_result <= 32'd1;
                     end else begin
                         predicate_flag <= 1'b0;
-                        accumulator <= lif_next_v;
+                        accumulator <= lif_next_v_r2;
                         alu_result <= 32'd0;
                     end
                 end
-                OP_RELU: begin
-                    // ReLU activation: max(0, A) — used by ANN/LPR layers
-                    // Treats operand0 as signed; clamps negative to zero
-                    alu_result <= ($signed(operand0_r) > 0) ? operand0_r : 32'd0;
-                end
-                OP_MAX: begin
-                    // Signed maximum: max(A, B) — used for max-pooling layers
-                    alu_result <= ($signed(operand0_r) > $signed(operand1_r)) ? operand0_r : operand1_r;
-                end
-                default: begin
-                    alu_result <= '0;
-                end
+                OP_RELU:    alu_result <= ($signed(operand0_r2) > 0) ? operand0_r2 : 32'd0;
+                OP_MAX:     alu_result <= ($signed(operand0_r2) > $signed(operand1_r2)) ? operand0_r2 : operand1_r2;
+                default:    alu_result <= '0;
             endcase
         end
     end
-    
+
     // =========================================================================
-    // Write-back Logic
+    // Write-back Logic (uses _r2 control signals)
     // =========================================================================
     always_comb begin
         rf_we = 1'b0;
-        rf_waddr = dst_sel_r;
+        rf_waddr = dst_sel_r2;
         rf_wdata = alu_result[DATA_WIDTH-1:0];
 
         spm_we = 1'b0;
-        spm_addr = operand1_r[$clog2(SPM_DEPTH)-1:0];
-        spm_wdata = operand0_r;
+        spm_addr = operand1_r2[$clog2(SPM_DEPTH)-1:0];
+        spm_wdata = operand0_r2;
 
-        if (config_active_r && execute_enable && !stall) begin
-            unique case (op_code_r)
-                OP_STORE_SPM: begin
-                    spm_we = 1'b1;
-                end
-                OP_LOAD_SPM: begin
-                    rf_we = 1'b1;
-                end
+        if (config_active_r2 && execute_enable_r2 && !stall) begin
+            unique case (op_code_r2)
+                OP_STORE_SPM: spm_we = 1'b1;
+                OP_LOAD_SPM:  rf_we = 1'b1;
                 OP_ADD, OP_SUB, OP_MUL, OP_MAC, OP_AND, OP_OR, OP_XOR,
                 OP_SHL, OP_SHR, OP_CMP_GT, OP_CMP_LT, OP_CMP_EQ,
-                OP_PASS0, OP_PASS1, OP_LIF, OP_RELU, OP_MAX: begin
-                    // FIX: Added OP_LIF — LIF produces spike result (0/1)
-                    // that should be written to RF like other result-producing ops.
-                    // Without this, LIF output was only available via the routing
-                    // network, not the register file, preventing downstream RF use.
-                    rf_we = 1'b1;
-                end
-                default: begin
-                    rf_we = 1'b0;
-                end
+                OP_PASS0, OP_PASS1, OP_LIF, OP_RELU, OP_MAX: rf_we = 1'b1;
+                default: rf_we = 1'b0;
             endcase
         end
     end
-    
+
     // Set RF read addresses
     always_comb begin
         rf_raddr0 = src0_sel;
         rf_raddr1 = src1_sel;
     end
-    
+
     // =========================================================================
-    // Bypass Network / Routing
+    // Bypass Network / Routing (uses _r2 control signals)
     // =========================================================================
     logic [DATA_WIDTH-1:0] output_data;
     logic                  output_valid;
-    
+
     always_comb begin
-        // FIX: Output full 32-bit ALU result instead of 16-bit truncated payload
-        // Previous code packed {multicast, dest_x, dest_y, reserved, payload[15:0]}
-        // which lost upper 16 bits of computation. Since the PE array uses direct
-        // broadcast (not XY routing), full 32-bit precision is required.
         output_data = alu_result;
-        // FIX: Gate output_valid with !stall to prevent re-consumption of stale data
-        output_valid = config_active_r && execute_enable && !stall;
+        output_valid = config_active_r2 && execute_enable_r2 && !stall;
     end
 
     // Route mask: [4] = local, [3] = N, [2] = E, [1] = S, [0] = W
@@ -743,11 +739,11 @@ module cgra_pe #(
         data_out_w = output_data;
         data_out_local = output_data;
 
-        valid_out_n = output_valid && route_mask_r[3];
-        valid_out_e = output_valid && route_mask_r[2];
-        valid_out_s = output_valid && route_mask_r[1];
-        valid_out_w = output_valid && route_mask_r[0];
-        valid_out_local = output_valid && route_mask_r[4];
+        valid_out_n = output_valid && route_mask_r2[3];
+        valid_out_e = output_valid && route_mask_r2[2];
+        valid_out_s = output_valid && route_mask_r2[1];
+        valid_out_w = output_valid && route_mask_r2[0];
+        valid_out_local = output_valid && route_mask_r2[4];
     end
 
 endmodule

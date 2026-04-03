@@ -71,19 +71,25 @@ module tb_top;
     logic        pready, pslverr;
 
     // AXI Write Channel
+    logic [3:0]  axi_awid;
     logic [31:0] axi_awaddr, axi_wdata;
     logic        axi_awvalid, axi_awready, axi_wvalid, axi_wready;
     logic [3:0]  axi_wstrb;
+    logic [3:0]  axi_bid;
+    logic [1:0]  axi_bresp;
     logic        axi_bvalid, axi_bready;
     logic        axi_bvalid_reg;
     logic [7:0]  axi_awlen;
     logic [2:0]  axi_awsize;
     logic [1:0]  axi_awburst;
     logic        axi_wlast;
-    
+
     // AXI Read Channel
+    logic [3:0]  axi_arid;
     logic [31:0] axi_araddr, axi_rdata;
     logic        axi_arvalid, axi_arready, axi_rvalid, axi_rready;
+    logic [3:0]  axi_rid;
+    logic [1:0]  axi_rresp;
     logic [7:0]  axi_arlen;
     logic [2:0]  axi_arsize;
     logic [1:0]  axi_arburst;
@@ -185,6 +191,7 @@ module tb_top;
         .pready(pready),
         .pslverr(pslverr),
         // AXI4 Master (with Burst Support)
+        .m_axi_awid(axi_awid),
         .m_axi_awaddr(axi_awaddr),
         .m_axi_awlen(axi_awlen),
         .m_axi_awsize(axi_awsize),
@@ -196,14 +203,19 @@ module tb_top;
         .m_axi_wlast(axi_wlast),
         .m_axi_wvalid(axi_wvalid),
         .m_axi_wready(axi_wready),
+        .m_axi_bid(axi_bid),
+        .m_axi_bresp(axi_bresp),
         .m_axi_bvalid(axi_bvalid),
         .m_axi_bready(axi_bready),
+        .m_axi_arid(axi_arid),
         .m_axi_araddr(axi_araddr),
         .m_axi_arlen(axi_arlen),
         .m_axi_arsize(axi_arsize),
         .m_axi_arburst(axi_arburst),
         .m_axi_arvalid(axi_arvalid),
         .m_axi_arready(axi_arready),
+        .m_axi_rid(axi_rid),
+        .m_axi_rresp(axi_rresp),
         .m_axi_rdata(axi_rdata),
         .m_axi_rlast(axi_rlast_reg),
         .m_axi_rvalid(axi_rvalid),
@@ -230,11 +242,14 @@ module tb_top;
     logic [31:0] r_addr_reg;
     logic [7:0]  r_burst_len;
     logic [7:0]  r_beat_count;
-    
+    logic [3:0]  r_id_reg;  // Captured ARID for RID echo
+
     logic axi_arready_reg, axi_rvalid_reg;
-    
+
     assign axi_arready = axi_arready_reg;
     assign axi_rvalid = axi_rvalid_reg;
+    assign axi_rid = r_id_reg;      // Echo captured ARID as RID
+    assign axi_rresp = 2'b00;       // Always OKAY
     assign axi_rdata = {mem[r_addr_reg[21:0] + 3],
                         mem[r_addr_reg[21:0] + 2],
                         mem[r_addr_reg[21:0] + 1],
@@ -252,6 +267,7 @@ module tb_top;
             r_burst_len <= 8'd0;
             r_beat_count <= 8'd0;
             r_addr_reg <= 32'd0;  // FIX: Reset to prevent X propagation through axi_rdata combinational path
+            r_id_reg <= 4'd0;
         end else begin
             case (r_state)
                 R_IDLE: begin
@@ -264,6 +280,7 @@ module tb_top;
                         r_addr_reg <= axi_araddr;
                         r_burst_len <= axi_arlen;
                         r_beat_count <= 8'd0;
+                        r_id_reg <= axi_arid;
                         axi_arready_reg <= 1'b0;
                         r_state <= R_DATA;
                     end
@@ -289,16 +306,20 @@ module tb_top;
     logic axi_awready_reg, axi_wready_reg;
     logic [31:0] axi_waddr_next;    // Next write address for burst
     logic        axi_waddr_received;
-    
+    logic [3:0]  w_id_reg;          // Captured AWID for BID echo
+
     assign axi_awready = axi_awready_reg;
     assign axi_wready = axi_wready_reg;
     assign axi_bvalid = axi_bvalid_reg;
+    assign axi_bid = w_id_reg;      // Echo captured AWID as BID
+    assign axi_bresp = 2'b00;       // Always OKAY
     
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             axi_awready_reg <= 1'b1;
             axi_waddr_received <= 1'b0;
             axi_waddr_next <= 32'd0;
+            w_id_reg <= 4'd0;
         end else begin
             if (stress_enable && $urandom_range(0,100) < stress_probability)
                 axi_awready_reg <= 1'b0;
@@ -307,7 +328,8 @@ module tb_top;
             
             // Handle address tracking
             if (axi_awvalid && axi_awready_reg) begin
-                // New burst - capture base address
+                // New burst - capture base address and transaction ID
+                w_id_reg <= axi_awid;
                 // If W also handshaking, beat 0 is done, next is beat 1 address
                 if (axi_wvalid && axi_wready_reg)
                     axi_waddr_next <= axi_awaddr + 32'd4;

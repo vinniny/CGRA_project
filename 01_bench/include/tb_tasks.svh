@@ -46,32 +46,32 @@ endtask
 // APB WRITE TASK
 // ============================================================================
 task automatic apb_write(input logic [31:0] addr, input logic [31:0] data);
-    @(posedge clk);
-    paddr = addr;
-    pwdata = data;
-    pwrite = 1'b1;
-    psel = 1'b1;
-    penable = 1'b0;
+    // Race-free via clocking block (output #1ns after posedge, input #1step before)
+    @(apb_cb);
+    apb_cb.paddr   <= addr;
+    apb_cb.pwdata  <= data;
+    apb_cb.pwrite  <= 1'b1;
+    apb_cb.psel    <= 1'b1;
+    apb_cb.penable <= 1'b0;
 
-    @(posedge clk);
-    penable = 1'b1;
+    @(apb_cb);
+    apb_cb.penable <= 1'b1;
 
-    @(posedge clk);
-    // FIX: Bounded pready wait — prevents infinite hang if slave stalls
+    @(apb_cb);
     begin : apb_wr_wait
         int pready_cnt = 0;
-        while (!pready && pready_cnt < 1000) begin
-            @(posedge clk);
+        while (!apb_cb.pready && pready_cnt < 1000) begin
+            @(apb_cb);
             pready_cnt++;
         end
-        if (!pready) $error("[APB] PREADY timeout on write to 0x%08h", addr);
+        if (!apb_cb.pready) $error("[APB] PREADY timeout on write to 0x%08h", addr);
     end
 
-    if (pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
+    if (apb_cb.pslverr) $warning("[APB] Write to 0x%08h returned PSLVERR", addr);
 
-    psel = 1'b0;
-    penable = 1'b0;
-    pwrite = 1'b0;
+    apb_cb.psel    <= 1'b0;
+    apb_cb.penable <= 1'b0;
+    apb_cb.pwrite  <= 1'b0;
 
     // APB register access coverage
     cov_sample_apb(addr, 1'b1);
@@ -81,32 +81,32 @@ endtask
 // APB READ TASK
 // ============================================================================
 task automatic apb_read(input logic [31:0] addr, output logic [31:0] data);
-    @(posedge clk);
-    paddr = addr;
-    pwrite = 1'b0;
-    psel = 1'b1;
-    penable = 1'b0;
-    
-    @(posedge clk);
-    penable = 1'b1;
-    
-    @(posedge clk);
-    // FIX: Bounded pready wait — prevents infinite hang if slave stalls
+    // Race-free via clocking block (output #1ns after posedge, input #1step before)
+    @(apb_cb);
+    apb_cb.paddr   <= addr;
+    apb_cb.pwrite  <= 1'b0;
+    apb_cb.psel    <= 1'b1;
+    apb_cb.penable <= 1'b0;
+
+    @(apb_cb);
+    apb_cb.penable <= 1'b1;
+
+    @(apb_cb);
     begin : apb_rd_wait
         int pready_cnt = 0;
-        while (!pready && pready_cnt < 1000) begin
-            @(posedge clk);
+        while (!apb_cb.pready && pready_cnt < 1000) begin
+            @(apb_cb);
             pready_cnt++;
         end
-        if (!pready) $error("[APB] PREADY timeout on read from 0x%08h", addr);
+        if (!apb_cb.pready) $error("[APB] PREADY timeout on read from 0x%08h", addr);
     end
-    
-    if (pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
-    
-    data = prdata;      // FIX: Sample BEFORE deasserting psel/penable
 
-    psel = 1'b0;
-    penable = 1'b0;
+    if (apb_cb.pslverr) $warning("[APB] Read from 0x%08h returned PSLVERR", addr);
+
+    data = apb_cb.prdata;  // Sample via CB (#1step before posedge)
+
+    apb_cb.psel    <= 1'b0;
+    apb_cb.penable <= 1'b0;
 
     // APB register access coverage
     cov_sample_apb(addr, 1'b0);
@@ -715,61 +715,5 @@ endtask
 // Use these for new test suites; existing suites keep the raw-clock driver
 // for backward compatibility (both produce identical DUT behavior).
 // ============================================================================
-
-task automatic apb_cb_write(input logic [31:0] addr, input logic [31:0] data);
-    @(apb_cb);
-    apb_cb.paddr   <= addr;
-    apb_cb.pwdata  <= data;
-    apb_cb.pwrite  <= 1'b1;
-    apb_cb.psel    <= 1'b1;
-    apb_cb.penable <= 1'b0;
-
-    @(apb_cb);
-    apb_cb.penable <= 1'b1;
-
-    @(apb_cb);
-    begin : apb_cb_wr_wait
-        int cnt = 0;
-        while (!apb_cb.pready && cnt < 1000) begin
-            @(apb_cb);
-            cnt++;
-        end
-        if (!apb_cb.pready) $error("[APB-CB] PREADY timeout on write to 0x%08h", addr);
-    end
-
-    if (apb_cb.pslverr) $warning("[APB-CB] Write to 0x%08h returned PSLVERR", addr);
-
-    apb_cb.psel    <= 1'b0;
-    apb_cb.penable <= 1'b0;
-    apb_cb.pwrite  <= 1'b0;
-endtask
-
-task automatic apb_cb_read(input logic [31:0] addr, output logic [31:0] data);
-    @(apb_cb);
-    apb_cb.paddr   <= addr;
-    apb_cb.pwrite  <= 1'b0;
-    apb_cb.psel    <= 1'b1;
-    apb_cb.penable <= 1'b0;
-
-    @(apb_cb);
-    apb_cb.penable <= 1'b1;
-
-    @(apb_cb);
-    begin : apb_cb_rd_wait
-        int cnt = 0;
-        while (!apb_cb.pready && cnt < 1000) begin
-            @(apb_cb);
-            cnt++;
-        end
-        if (!apb_cb.pready) $error("[APB-CB] PREADY timeout on read from 0x%08h", addr);
-    end
-
-    if (apb_cb.pslverr) $warning("[APB-CB] Read from 0x%08h returned PSLVERR", addr);
-
-    data = apb_cb.prdata;
-
-    apb_cb.psel    <= 1'b0;
-    apb_cb.penable <= 1'b0;
-endtask
 
 `endif

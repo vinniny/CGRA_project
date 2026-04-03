@@ -581,7 +581,7 @@ task automatic test_hybrid_io_readback;
     apb_write(ADDR_CU_CTRL, 32'd0);  // Release soft_reset
     wait_cycles(2);
     apb_write(ADDR_CU_CTRL, 32'd1);  // Start execution
-    
+
     // -------------------------------------------------------------------------
     // Step 5: Poll Status register until result_valid (bit 0)
     // -------------------------------------------------------------------------

@@ -280,9 +280,9 @@ task automatic test_AF07_abort_mid_transfer();
     // Wait a few cycles then abort via CU soft reset
     wait_cycles(5);
     apb_write(ADDR_CU_CTRL, 32'h2);  // Soft reset (cfg_abort)
-    wait_cycles(10);
+    wait_cycles(20);                   // Allow DMA R_DRAIN + W_DRAIN to complete
     apb_write(ADDR_CU_CTRL, 32'h0);  // Release soft reset
-    wait_cycles(5);
+    wait_cycles(10);
 
     // Verify DMA returned to idle
     apb_read(ADDR_DMA_STATUS, rd);
