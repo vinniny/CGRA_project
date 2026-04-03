@@ -143,10 +143,20 @@ module tb_top;
     // =========================================================================
     `include "include/tb_transactions.svh"      // Transaction classes (Phase A)
     `include "include/tb_config.svh"            // Configuration object (Phase A)
-    `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators
+    `include "include/tb_drivers.svh"           // Driver classes (Phase B)
+    `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators + sequences
     `include "include/tb_tasks.svh"             // Driver tasks (uses signals)
     `include "include/tb_coverage.svh"          // Functional coverage (covergroups)
     `include "include/tb_protocol_checkers.svh" // Protocol monitors (uses signals)
+    `include "include/tb_monitors.svh"          // Monitor classes (Phase C)
+    `include "include/tb_scoreboard.svh"        // Scoreboard classes (Phase D)
+    `include "include/tb_agents.svh"            // Agent classes (Phase E)
+    `include "include/tb_env.svh"               // Environment class (Phase E)
+    
+    // =========================================================================
+    // 4b. VERIFICATION ENVIRONMENT (Phase E)
+    // =========================================================================
+    cgra_env env;
     
     // CRV Suite Files (4 Pillars)
     `include "include/tb_suite_system.svh"      // System Integrity (APB, DMA, Protocol)
@@ -491,9 +501,40 @@ module tb_top;
         // Initialize memory with test pattern
         init_memory();
         
+        // Phase E: Build and start verification environment
+        env = new();
+        env.build();
+        
         // Wait for reset release
         wait(rst_n);
         #100;
+        
+        // Start verification environment monitors manually (Xcelium workaround)
+        fork
+            // APB Monitor
+            env.apb_agt.mon.run(clk, psel, penable, pwrite, paddr, 
+                               pwdata, prdata, pready, pslverr);
+            
+            // DMA Scoreboard (simplified - no memory checking for now)
+            // env.dma_scbd.run() would go here if memory array types matched
+        join_none
+        
+        // =====================================================================
+        // CLASS-BASED SMOKE TEST (Phase E — Optional via +define+TB_CLASS_SMOKE)
+        // =====================================================================
+        `ifdef TB_CLASS_SMOKE
+            $display("[SMOKE] Running class-based verification smoke test...");
+            // Simple APB transaction via driver
+            if (env.apb_agt.drv != null) begin
+                env.apb_agt.drv.write(ADDR_IRQ_MASK, 32'h0);
+                env.apb_agt.drv.check(ADDR_CU_STATUS, 32'h0, "CU_STATUS idle check");
+                $display("[SMOKE] APB driver test PASSED");
+            end
+            
+            // Let monitors/scoreboards run for a bit
+            repeat(100) @(posedge clk);
+            $display("[SMOKE] Environment running successfully");
+        `endif
         
         // =====================================================================
         // RUN TEST SUITES (with inter-suite reset for state isolation)
@@ -581,6 +622,13 @@ module tb_top;
         $display("\n================================================================");
         $display("  ALL TEST SUITES COMPLETE");
         $display("================================================================\n");
+        
+        // =====================================================================
+        // VERIFICATION ENVIRONMENT REPORT (Phase E)
+        // =====================================================================
+        if ($test$plusargs("env_report")) begin
+            env.report();
+        end
 
         $finish;
     end

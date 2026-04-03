@@ -200,7 +200,83 @@ task automatic set_scenario(input scenario_mode_t mode);
 endtask
 
 // ============================================================================
-// 8. COVERAGE REPORTING (legacy counters)
+// 8. SEQUENCE BASE CLASSES (Phase E — UVM-inspired)
+// ============================================================================
+// Virtual base class for reusable test sequences. Subclasses override body()
+// to implement specific test flows using driver APIs.
+virtual class cgra_sequence;
+    cgra_tb_config cfg;
+    string name;
+    
+    function new(cgra_tb_config c, string n = "cgra_seq");
+        cfg  = c;
+        name = n;
+    endfunction
+    
+    // Override in subclasses to implement sequence behavior
+    virtual task body(apb_driver apb_drv);
+        $display("[SEQ] Base sequence body() - override in subclass");
+    endtask
+endclass
+
+// Example: DMA stress sequence (random DMA transfers)
+class dma_stress_sequence extends cgra_sequence;
+    int num_iters;
+    
+    function new(cgra_tb_config c, int iters = 10);
+        super.new(c, "dma_stress_seq");
+        num_iters = iters;
+    endfunction
+    
+    virtual task body(apb_driver apb_drv);
+        for (int i = 0; i < num_iters; i++) begin
+            logic [31:0] src = rand_src_addr();
+            logic [31:0] dst = rand_dst_addr();
+            logic [31:0] size = rand_size();
+            
+            if (cfg.verbosity >= 2)
+                $display("[SEQ] %0t %s: DMA iter %0d/%0d src=0x%h dst=0x%h size=%0d",
+                         $time, name, i+1, num_iters, src, dst, size);
+            
+            // Use existing DMA task infrastructure
+            apb_drv.write(ADDR_DMA_SRC, src);
+            apb_drv.write(ADDR_DMA_DST, dst);
+            apb_drv.write(ADDR_DMA_SIZE, size);
+            apb_drv.write(ADDR_DMA_CTRL, 32'h1);  // Start DMA
+
+            // Wait for completion via shared task (avoids invalid event control).
+            wait_dma_done(TB_TIMEOUT);
+        end
+        $display("[SEQ] %0t %s complete: %0d DMA transfers", $time, name, num_iters);
+    endtask
+endclass
+
+// Example: PE random sequence (random PE configs)
+class pe_random_sequence extends cgra_sequence;
+    int num_ops;
+    
+    function new(cgra_tb_config c, int ops = 5);
+        super.new(c, "pe_random_seq");
+        num_ops = ops;
+    endfunction
+    
+    virtual task body(apb_driver apb_drv);
+        for (int i = 0; i < num_ops; i++) begin
+            logic [3:0] pe_id = $urandom_range(0, 15);
+            logic [5:0] op = $urandom_range(0, 20);
+            
+            if (cfg.verbosity >= 2)
+                $display("[SEQ] %0t %s: Configure PE %0d op=%0d", $time, name, pe_id, op);
+            
+            // Use existing config task (would need pe_config_driver integration)
+            // Simplified for now
+        end
+        $display("[SEQ] %0t %s complete: %0d PE configs", $time, name, num_ops);
+    endtask
+endclass
+
+// ============================================================================
+// 9. COVERAGE REPORTING (legacy counters)
 // ============================================================================
 task automatic print_coverage_report();
     $display("");

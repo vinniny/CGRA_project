@@ -246,11 +246,26 @@ module cgra_dma_engine #(
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
     logic [7:0]  current_burst_len;  // Current burst length (ARLEN value, 0-indexed)
+    logic        read_2d_mode;
+    logic [31:0] read_row_base_addr;
+    logic [31:0] read_row_stride;
+    logic [31:0] read_rows_remaining;
+    logic [31:0] read_cols_words;
+    logic [31:0] read_row_words_remaining;
     
     // AXI4 Burst Configuration (constant for INCR bursts)
     assign m_axi_arsize  = 3'b010;  // 4 bytes per beat
     assign m_axi_arburst = 2'b01;   // INCR burst type
     
+    // Transfer shape selection:
+    //  - 1D mode: cfg_rows == 0, words derived from cfg_size
+    //  - 2D mode: cfg_rows != 0, words derived from rows * ceil(cols/word)
+    wire        cfg_2d_mode         = (cfg_rows != '0);
+    wire [31:0] cfg_cols_words      = (cfg_cols + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+    wire [31:0] cfg_transfer_words  = cfg_2d_mode
+                                      ? (cfg_rows * cfg_cols_words)
+                                      : ((cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD);
+
     // Chunked Burst Calculation with 4KB Boundary Protection
     // Max burst = FIFO_DEPTH words, so max ARLEN = FIFO_DEPTH-1
     localparam MAX_BURST_WORDS = FIFO_DEPTH;
@@ -264,11 +279,16 @@ module cgra_dma_engine #(
     wire [31:0] len_limit_fifo = (read_words_remaining > MAX_BURST_WORDS) 
                                  ? MAX_BURST_WORDS 
                                  : read_words_remaining;
+
+    // In 2D mode, never let one AXI burst cross row boundaries.
+    wire [31:0] len_limit_row  = (read_2d_mode && (read_row_words_remaining < len_limit_fifo))
+                                 ? read_row_words_remaining
+                                 : len_limit_fifo;
     
     // Step 2: Clamp to 4KB boundary - never cross page boundary
-    wire [31:0] words_this_burst_raw = (len_limit_fifo > words_to_boundary) 
+    wire [31:0] words_this_burst_raw = (len_limit_row > words_to_boundary) 
                                        ? words_to_boundary 
-                                       : len_limit_fifo;
+                                       : len_limit_row;
     // FIX: Guard against zero (unaligned addr at 4KB boundary → underflow to ARLEN=255)
     wire [31:0] words_this_burst = (words_this_burst_raw == '0) ? 32'd1 : words_this_burst_raw;
     
@@ -277,6 +297,12 @@ module cgra_dma_engine #(
             r_state <= R_IDLE;
             read_addr <= '0;
             read_words_remaining <= '0;
+            read_2d_mode <= 1'b0;
+            read_row_base_addr <= '0;
+            read_row_stride <= '0;
+            read_rows_remaining <= '0;
+            read_cols_words <= '0;
+            read_row_words_remaining <= '0;
             current_burst_len <= '0;
             m_axi_araddr <= '0;
             m_axi_arlen <= '0;
@@ -289,6 +315,9 @@ module cgra_dma_engine #(
             // Transition to R_DRAIN to complete any in-flight AXI transaction
             // before returning to IDLE. This prevents AXI protocol violations.
             read_words_remaining <= '0;
+            read_2d_mode <= 1'b0;
+            read_rows_remaining <= '0;
+            read_row_words_remaining <= '0;
             if (src_is_tile) begin
                 // Tile reads have no in-flight AXI transactions — go directly to IDLE
                 r_state <= R_IDLE;
@@ -335,9 +364,15 @@ module cgra_dma_engine #(
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     tile_read_phase <= 1'b0;
-                    if (cfg_start && cfg_size != '0 && !status_busy) begin
+                    if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
+                        read_2d_mode <= cfg_2d_mode;
+                        read_row_base_addr <= cfg_src;
+                        read_row_stride <= cfg_src_stride;
+                        read_rows_remaining <= cfg_2d_mode ? cfg_rows : 32'd1;
+                        read_cols_words <= cfg_2d_mode ? cfg_cols_words : cfg_transfer_words;
+                        read_row_words_remaining <= cfg_2d_mode ? cfg_cols_words : cfg_transfer_words;
                         read_addr <= cfg_src;
-                        read_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+                        read_words_remaining <= cfg_transfer_words;
                         src_is_tile <= (cfg_src[31:28] == 4'h1);
                         r_state <= R_ADDR;
                     end
@@ -389,6 +424,8 @@ module cgra_dma_engine #(
                             // Phase 1 → 0: data captured, advance to next word
                             read_words_remaining <= read_words_remaining - 1'b1;
                             read_addr <= read_addr + BYTES_PER_WORD;
+                            if (read_row_words_remaining > 0)
+                                read_row_words_remaining <= read_row_words_remaining - 1'b1;
                             tile_read_phase <= 1'b0;
                             if (read_words_remaining == 32'd1)
                                 r_state <= R_DONE;
@@ -401,20 +438,30 @@ module cgra_dma_engine #(
                     if (m_axi_rvalid && m_axi_rready) begin
                         // Data beat received - FIFO push happens via fifo_push wire
                         read_words_remaining <= read_words_remaining - 1'b1;
+                        if (read_row_words_remaining > 0)
+                            read_row_words_remaining <= read_row_words_remaining - 1'b1;
                         
                         // Check for RLAST (end of this burst chunk)
                         if (m_axi_rlast) begin
                             m_axi_rready <= 1'b0;
-                            
-                            // Update address for next chunk
-                            // current_burst_len is ARLEN (N-1), so words = ARLEN+1
-                            read_addr <= read_addr + ((32'(current_burst_len) + 32'd1) * BYTES_PER_WORD);  // FIX: Cast to 32-bit
-                            
+
                             // Check if transfer complete
                             if (read_words_remaining == 32'd1) begin
                                 // This was the last word of the last chunk
                                 r_state <= R_DONE;
                             end else begin
+                                if (read_2d_mode && (read_row_words_remaining == 32'd1)) begin
+                                    // End of current row: jump to next row base using stride.
+                                    read_row_base_addr <= read_row_base_addr + read_row_stride;
+                                    read_addr <= read_row_base_addr + read_row_stride;
+                                    if (read_rows_remaining > 0)
+                                        read_rows_remaining <= read_rows_remaining - 1'b1;
+                                    read_row_words_remaining <= read_cols_words;
+                                end else begin
+                                    // Continue in current row
+                                    read_addr <= read_addr + ((32'(current_burst_len) + 32'd1) * BYTES_PER_WORD);  // FIX: Cast to 32-bit
+                                end
+
                                 // More chunks to transfer - loop back to R_ADDR
                                 r_state <= R_ADDR;
                             end
@@ -653,9 +700,9 @@ module cgra_dma_engine #(
                     m_axi_awvalid <= 1'b0;
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
-                    if (cfg_start && cfg_size != '0 && !status_busy) begin
+                    if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
                         write_addr <= cfg_dst;
-                        write_words_remaining <= (cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+                        write_words_remaining <= cfg_transfer_words;
                         // FIX: Latch destination type from cfg_dst at start time
                         dst_is_axi    <= (cfg_dst[31:28] == 4'h0);
                         dst_is_tile   <= (cfg_dst[31:28] == 4'h1);
@@ -1008,7 +1055,7 @@ module cgra_dma_engine #(
                 // Clear error on new transfer start
                 error_code_reg <= 2'b00;
                 error_flag <= 1'b0;
-                if (cfg_size != '0) begin
+                if (cfg_transfer_words != '0) begin
                     // Start new transfer
                     transfer_active <= 1'b1;
                     transfer_started <= 1'b0;  // Will be set next cycle
