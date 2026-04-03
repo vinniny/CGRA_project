@@ -68,6 +68,19 @@ module cgra_config_mem_bsg #(
     );
 
     // ------------------------------------------------
+    // Memory Initialization (Simulation Only)
+    // ------------------------------------------------
+    // Xilinx BRAMs initialize to 0 by default. In simulation, BSG SRAM
+    // reads X from unwritten locations. Zero-init prevents X propagation
+    // from unconfigured PE config slots (e.g., branch_en_r → array_done).
+    // synthesis translate_off
+    initial begin
+        for (int i = 0; i < DEPTH; i++)
+            mem_inst.synth.nz.mem[i] = '0;
+    end
+    // synthesis translate_on
+
+    // ------------------------------------------------
     // Read Valid Signal (1-cycle latency)
     // ------------------------------------------------
     // FIX: Use synchronous reset to match rest of design (was async: posedge clk or negedge rst_n)

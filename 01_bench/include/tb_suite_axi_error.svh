@@ -110,8 +110,49 @@ task automatic run_suite_AH_axi_error;
         if (rd == 32'd3) pass("AH08: DECERR captured (code=3)");
         else fail("AH08: error_code_reg wrong", $sformatf("expected 3, got %0d", rd));
 
-        // Clean up: start a normal transfer to clear error state
+        // =================================================================
+        // AH09: DMA_ERROR CSR readback (APB 0x38)
+        // =================================================================
+        $display("[AH09] DMA_ERROR CSR readback...");
+        // DECERR is still latched from AH08
+        apb_read(ADDR_DMA_ERROR, rd);
+        if (rd[0] == 1'b1 && rd[2:1] == 2'b11)
+            pass("AH09: DMA_ERROR CSR shows flag=1, code=DECERR(3)");
+        else
+            fail("AH09: DMA_ERROR CSR wrong", $sformatf("expected 0x7, got 0x%08h", rd));
+
+        // =================================================================
+        // AH10: IRQ_STATUS[2] reflects DMA error
+        // =================================================================
+        $display("[AH10] IRQ_STATUS[2] DMA error bit...");
+        apb_read(ADDR_IRQ_STATUS, rd);
+        if (rd[2] == 1'b1)
+            pass("AH10: IRQ_STATUS[2] set on DMA error");
+        else
+            fail("AH10: IRQ_STATUS[2] not set", $sformatf("got 0x%08h", rd));
+
+        // =================================================================
+        // AH11: W1C clears IRQ_STATUS[2] (DMA error bit only)
+        // =================================================================
+        $display("[AH11] W1C clear IRQ_STATUS[2]...");
+        apb_write(ADDR_IRQ_STATUS, 32'h4);  // W1C bit [2] only
+        apb_read(ADDR_IRQ_STATUS, rd);
+        if (rd[2] == 1'b0)
+            pass("AH11: IRQ_STATUS[2] cleared by W1C");
+        else
+            fail("AH11: IRQ_STATUS[2] not cleared", $sformatf("got 0x%08h", rd));
+
+        // =================================================================
+        // AH12: DMA_ERROR cleared on new DMA start
+        // =================================================================
+        $display("[AH12] DMA_ERROR cleared on new transfer...");
+        ram_write(32'h1000, 32'hDEAD_BEEF);
         dma_transfer(32'h1000, 32'h10000000, 4, 100);
+        apb_read(ADDR_DMA_ERROR, rd);
+        if (rd == 32'd0)
+            pass("AH12: DMA_ERROR cleared after new transfer");
+        else
+            fail("AH12: DMA_ERROR not cleared", $sformatf("got 0x%08h", rd));
 
         $display("\n[SUITE AH COMPLETE] AXI Error handling verification finished.\n");
     end

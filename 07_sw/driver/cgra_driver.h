@@ -59,6 +59,7 @@ extern "C" {
 
 #define CGRA_IRQ_STATUS       0x30
 #define CGRA_IRQ_MASK         0x34
+#define CGRA_DMA_ERROR        0x38
 
 #define CGRA_RESULT_DATA      0x40
 #define CGRA_RESULT_STATUS    0x44

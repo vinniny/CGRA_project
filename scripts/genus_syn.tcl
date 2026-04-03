@@ -70,11 +70,11 @@ check_design -unresolved
 # Constraints
 # ==============================================================================
 puts "=========================================================================="
-puts " Applying Constraints (50 MHz — relaxed for fast prove-out)"
+puts " Applying Constraints (100 MHz target with 3-stage PE pipeline)"
 puts "=========================================================================="
 
-# Clock: 50 MHz (20ns period) — relaxed to minimize optimization effort
-create_clock -name clk -period 20.0 [get_ports clk]
+# Clock: 100 MHz (10ns period) — enabled by 3rd PE pipeline stage
+create_clock -name clk -period 10.0 [get_ports clk]
 
 # Async reset — exclude from timing analysis
 set_false_path -from [get_ports rst_n]

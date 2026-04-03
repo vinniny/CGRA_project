@@ -46,6 +46,7 @@ module cgra_top #(
     parameter COORD_WIDTH = 4,
     parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH = 32,
+    parameter AXI_ID_WIDTH = 4,
     parameter SPM_DEPTH = 256,
     parameter RF_DEPTH = 16,
     parameter CONFIG_WIDTH = 64,
@@ -70,33 +71,39 @@ module cgra_top #(
     // AXI4 Master Interface (DMA to External RAM with Burst Support)
     // =========================================================================
     // Write Address Channel
+    output logic [AXI_ID_WIDTH-1:0] m_axi_awid,
     output logic [ADDR_WIDTH-1:0] m_axi_awaddr,
     output logic [7:0]            m_axi_awlen,     // Burst length
     output logic [2:0]            m_axi_awsize,    // Beat size
     output logic [1:0]            m_axi_awburst,   // Burst type
     output logic                  m_axi_awvalid,
     input  logic                  m_axi_awready,
-    
+
     // Write Data Channel
     output logic [31:0]           m_axi_wdata,
     output logic [3:0]            m_axi_wstrb,
     output logic                  m_axi_wlast,     // Last beat in burst
     output logic                  m_axi_wvalid,
     input  logic                  m_axi_wready,
-    
+
     // Write Response Channel
+    input  logic [AXI_ID_WIDTH-1:0] m_axi_bid,
+    input  logic [1:0]            m_axi_bresp,
     input  logic                  m_axi_bvalid,
     output logic                  m_axi_bready,
-    
+
     // Read Address Channel
+    output logic [AXI_ID_WIDTH-1:0] m_axi_arid,
     output logic [ADDR_WIDTH-1:0] m_axi_araddr,
     output logic [7:0]            m_axi_arlen,     // Burst length
     output logic [2:0]            m_axi_arsize,    // Beat size
     output logic [1:0]            m_axi_arburst,   // Burst type
     output logic                  m_axi_arvalid,
     input  logic                  m_axi_arready,
-    
+
     // Read Data Channel
+    input  logic [AXI_ID_WIDTH-1:0] m_axi_rid,
+    input  logic [1:0]            m_axi_rresp,
     input  logic [31:0]           m_axi_rdata,
     input  logic                  m_axi_rlast,     // Last beat in burst
     input  logic                  m_axi_rvalid,
@@ -124,6 +131,11 @@ module cgra_top #(
 );
 
     // =========================================================================
+    // Derived Constants
+    // =========================================================================
+    localparam CONTEXT_DEPTH = 16;
+
+    // =========================================================================
     // Internal Wires: APB CSR Multiplexing
     // =========================================================================
     logic [31:0] csr_prdata;  // Internal prdata from u_csr module
@@ -140,6 +152,8 @@ module cgra_top #(
     logic        dma_start;
     logic        dma_busy;
     logic        dma_done;
+    logic [1:0]  dma_error_code;
+    logic        dma_error_valid;
     
     // =========================================================================
     // Internal Wires: CSR → Control Unit
@@ -386,7 +400,9 @@ module cgra_top #(
         .dma_start(dma_start),
         .dma_busy_i(dma_busy),
         .dma_done_i(dma_done),
-        
+        .dma_error_code_i(dma_error_code),
+        .dma_error_valid_i(dma_error_valid),
+
         // Control Unit Config Wires
         .cu_start(cu_start),
         .cu_soft_reset(cu_soft_reset),
@@ -414,6 +430,7 @@ module cgra_top #(
     cgra_dma_engine #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(ADDR_WIDTH),
+        .AXI_ID_WIDTH(AXI_ID_WIDTH),
         .FIFO_DEPTH(32)
     ) u_dma (
         .clk(clk),
@@ -435,9 +452,7 @@ module cgra_top #(
         /* verilator lint_on PINCONNECTEMPTY */
         
         // AXI4 Master (with Burst Support)
-        /* verilator lint_off PINCONNECTEMPTY */
-        .m_axi_awid(),              // AXI ID not exposed at top level
-        /* verilator lint_on PINCONNECTEMPTY */
+        .m_axi_awid(m_axi_awid),
         .m_axi_awaddr(m_axi_awaddr),
         .m_axi_awlen(m_axi_awlen),
         .m_axi_awsize(m_axi_awsize),
@@ -449,13 +464,11 @@ module cgra_top #(
         .m_axi_wlast(m_axi_wlast),
         .m_axi_wvalid(m_axi_wvalid),
         .m_axi_wready(m_axi_wready),
-        .m_axi_bid({4{1'b0}}),          // AXI ID not used at top level
+        .m_axi_bid(m_axi_bid),
+        .m_axi_bresp(m_axi_bresp),
         .m_axi_bvalid(m_axi_bvalid),
-        .m_axi_bresp(2'b00),         // Tied to OKAY — top-level doesn't expose BRESP
         .m_axi_bready(m_axi_bready),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .m_axi_arid(),
-        /* verilator lint_on PINCONNECTEMPTY */
+        .m_axi_arid(m_axi_arid),
         .m_axi_araddr(m_axi_araddr),
         .m_axi_arlen(m_axi_arlen),
         .m_axi_arsize(m_axi_arsize),
@@ -465,13 +478,13 @@ module cgra_top #(
         .m_axi_rdata(m_axi_rdata),
         .m_axi_rlast(m_axi_rlast),
         .m_axi_rvalid(m_axi_rvalid),
-        .m_axi_rid({4{1'b0}}),
-        .m_axi_rresp(2'b00),         // Tied to OKAY — top-level doesn't expose RRESP
+        .m_axi_rid(m_axi_rid),
+        .m_axi_rresp(m_axi_rresp),
         .m_axi_rready(m_axi_rready),
 
-        // Error status (connected to CSR for software visibility)
-        .error_code(),               // TODO: wire to DMA_ERROR CSR when APB CSR is updated
-        .error_valid(),              // TODO: wire to IRQ_STATUS[2]
+        // Error status (wired to CSR for software visibility)
+        .error_code(dma_error_code),
+        .error_valid(dma_error_valid),
 
         // Local Memory Interface (To Tile Memory)
         .tile_addr_o(dma_tile_addr),
@@ -663,6 +676,7 @@ module cgra_top #(
     // slot AND all loop iterations are exhausted AND no dynamic branch is
     // redirecting execution elsewhere. Without the branch guard, a branch
     // at context_pc=15 would be killed by premature array_done assertion.
+    //
     assign array_done = auto_stop_armed
                      && cu_loops_done
                      && (context_pc == 4'(CONTEXT_DEPTH - 1))

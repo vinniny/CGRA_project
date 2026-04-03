@@ -52,6 +52,8 @@ module cgra_apb_csr #(
     output logic                  dma_start,      // Auto-clearing pulse
     input  logic                  dma_busy_i,
     input  logic                  dma_done_i,
+    input  logic [1:0]            dma_error_code_i,  // AXI BRESP/RRESP error code
+    input  logic                  dma_error_valid_i,  // Pulse on error detection
     
     // =========================================================================
     // Control Unit Configuration Wires
@@ -104,8 +106,9 @@ module cgra_apb_csr #(
     localparam ADDR_CU_TIMEOUT = 8'h2C;  // RW: Max cycles (0 = no limit)
     
     // IRQ Region
-    localparam ADDR_IRQ_STATUS = 8'h30;  // W1C: [0] DMA Done, [1] CU Done
+    localparam ADDR_IRQ_STATUS = 8'h30;  // W1C: [0] DMA Done, [1] CU Done, [2] DMA Error
     localparam ADDR_IRQ_MASK   = 8'h34;  // RW: IRQ enable mask
+    localparam ADDR_DMA_ERROR  = 8'h38;  // RO: [0] Error flag, [2:1] Error code (BRESP/RRESP)
     
     // Hardware Loop Region (NEW - LPR)
     localparam ADDR_LOOP_START = 8'h48;  // RW: Loop start PC
@@ -150,6 +153,9 @@ module cgra_apb_csr #(
     // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
     logic        cu_done_latch;
+    logic        dma_error_latch;       // Sticky DMA error flag
+    logic [1:0]  dma_error_code_latch;  // Captured BRESP/RRESP error code
+    logic        dma_error_valid_prev;  // Edge detect for error_valid (level signal from DMA)
     
     // =========================================================================
     // APB Interface - Zero Wait States
@@ -168,7 +174,11 @@ module cgra_apb_csr #(
         if (!rst_n) begin
             dma_done_latch <= 1'b0;
             cu_done_latch <= 1'b0;
+            dma_error_latch <= 1'b0;
+            dma_error_code_latch <= 2'b00;
+            dma_error_valid_prev <= 1'b0;
         end else begin
+            dma_error_valid_prev <= dma_error_valid_i;  // Edge detect register
             // DMA done latch: done-set wins over W1C-clear to prevent lost events
             // Priority: start-clear > done-set > W1C-clear  (last assignment wins)
             if (irq_w1c && pwdata[0])
@@ -177,7 +187,7 @@ module cgra_apb_csr #(
                 dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
             if (dma_start)
                 dma_done_latch <= 1'b0;          // start clears (wins)
-            
+
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
                 cu_done_latch <= 1'b0;
@@ -185,6 +195,20 @@ module cgra_apb_csr #(
                 cu_done_latch <= 1'b1;           // FIX: done-set AFTER W1C
             if (cu_start)
                 cu_done_latch <= 1'b0;
+
+            // DMA error latch: same W1C pattern as done bits
+            // Use rising-edge detection: DMA's error_valid is a LEVEL (sticky until
+            // next cfg_start), so we only latch on the 0→1 transition to allow W1C.
+            if (irq_w1c && pwdata[2])
+                dma_error_latch <= 1'b0;
+            if (dma_error_valid_i && !dma_error_valid_prev) begin
+                dma_error_latch <= 1'b1;
+                dma_error_code_latch <= dma_error_code_i;
+            end
+            if (dma_start) begin
+                dma_error_latch <= 1'b0;
+                dma_error_code_latch <= 2'b00;
+            end
         end
     end
     
@@ -198,7 +222,7 @@ module cgra_apb_csr #(
     always_comb begin
         reg_dma_status = {30'd0, dma_done_latch, dma_busy_i};
         reg_cu_status  = {30'd0, cu_done_latch, cu_busy_i};
-        reg_irq_status = {30'd0, cu_done_latch, dma_done_latch};
+        reg_irq_status = {29'd0, dma_error_latch, cu_done_latch, dma_done_latch};
     end
     
     // =========================================================================
@@ -279,6 +303,7 @@ module cgra_apb_csr #(
             ADDR_CU_TIMEOUT: prdata = reg_cu_timeout;
             ADDR_IRQ_STATUS: prdata = reg_irq_status;
             ADDR_IRQ_MASK:   prdata = reg_irq_mask;
+            ADDR_DMA_ERROR:  prdata = {29'd0, dma_error_latch, dma_error_code_latch};
             ADDR_LOOP_START: prdata = reg_loop_start;
             ADDR_LOOP_END:   prdata = reg_loop_end;
             ADDR_LOOP_COUNT:  prdata = reg_loop_count;
