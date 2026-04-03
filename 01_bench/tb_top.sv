@@ -141,6 +141,8 @@ module tb_top;
     // =========================================================================
     // 4. INCLUDE MODULAR LAYERS (Order matters!)
     // =========================================================================
+    `include "include/tb_transactions.svh"      // Transaction classes (Phase A)
+    `include "include/tb_config.svh"            // Configuration object (Phase A)
     `include "include/tb_scenario_gen.svh"      // Coverage counters, random generators
     `include "include/tb_tasks.svh"             // Driver tasks (uses signals)
     `include "include/tb_coverage.svh"          // Functional coverage (covergroups)
