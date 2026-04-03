@@ -177,16 +177,36 @@ task automatic run_suite_AN_dma_smoke;
         check_data_report(32'h0000_B000, 32'h0000_C000, 32'd256, "AN09: Multi-burst 256B DDR→DDR");
 
         // =================================================================
-        // AN10: DMA tile load for all 4 banks
+        // AN10: DMA 2D source stride (rows/cols/stride)
         // =================================================================
-        $display("[AN10] Tile load all 4 banks...");
+        $display("[AN10] DMA 2D source stride...");
         reset_dut(5);
-        // Write distinct values to each tile bank via DMA
-        for (int bank = 0; bank < 4; bank++) begin
-            ram_write(32'h0000_D000, 32'(32'hF0 + bank));
-            dma_transfer(32'h0000_D000, BASE_TILE | (32'(bank) << 12), 32'd4, 500);
+        // Source matrix: 3 rows, 4 words/row; transfer only first 2 words each row.
+        for (int r = 0; r < 3; r++) begin
+            for (int c = 0; c < 4; c++) begin
+                ram_write(32'h0000_D000 + 32'(r*16 + c*4), 32'(32'hD000 + r*16 + c));
+            end
         end
-        pass("AN10: Tile load all 4 banks completed");
+        apb_write(ADDR_DMA_SRC, 32'h0000_D000);
+        apb_write(ADDR_DMA_DST, 32'h0000_E000);
+        apb_write(ADDR_DMA_SRC_STRIDE, 32'd16); // 4 words/row source pitch
+        apb_write(ADDR_DMA_ROWS, 32'd3);
+        apb_write(ADDR_DMA_COLS, 32'd8);        // 2 words/row copied
+        apb_write(ADDR_DMA_SIZE, 32'd24);       // 3 rows * 8 bytes
+        apb_write(ADDR_DMA_CTRL, 32'h1);
+        wait_dma_done(1000);
+        ok = 1'b1;
+        // Row 0
+        if (ram_read(32'h0000_E000) !== 32'h0000_D000) ok = 1'b0;
+        if (ram_read(32'h0000_E004) !== 32'h0000_D001) ok = 1'b0;
+        // Row 1
+        if (ram_read(32'h0000_E008) !== 32'h0000_D010) ok = 1'b0;
+        if (ram_read(32'h0000_E00C) !== 32'h0000_D011) ok = 1'b0;
+        // Row 2
+        if (ram_read(32'h0000_E010) !== 32'h0000_D020) ok = 1'b0;
+        if (ram_read(32'h0000_E014) !== 32'h0000_D021) ok = 1'b0;
+        if (ok) pass("AN10: DMA 2D source stride");
+        else fail("AN10: DMA 2D source stride", "Data mismatch in 2D transfer");
 
         $display("\n[SUITE AN COMPLETE] DMA Smoke Test finished.\n");
     end

@@ -210,6 +210,10 @@ task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst,
     `endif
     apb_write(ADDR_DMA_SRC, src);
     apb_write(ADDR_DMA_DST, dst);
+    // Force 1D mode for generic transfers so stale 2D settings cannot leak in.
+    apb_write(ADDR_DMA_SRC_STRIDE, 32'd0);
+    apb_write(ADDR_DMA_ROWS, 32'd0);
+    apb_write(ADDR_DMA_COLS, 32'd0);
     apb_write(ADDR_DMA_SIZE, size);
     apb_write(ADDR_DMA_CTRL, 32'h1);
     wait_dma_done(timeout);
