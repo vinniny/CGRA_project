@@ -640,8 +640,26 @@ module cgra_pe #(
                 end
                 OP_MAC: begin
                     if (data_mode_r2 != 2'b00) begin
-                        accumulator <= accumulator + {{8{simd_dot_r2[31]}}, simd_dot_r2};
-                        alu_result  <= accumulator[31:0] + simd_dot_r2;
+                        // SIMD MAC: accumulate dot-product with 41-bit overflow detection
+                        // (matches INT32 MAC saturation pattern using mac_sum_temp)
+                        begin
+                            logic signed [40:0] simd_mac_temp;
+                            simd_mac_temp = {accumulator[39], accumulator}
+                                          + {{9{simd_dot_r2[31]}}, simd_dot_r2};
+                            if (simd_mac_temp > 41'sd549755813887)
+                                accumulator <= 40'sd549755813887;   // MAX_POS_40
+                            else if (simd_mac_temp < -41'sd549755813888)
+                                accumulator <= -40'sd549755813888;  // MIN_NEG_40
+                            else
+                                accumulator <= simd_mac_temp[39:0];
+                            // Saturate output to 32-bit
+                            if (simd_mac_temp > 41'sd2147483647)
+                                alu_result <= 32'h7FFF_FFFF;
+                            else if (simd_mac_temp < -41'sd2147483648)
+                                alu_result <= 32'h8000_0000;
+                            else
+                                alu_result <= simd_mac_temp[31:0];
+                        end
                     end else begin
                         accumulator <= mac_sum;
                         alu_result <= mac_result_sat;

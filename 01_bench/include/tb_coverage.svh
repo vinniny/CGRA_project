@@ -192,6 +192,7 @@ covergroup cg_apb_access @(cg_apb_addr);
         bins r_cu_timeout     = {8'h2C};
         bins r_irq_status     = {8'h30};
         bins r_irq_mask       = {8'h34};
+        bins r_dma_error      = {8'h38};
         bins r_result_data    = {8'h40};
         bins r_result_status  = {8'h44};
         bins r_loop_start     = {8'h48};
