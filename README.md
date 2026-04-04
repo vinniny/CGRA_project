@@ -7,7 +7,7 @@
 *Version 3.0.0 | April 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-8854%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-8915%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(100%25%20covered)-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
@@ -30,7 +30,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 - **Dynamic Branching**: PE predicate flag drives CU PC jump for data-dependent control flow.
 - **Pipelined ALU**: Registered operand stage (_r) for timing closure on DSP48 paths.
 - **End-to-End FC Acceleration**: Verified 784->30 fully-connected layer offload matching software golden model bit-exactly.
-- **UVM-Inspired Verification**: 8854 tests, 24 suites, transaction-based monitors/scoreboards, SystemVerilog covergroups, clocking blocks, constrained-random classes.
+- **UVM-Inspired Verification**: 8915 tests, 25 suites, transaction-based monitors/scoreboards, SystemVerilog covergroups, clocking blocks, constrained-random classes.
 
 ### Target Applications
 - **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
@@ -115,7 +115,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ```bash
 # Run full verification suite (Cadence Xcelium 20.09+)
-make sim                # Compile, elaborate, simulate (8854 tests)
+make sim                # Compile, elaborate, simulate (8915 tests)
 
 # Split flow for debugging
 make compile            # Compile RTL + TB sources
@@ -451,11 +451,11 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | **8854 PASS, 0 FAIL** |
+| Total Tests | **8915 PASS, 0 FAIL** |
 | Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | **21/21 (100%)** operations verified |
 | Verification Method | CRV + directed + deployment replay + UVM-inspired TLM |
-| Test Suites | **24** suites across 5 categories |
+| Test Suites | **25** suites across 6 categories |
 | Covergroups | 4 (DMA xfer, PE ISA, CU flow, APB regs) |
 | Clocking Blocks | APB (drive/sample) + AXI (sample-only) |
 | Transaction Layer | APB/AXI monitors, DMA/PE scoreboards, mailbox agents |
@@ -501,6 +501,12 @@ Bit Position:
 | DMA Physical Address | AR | ~11 | Large AXI offsets, realistic FC transfer sizes |
 | Soft Reset Recovery | AS | ~14 | Mid-run reset, double reset, post-reset functional |
 | Error Recovery | AT | ~14 | Timeout, double DMA start, protected regs during busy |
+
+**Hardware Emulation (1 suite):**
+
+| Suite | ID | Tests | Focus |
+|-------|----|-------|-------|
+| Hardware Emulation | HE | ~61 | Multi-inference loops, bank_sel double-buffer, IRQ-driven completion, error injection mid-inference, large DDR payloads, AXI stress, dynamic reconfiguration |
 
 ### Real Application Suite (RAP) Details
 
@@ -841,7 +847,7 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
-| UVM-Inspired Testbench | 8854 tests, 24 suites, covergroups, TLM scoreboards, clocking blocks |
+| UVM-Inspired Testbench | 8915 tests, 25 suites, covergroups, TLM scoreboards, clocking blocks |
 
 ### Future Enhancements
 
@@ -880,6 +886,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for SNN Inference**
 
-*Silicon-Ready | 8854/8854 Verified | 100% ISA Coverage | 24 Test Suites*
+*Silicon-Ready | 8915/8915 Verified | 100% ISA Coverage | 25 Test Suites*
 
 </div>
