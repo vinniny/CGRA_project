@@ -173,7 +173,7 @@ class cgra_apb_stim;
     constraint c_addr {
         addr inside {
             32'h00, 32'h04, 32'h08, 32'h0C, 32'h10, 32'h14, 32'h18, 32'h1C,
-            32'h20, 32'h24, 32'h28, 32'h2C, 32'h30, 32'h34,
+            32'h20, 32'h24, 32'h28, 32'h2C, 32'h30, 32'h34, 32'h38,
             32'h40, 32'h44, 32'h48, 32'h4C, 32'h50,
             32'h58, 32'h5C, 32'h60, 32'h64,
             32'h68, 32'h6C, 32'h70, 32'h74
@@ -182,7 +182,7 @@ class cgra_apb_stim;
 
     // RO registers should only be read
     constraint c_ro_read_only {
-        (addr inside {32'h04, 32'h24, 32'h28, 32'h40, 32'h44,
+        (addr inside {32'h04, 32'h24, 32'h28, 32'h38, 32'h40, 32'h44,
                       32'h58, 32'h5C, 32'h60, 32'h64}) -> (is_write == 0);
     }
 endclass

@@ -269,7 +269,7 @@ module cgra_apb_csr #(
                     ADDR_LOOP2_START: if (!cu_busy_i) reg_loop2_start <= pwdata;
                     ADDR_LOOP2_END:   if (!cu_busy_i) reg_loop2_end   <= pwdata;
                     ADDR_LOOP2_COUNT:    if (!cu_busy_i) reg_loop2_count    <= pwdata;
-                    ADDR_TILE_BANK_SEL:  reg_tile_bank_sel <= pwdata;  // Can toggle anytime
+                    ADDR_TILE_BANK_SEL:  if (!dma_busy_i && !cu_busy_i) reg_tile_bank_sel <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
                 endcase

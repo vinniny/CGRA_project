@@ -7,7 +7,7 @@
 *Version 3.0.0 | April 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-8850%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Tests](https://img.shields.io/badge/Tests-8854%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(100%25%20covered)-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
@@ -30,7 +30,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 - **Dynamic Branching**: PE predicate flag drives CU PC jump for data-dependent control flow.
 - **Pipelined ALU**: Registered operand stage (_r) for timing closure on DSP48 paths.
 - **End-to-End FC Acceleration**: Verified 784->30 fully-connected layer offload matching software golden model bit-exactly.
-- **Deployment-Ready Testbench**: 8850 tests, 24 suites, SystemVerilog covergroups, clocking blocks, constrained-random classes.
+- **UVM-Inspired Verification**: 8854 tests, 24 suites, transaction-based monitors/scoreboards, SystemVerilog covergroups, clocking blocks, constrained-random classes.
 
 ### Target Applications
 - **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
@@ -115,7 +115,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ```bash
 # Run full verification suite (Cadence Xcelium 20.09+)
-make sim                # Compile, elaborate, simulate (8850 tests)
+make sim                # Compile, elaborate, simulate (8854 tests)
 
 # Split flow for debugging
 make compile            # Compile RTL + TB sources
@@ -190,7 +190,7 @@ build_linux/c_alpr configs/alpr_config.ini folder/      # Batch folder
                         │                                             │
     ┌─────────┐         │  ┌──────────────────────────────────────┐  │
     │   CPU   │◄────────┼──┤         APB Control Interface        │  │
-    │  (Host) │  APB    │  │  • 27 Registers (17 RW, 1 W1C, 9 RO) │  │
+    │  (Host) │  APB    │  │  • 28 Registers (17 RW, 1 W1C, 10 RO) │  │
     └─────────┘         │  │  • DMA, CU, IRQ, Loop, Result CSRs  │  │
                         │  │  • 256B address space, 32-bit access │  │
                         │  └────────────────┬─────────────────────┘  │
@@ -293,7 +293,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 ## Register Map
 
-### APB Address Space (27 Registers)
+### APB Address Space (28 Registers)
 
 **DMA Engine Control (8 registers):**
 
@@ -321,8 +321,14 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
-| 0x30 | IRQ_STATUS | W1C | 0x0 | [0] DMA Done, [1] CU Done |
+| 0x30 | IRQ_STATUS | W1C | 0x0 | [0] DMA Done, [1] CU Done, [2] DMA Error |
 | 0x34 | IRQ_MASK | RW | 0x0 | IRQ enable mask |
+
+**DMA Error Status (1 register):**
+
+| Offset | Register | Access | Reset | Description |
+|--------|----------|--------|-------|-------------|
+| 0x38 | DMA_ERROR | RO | 0x0 | [0] Error flag, [2:1] Error code (01=SLVERR, 10=DECERR). W1C via IRQ_STATUS[2] |
 
 **Global Result Capture (2 registers):**
 
@@ -360,7 +366,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
-| 0x74 | TILE_BANK_SEL | RW | 0x0 | [0] PE buffer select (0/1) |
+| 0x74 | TILE_BANK_SEL | RW | 0x0 | [0] PE buffer select (0/1). Protected: rejected while DMA or CU busy |
 
 ### DMA Address Decode
 
@@ -445,13 +451,14 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | **8850 PASS, 0 FAIL** |
+| Total Tests | **8854 PASS, 0 FAIL** |
 | Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | **21/21 (100%)** operations verified |
-| Verification Method | CRV + directed + deployment replay |
+| Verification Method | CRV + directed + deployment replay + UVM-inspired TLM |
 | Test Suites | **24** suites across 5 categories |
 | Covergroups | 4 (DMA xfer, PE ISA, CU flow, APB regs) |
 | Clocking Blocks | APB (drive/sample) + AXI (sample-only) |
+| Transaction Layer | APB/AXI monitors, DMA/PE scoreboards, mailbox agents |
 | Status | **SILICON READY** |
 
 ### Test Suite Breakdown
@@ -468,7 +475,7 @@ Bit Position:
 | DMA Write-Back | AE | ~100 | Round-trip, burst protocol, 4KB boundary, zero-length |
 | DMA Read-Back | AF | ~100 | Multi-bank tile read, large transfers, abort mid-transfer |
 | PE Pipeline | AG | 6 | Registered operand stage (_r) verification |
-| AXI Error Handling | AH | 8 | BRESP/RRESP error injection and recovery |
+| AXI Error Handling | AH | 12 | BRESP/RRESP error injection, DMA_ERROR CSR, IRQ_STATUS[2], W1C |
 | Tile Memory Depth | AI | 5 | BANK_DEPTH=4096 boundary verification |
 | Hardware Loops | AJ | 9 | Single + nested loop execution |
 | Double-Buffer | AK | 5 | bank_sel toggle and tile switching |
@@ -614,7 +621,8 @@ cgra_top #(
 #define CU_STATUS     0x24    // [0]=busy, [1]=done
 #define CU_CYCLES     0x28    // Active (non-stalled) cycle count
 #define CU_TIMEOUT    0x2C    // Max wall-clock cycles (0 = unlimited)
-#define IRQ_STATUS    0x30    // W1C: [0]=dma_done, [1]=cu_done
+#define DMA_ERROR     0x38    // [0]=error_flag, [2:1]=error_code (RO, W1C via IRQ_STATUS[2])
+#define IRQ_STATUS    0x30    // W1C: [0]=dma_done, [1]=cu_done, [2]=dma_error
 #define IRQ_MASK      0x34
 #define RESULT_DATA   0x40    // PE[15] output (global_result)
 #define RESULT_STATUS 0x44    // [0]=result_valid
@@ -703,13 +711,13 @@ void cgra_get_results(uint32_t results[4]) {
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
 | cgra_top | cgra_top.sv | ~880 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop |
-| cgra_apb_csr | cgra_apb_csr.sv | ~356 | APB interface (27 registers, W1C IRQ, protected write guards) |
-| cgra_dma_engine | cgra_dma_engine.sv | ~1120 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, abort safety |
+| cgra_apb_csr | cgra_apb_csr.sv | ~356 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
+| cgra_dma_engine | cgra_dma_engine.sv | ~1120 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
 | cgra_control_unit | cgra_control_unit.sv | ~380 | FSM, 2-level nested loops, timeout, loops_done_o, global stall |
 | cgra_tile_memory | cgra_tile_memory.sv | ~280 | 4-bank x 4096 SRAM, double-buffer bank_sel, prefetch PC |
 | cgra_array | cgra_array.sv | ~198 | Parameterized N*M PE mesh (generate blocks, 83% smaller) |
 | cgra_tile | cgra_tile.sv | ~230 | PE + Router wrapper with branch passthrough |
-| cgra_pe | cgra_pe.sv | ~720 | 21-op ISA, _r pipeline, 40-bit sat MAC, INT8/16 SIMD |
+| cgra_pe | cgra_pe.sv | ~770 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
 | cgra_router | cgra_router.sv | ~417 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
 | cgra_config_mem_bsg | bsg_mem/ | ~81 | BSG SRAM wrapper (16x64-bit config RAM per PE) |
 | **Total** | **17 files** | **~6,700** | -- |
@@ -802,7 +810,8 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 - **ACC_CLR required between inferences:** The MAC accumulator persists across CU runs. Always execute an ACC_CLR sweep (opcode 15, slot 0 broadcast to all PEs) before starting a new FC computation.
 - **Hardware loop count:** `LOOP_COUNT=N` runs the context range N+1 total times (N additional passes beyond the first). Use `LOOP_COUNT=0` to run the range exactly once.
 - **Loop-aware auto-stop:** The CU asserts `done` only when all loop iterations are exhausted AND context_pc reaches slot 15. Dynamic branches at PC=15 are respected (auto-stop deferred until branch completes).
-- **Protected registers:** DMA config registers (SRC/DST/SIZE/STRIDE/ROWS/COLS) are write-protected while DMA is busy. CU config registers (TIMEOUT/LOOP*/LOOP2*) are write-protected while CU is busy.
+- **Protected registers:** DMA config registers (SRC/DST/SIZE/STRIDE/ROWS/COLS) are write-protected while DMA is busy. CU config registers (TIMEOUT/LOOP*/LOOP2*) are write-protected while CU is busy. TILE_BANK_SEL is write-protected while either DMA or CU is busy.
+- **AXI error detection:** DMA engine detects both SLVERR (2'b01) and DECERR (2'b10) on BRESP/RRESP channels. Error code and flag are captured in DMA_ERROR (0x38) and IRQ_STATUS[2]. Errors are sticky (cleared on new cfg_start or via W1C on IRQ_STATUS).
 - **Current Fmax:** 50 MHz on Zynq-7000. The DSP48 multiply-to-saturation path needs a 3rd pipeline stage for 100 MHz.
 
 ---
@@ -832,7 +841,7 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
-| Deployment Testbench | 8850 tests, 24 suites, covergroups, clocking blocks |
+| UVM-Inspired Testbench | 8854 tests, 24 suites, covergroups, TLM scoreboards, clocking blocks |
 
 ### Future Enhancements
 
@@ -871,6 +880,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for SNN Inference**
 
-*Silicon-Ready | 8850/8850 Verified | 100% ISA Coverage | 24 Test Suites*
+*Silicon-Ready | 8854/8854 Verified | 100% ISA Coverage | 24 Test Suites*
 
 </div>
