@@ -184,6 +184,7 @@ module tb_top;
     `include "include/tb_suite_dma_physaddr.svh"     // Suite AR: DMA Physical Address Range
     `include "include/tb_suite_soft_reset.svh"       // Suite AS: Soft Reset Recovery
     `include "include/tb_suite_error_recovery.svh"   // Suite AT: Error Recovery Path
+    `include "include/tb_suite_hwemu.svh"            // Suite HE: Hardware Emulation
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -615,6 +616,12 @@ module tb_top;
 
         reset_dut(5);
         run_suite_AT_error_recovery();
+
+        // =====================================================================
+        // HARDWARE EMULATION — System-Level CPU<->CGRA<->Memory
+        // =====================================================================
+        reset_dut(5);
+        run_suite_HE_hwemu();
 
         // Print functional coverage before finishing
         print_functional_coverage();
