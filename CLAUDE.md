@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Simulation Commands
 
 ```bash
-make sim                # Full simulation flow (compile + elaborate + run, 8850 tests)
+make sim                # Full simulation flow (compile + elaborate + run, 8854 tests)
 make compile            # xmvlog compilation only
 make build              # xmelab elaboration only
 make run                # xmsim simulation only
@@ -48,13 +48,13 @@ cd 07_sw && make dump_hex                         # Generate .mem files for Suit
 ## Architecture
 
 ```
-Host CPU (APB) -> APB CSR (27 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
+Host CPU (APB) -> APB CSR (28 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
                                      -> DMA Engine (AXI4 master, 32-word FIFO, 2D strided) <-> AXI RAM
                                      -> Tile Memory (4 banks * 4096 * 32b, double-buffered)
                                      -> 4x4 PE Array (parameterized mesh, broadcast routing)
 ```
 
-Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x32b), Scratchpad (256x32b SRAM), ALU/MAC (40-bit saturating accumulator, _r pipeline stage), 5-port Router (N/E/S/W/Local, unicast/multicast).
+Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x32b), Scratchpad (256x32b SRAM), ALU/MAC (40-bit saturating accumulator, 3-stage pipeline: decode→_r→_r2), 5-port Router (N/E/S/W/Local, unicast/multicast).
 
 **ISA (21 ops):** ADD, SUB, MUL, MAC, AND, OR, XOR, SHL, SHR, CMP_GT, CMP_LT, CMP_EQ, LOAD_SPM, STORE_SPM, ACC_CLR, PASS0, PASS1, NOP, LIF (neuromorphic), RELU, MAX.
 
@@ -62,27 +62,30 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 
 **Key parameters:** DATA_WIDTH=32, CONFIG_WIDTH=64, CONTEXT_DEPTH=16, NUM_PES=16 (4x4), FIFO_DEPTH=32, BANK_DEPTH=4096.
 
-## APB Register Map (27 registers, 0x00-0x74)
+## APB Register Map (28 registers, 0x00-0x74)
 
 DMA: DMA_CTRL(0x00 RW), DMA_STATUS(0x04 RO), DMA_SRC(0x08 RW), DMA_DST(0x0C RW), DMA_SIZE(0x10 RW), DMA_SRC_STRIDE(0x14 RW), DMA_ROWS(0x18 RW), DMA_COLS(0x1C RW).
 CU: CU_CTRL(0x20 RW), CU_STATUS(0x24 RO), CU_CYCLES(0x28 RO), CU_TIMEOUT(0x2C RW).
-IRQ: IRQ_STATUS(0x30 W1C), IRQ_MASK(0x34 RW).
+IRQ: IRQ_STATUS(0x30 W1C — [0] DMA Done, [1] CU Done, [2] DMA Error), IRQ_MASK(0x34 RW).
 Result: RESULT_DATA(0x40 RO), RESULT_STATUS(0x44 RO).
 Loop L1: LOOP_START(0x48 RW), LOOP_END(0x4C RW), LOOP_COUNT(0x50 RW).
 Row Results: RESULT_ROW0-3(0x58-0x64 RO).
 Loop L2: LOOP2_START(0x68 RW), LOOP2_END(0x6C RW), LOOP2_COUNT(0x70 RW).
 Double-Buffer: TILE_BANK_SEL(0x74 RW).
 
-Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. CU_TIMEOUT/LOOP*/LOOP2* rejected while CU busy. DMA_CTRL[0] and CU_CTRL[0] auto-clear after 1 cycle.
+Error: DMA_ERROR(0x38 RO) — [0] error_flag, [2:1] error_code (W1C via IRQ_STATUS[2]).
+
+Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. CU_TIMEOUT/LOOP*/LOOP2* rejected while CU busy. TILE_BANK_SEL rejected while DMA or CU busy. DMA_CTRL[0] and CU_CTRL[0] auto-clear after 1 cycle.
 
 ## Testbench Architecture
 
-5-layer modular TB with 24 test suites, 8850 tests:
+5-layer modular TB with 24 test suites, 8854 tests + UVM-inspired transaction layer:
 - Layer 1: tb_defs.svh — macros, constants, assertion helpers (CHECK_EQ, ASSERT_TRUE, etc.)
-- Layer 2: tb_scenario_gen.svh — constrained-random classes (cgra_dma_stim, cgra_pe_stim, cgra_apb_stim)
+- Layer 2: tb_scenario_gen.svh — constrained-random classes (cgra_dma_stim, cgra_pe_stim, cgra_apb_stim) + sequence base classes
 - Layer 3: tb_tasks.svh — APB/DMA/PE driver tasks + clocking-block variants (apb_cb_write/read)
 - Layer 4: tb_coverage.svh — 4 covergroups (DMA xfer, PE ISA, CU flow, APB regs) + manual counters
 - Layer 5: Protocol checkers + 24 test suites
+- Layer 6 (UVM-inspired): tb_transactions.svh, tb_config.svh, tb_drivers.svh, tb_monitors.svh, tb_scoreboard.svh, tb_agents.svh, tb_env.svh — class-based verification infrastructure with APB/AXI monitors, DMA/PE scoreboards (21-opcode golden ALU + SIMD), mailbox-connected agents
 
 Clocking blocks: `apb_cb` (drive #1, sample #1step), `axi_cb` (sample-only). Watchdog: TB_WATCHDOG_NS (100ms default). Error threshold: MAX_ERRORS (50 default). Verbosity: +define+TB_VERBOSE or +VERBOSITY=N plusarg.
 

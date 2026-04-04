@@ -1006,8 +1006,10 @@ module cgra_dma_engine #(
     assign error_valid = error_flag;
 
     // Combinational error detection from AXI responses
-    wire bresp_error = m_axi_bvalid && m_axi_bready && m_axi_bresp[1];
-    wire rresp_error = m_axi_rvalid && m_axi_rready && m_axi_rresp[1];
+    // FIX: Check != 2'b00 (not just [1]) to capture SLVERR (2'b01) in addition
+    // to DECERR (2'b10). Previously only MSB was tested, silently dropping SLVERR.
+    wire bresp_error = m_axi_bvalid && m_axi_bready && (m_axi_bresp != 2'b00);
+    wire rresp_error = m_axi_rvalid && m_axi_rready && (m_axi_rresp != 2'b00);
 
     // Robust busy check: stays HIGH until ALL components are idle
     // This prevents producer-consumer mismatch where Write FSM finishes early
