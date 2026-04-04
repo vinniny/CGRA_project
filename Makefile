@@ -45,6 +45,13 @@ COV_ELAB_FLAGS  := -coverage all -covdut $(COV_DUT)
 COV_SIM_FLAGS   := -covworkdir ../$(COV_DIR) -covoverwrite -covtest $(COV_TEST)
 endif
 
+# X-Propagation (set XPROP=1 to enable ternary X-propagation during elaboration)
+XPROP            ?= 0
+XPROP_ELAB_FLAGS :=
+ifeq ($(XPROP),1)
+XPROP_ELAB_FLAGS := -xprop c
+endif
+
 # ==============================================================================
 # Source Files
 # ==============================================================================
@@ -94,7 +101,7 @@ LEC     := lec
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
         syn restore_syn lec full create_flist lint check_tools gui \
-        cov cov_gui cov_report
+        cov cov_gui cov_report hal xprop
 
 # ==============================================================================
 # Default Target
@@ -121,8 +128,13 @@ help:
 	@echo ""
 	@echo " Coverage Targets:"
 	@echo "   make cov          - Simulate with coverage collection (COV=1)"
-	@echo "   make cov_report   - Generate text coverage summary from database"
+	@echo "   make cov_report   - Generate IMC text report (block/expr/toggle/func)"
 	@echo "   make cov_gui      - Open SimVision with coverage database"
+	@echo ""
+	@echo " Static Analysis & X-Prop Targets:"
+	@echo "   make hal          - HAL synthesizability + CDC + LINT static checks"
+	@echo "   make xprop        - Simulate with X-Propagation (ternary mode)"
+	@echo "   XPROP=1           - Enable X-prop on existing build/run targets"
 	@echo ""
 	@echo " Synthesis & Formal Targets:"
 	@echo "   make syn          - Run Genus synthesis"
@@ -141,6 +153,7 @@ help:
 	@echo "   TEST_ITERS=N            - Iterations per randomized testcase (default 500)"
 	@echo "   CORE=N                  - Number of cores for parallel tools (default 4)"
 	@echo "   COV=1                   - Enable coverage for build/run targets"
+	@echo "   XPROP=1                 - Enable X-propagation for build target"
 	@echo "   COV_TEST=name           - Coverage test name (default: full_sim)"
 	@echo "   TOP_SYN=module          - Top module for synthesis (default cgra_top)"
 	@echo "   GENUS_GUI_ENABLE=1      - Enable Genus GUI"
@@ -179,6 +192,7 @@ build:
 		-timescale 1ns/1ps \
 		-access +rwc \
 		$(COV_ELAB_FLAGS) \
+		$(XPROP_ELAB_FLAGS) \
 		-snapshot snap \
 		worklib.tb_top \
 		2>&1 | tee ../$(LOG_DIR)/elaborate.log
@@ -291,27 +305,25 @@ cov:
 	@echo "[COV] Run 'make cov_gui' to browse in SimVision"
 
 # ------------------------------------------------------------------------------
-# Generate text coverage report from existing database
+# Generate text coverage report from existing database via IMC
 # ------------------------------------------------------------------------------
 cov_report:
 	@echo "=========================================================================="
-	@echo " [COV_REPORT] Coverage Database Summary"
+	@echo " [COV_REPORT] Generating IMC coverage text report"
 	@echo "=========================================================================="
 	@if [ ! -d "$(COV_DIR)" ]; then \
 		echo "ERROR: Coverage database $(COV_DIR)/ not found. Run 'make cov' first."; \
 		exit 1; \
 	fi
-	@echo ""
-	@echo "  Database location: $(COV_DIR)/"
-	@echo "  DUT scope:         $(COV_DUT)"
-	@echo ""
-	@echo "  Files:"
-	@find $(COV_DIR) -type f -exec ls -lh {} \; 2>/dev/null
-	@echo ""
-	@echo "  To view detailed coverage metrics, use one of:"
-	@echo "    make cov_gui          - Open SimVision coverage browser"
-	@echo "    imc -load $(COV_DIR)  - Open IMC (if installed)"
-	@echo ""
+	cd $(SIM_DIR) && imc -64bit -nodisplay \
+		-batch -exec \
+		"load -run ../$(COV_DIR)/$(COV_TEST); \
+		 report -detail -all -out ../$(LOG_DIR)/cov_report.txt; \
+		 exit" \
+		2>&1 | tee ../$(LOG_DIR)/cov_report.log
+	@echo "[COV_REPORT] Report: $(LOG_DIR)/cov_report.txt"
+	@cat $(LOG_DIR)/cov_report.txt 2>/dev/null || \
+		echo "(report not generated — check $(LOG_DIR)/cov_report.log)"
 
 # ------------------------------------------------------------------------------
 # Open SimVision with coverage database
@@ -336,6 +348,48 @@ lint: create_flist
 		-work worklib \
 		2>&1 | tee ../$(LOG_DIR)/lint.log
 	@echo "[LINT] Done - see $(LOG_DIR)/lint.log"
+
+# ------------------------------------------------------------------------------
+# HAL: synthesizability + CDC + LINT static analysis
+# ------------------------------------------------------------------------------
+hal: create_flist
+	@echo "=========================================================================="
+	@echo " [HAL] Running HAL synthesizability + CDC + LINT checks"
+	@echo "=========================================================================="
+	@mkdir -p $(SIM_DIR) $(LOG_DIR)
+	cd $(SIM_DIR) && hal -sv -64bit \
+		-f flist \
+		-check RTL_SYNTH \
+		-check CDC \
+		-check LINT \
+		2>&1 | tee ../$(LOG_DIR)/hal.log
+	@echo "[HAL] Done - see $(LOG_DIR)/hal.log"
+	@echo "[HAL] Error/Warning summary:"
+	@grep -E "^\*[EW]" $(LOG_DIR)/hal.log | sort | uniq -c | sort -rn | head -30 || true
+
+# ------------------------------------------------------------------------------
+# X-Propagation: elaborate with -xprop c and run full regression
+# Uses a separate snapshot (snap_xprop) so normal make run is unaffected
+# ------------------------------------------------------------------------------
+xprop: compile
+	@echo "=========================================================================="
+	@echo " [XPROP] Elaborating with X-Propagation (ternary mode) + running sim"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	cd $(SIM_DIR) && $(XMELAB) \
+		-timescale 1ns/1ps \
+		-access +rwc \
+		-xprop c \
+		-snapshot snap_xprop \
+		worklib.tb_top \
+		2>&1 | tee ../$(LOG_DIR)/xprop_elab.log
+	cd $(SIM_DIR) && $(XMSIM) snap_xprop \
+		+SEED=$(SEED) \
+		+TEST_ITERS=$(TEST_ITERS) \
+		+CYCLES=$(CYCLES) \
+		2>&1 | tee ../$(LOG_DIR)/xprop.log
+	@echo "[XPROP] Done - see $(LOG_DIR)/xprop.log"
+	@grep -E "FAIL|ERROR|X-prop" $(LOG_DIR)/xprop.log | head -20 || true
 
 # ==============================================================================
 # SYNTHESIS TARGETS (Genus)
@@ -450,7 +504,10 @@ clean:
 	@rm -rf $(COV_DIR)
 	@echo "  - Cleaning simulation logs"
 	@rm -f $(LOG_DIR)/compile.log $(LOG_DIR)/elaborate.log $(LOG_DIR)/sim.log
-	@rm -f $(LOG_DIR)/cov.log $(LOG_DIR)/cov_report.log $(LOG_DIR)/lint.log
+	@rm -f $(LOG_DIR)/cov.log $(LOG_DIR)/cov_report.log $(LOG_DIR)/cov_report.txt
+	@rm -f $(LOG_DIR)/lint.log $(LOG_DIR)/hal.log
+	@rm -f $(LOG_DIR)/xprop.log $(LOG_DIR)/xprop_elab.log
+	@rm -rf $(SIM_DIR)/snap_xprop
 	@echo "  - Cleaning root directory artifacts"
 	@rm -rf xcelium.d INCA_libs xrun.* .simvision
 	@rm -f *.log *.key *.history *.diag *.err
