@@ -3,9 +3,9 @@
 The system architecture is partitioned into four major subsystems designed to maximize data throughput and minimize stall cycles.
 
 \subsection{SoC System Integration: The Hybrid I/O Architecture}
-The CGRA IP is integrated into the Programmable Logic of the Zynq UltraScale+ platform. To overcome the common ``bottleneck black hole'' found in standard accelerator designs, this project proposes a \textbf{Hybrid I/O architecture} that decouples data and control paths:
+The CGRA IP is integrated into the Programmable Logic of the Xilinx Zynq-7000 XC7Z020 SoC. To overcome the common ``bottleneck black hole'' found in standard accelerator designs, this project proposes a \textbf{Hybrid I/O architecture} that decouples data and control paths:
 \begin{itemize}
-    \item \textbf{AXI4 Data Plane (DMA):} Facilitates high-bandwidth, burst-oriented communication with DDR4 DRAM for weight and spike streaming.
+    \item \textbf{AXI4 Data Plane (DMA):} Facilitates high-bandwidth, burst-oriented communication with DDR3 DRAM for weight and spike streaming.
     \item \textbf{APB Control Plane (CSR):} A dedicated low-latency bus for register-mapped configuration, status monitoring, and interrupt handling, ensuring control transactions never stall the data pipeline.
 \end{itemize}
 

@@ -15,7 +15,7 @@ To address these limitations, the proposed CGRA employs a spatially programmable
 }
 
 \subsection{System Context and Execution Flow}
-The CGRA is designed as a tightly integrated hardware accelerator under full control of an ARM Cortex-A53 subsystem. The typical execution flow consists of:
+The CGRA is designed as a tightly integrated hardware accelerator under full control of the dual-core ARM Cortex-A9 processing system. The typical execution flow consists of:
 \begin{enumerate}
     \item \textbf{Configuration Stage:} The host processor writes bitstream (context words) into the CGRA configuration memory via the CSR interface. These bitstream encode the spatial and temporal behavior of the 4×4 PE mesh.
     \item \textbf{Data Preparation:} SNN weight matrices are stored in Compressed Sparse Column (CSC) format in DDR memory. Input spike vectors and neuron states are prepared and aligned for DMA-based transfer.
@@ -32,4 +32,4 @@ The primary bottlenecks addressed are:
     \item \textbf{Precision Inefficiency:} inefficient use of bit-width in standard generic ALUs, requiring specialized 40-bit saturating logic for high-fidelity LIF updates.
 \end{itemize}
 
-The system architecture and DMA engine are designed according to the AMBA AXI Standard \cite{arm_amba_axi}, ensuring interoperability with the Zynq UltraScale+ processing system \cite{xilinx_ug1085}.
+The system architecture and DMA engine are designed according to the AMBA AXI Standard \cite{arm_amba_axi}, ensuring interoperability with the Zynq-7000 processing system \cite{xilinx_ug1085}.

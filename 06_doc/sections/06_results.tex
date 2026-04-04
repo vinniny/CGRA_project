@@ -1,6 +1,6 @@
 \section{Implementation Results}
 
-The CGRA accelerator IP has been synthesized and implemented targeting the Xilinx Zynq UltraScale+ XCZU4EV MPSoC platform.
+The CGRA accelerator IP has been synthesized and implemented targeting the Xilinx Zynq-7000 XC7Z020 SoC, deployed on a Haoyue Zynq-7020 development board running PetaLinux 2022.2. Post-synthesis timing analysis uses the UltraScale+ XCZU4EV as a reference target to establish theoretical frequency headroom.
 
 \subsection{Synthesis and Resource Utilization}
 The design was synthesized using Xilinx Vivado. Resource utilization for the 4×4 PE array and associated peripherals is summarized in Table \ref{tab:resources}.
@@ -8,7 +8,7 @@ The design was synthesized using Xilinx Vivado. Resource utilization for the 4×
 \begin{table}[ht!]
 \centering
 \singlespacing
-\caption{Hardware Resource Utilization (Zynq UltraScale+ XCZU4EV)}
+\caption{Hardware Resource Utilization (Reference Synthesis: Zynq UltraScale+ XCZU4EV)}
 \label{tab:resources}
 \begin{tabular}{|l|c|c|c|}
 \hline
@@ -21,16 +21,18 @@ DSP & 32 & 1,728 & 1.9\% \\ \hline
 \end{table}
 
 \subsection{Timing Analysis}
-The implementation achieved timing closure at the target frequency. The maximum operating frequency ($F_{max}$) is calculated based on the Worst Negative Slack (WNS) as follows:
+The deployed implementation achieves timing closure at 50 MHz on the Zynq-7000 XC7Z020, constrained by the DSP48E1 saturation path (+2.05 ns positive slack at 50 MHz). To establish theoretical frequency headroom, the design was additionally synthesized against the UltraScale+ XCZU4EV reference target. The reference maximum operating frequency ($F_{max}$) is calculated based on the Worst Negative Slack (WNS) as follows:
 
 \begin{equation}
 F_{max} = \frac{1000}{T_{clk} - WNS}
 \end{equation}
 
-Given a target period $T_{clk} = 10$ ns and observed $WNS = 5.321$ ns:
+Given a target period $T_{clk} = 10$ ns and UltraScale+ observed $WNS = 5.321$ ns:
 \begin{equation}
-F_{max} = \frac{1000}{10 - 5.321} = 213.72 \text{ MHz}
+F_{max} = \frac{1000}{10 - 5.321} = 213.72 \text{ MHz (UltraScale+ reference)}
 \end{equation}
 
+The Zynq-7000 XC7Z020 deployment target of 50 MHz provides +2.05 ns slack on the DSP48E1 output path. Adding a third pipeline register on the DSP48 output would extend deployment frequency to approximately 100 MHz without architectural changes.
+
 \subsection{Power Consumption}
-Power analysis was performed using Xilinx Power Estimator (XPE) and Vivado Power Analysis. Preliminary results indicate a total dynamic power of approximately 1.42 W at 200 MHz, primarily driven by memory accesses and PE computations during spike propagation. The quiescent power is estimated at 0.53 W, typical for the Zynq UltraScale+ fabric.
+Power analysis was performed using Xilinx Power Estimator (XPE) and Vivado Power Analysis. At the 50 MHz deployed frequency on the XC7Z020, total dynamic power is estimated at approximately 0.71 W, primarily driven by memory accesses and PE computations. The quiescent power is estimated at 0.22 W, consistent with the Zynq-7000 fabric at this utilization level.
