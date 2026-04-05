@@ -198,9 +198,7 @@ task automatic wait_dma_done(input int timeout);
         if (status[1]) return;
         wait_cycles(1);
     end
-    // FIX: Promote timeout from $warning to $error so it counts as a real failure
-    $error("[DMA] Timeout after %0d cycles — DMA did not complete", timeout);
-    assertion_errors = assertion_errors + 1;
+    fail("DMA_TIMEOUT", $sformatf("DMA did not complete after %0d cycles", timeout));
 endtask
 
 task automatic dma_transfer(input logic [31:0] src, input logic [31:0] dst,

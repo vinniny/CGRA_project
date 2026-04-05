@@ -90,6 +90,10 @@ class dma_scoreboard;
             $display("║  STATUS         : PASS                                   ║");
         $display("╚══════════════════════════════════════════════════════════╝");
     endfunction
+
+    function int get_error_count();
+        return mismatch_count;
+    endfunction
 endclass
 
 // ============================================================================
@@ -281,6 +285,10 @@ class pe_scoreboard;
         else
             $display("║  STATUS         : NO CHECKS                              ║");
         $display("╚══════════════════════════════════════════════════════════╝");
+    endfunction
+
+    function int get_error_count();
+        return fail_count;
     endfunction
 endclass
 

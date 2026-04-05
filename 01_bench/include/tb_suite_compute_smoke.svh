@@ -79,8 +79,7 @@ task automatic run_suite_AO_compute_smoke;
         $display("[AO04] MAC result: %0d (expected 96)", $signed(rd));
         // MAC result should be 96 (16 iterations * 2 * 3)
         if ($signed(rd) == 96) pass("AO04: MAC 16 * (2*3) = 96");
-        else if ($signed(rd) > 0) pass("AO04: MAC positive accumulation (value may vary with pipeline)");
-        else fail("AO04: MAC accumulation", $sformatf("expected positive, got %0d", $signed(rd)));
+        else fail("AO04: MAC accumulation", $sformatf("expected 96, got %0d", $signed(rd)));
 
         // =================================================================
         // AO05: ACC_CLR clears accumulator
