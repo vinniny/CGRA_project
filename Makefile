@@ -132,7 +132,7 @@ help:
 	@echo "   make cov_gui      - Open SimVision with coverage database"
 	@echo ""
 	@echo " Static Analysis & X-Prop Targets:"
-	@echo "   make hal          - HAL synthesizability + CDC + LINT static checks"
+	@echo "   make hal          - Genus check_design: synthesizability + latches"
 	@echo "   make xprop        - Simulate with X-Propagation (ternary mode)"
 	@echo "   XPROP=1           - Enable X-prop on existing build/run targets"
 	@echo ""
@@ -305,25 +305,41 @@ cov:
 	@echo "[COV] Run 'make cov_gui' to browse in SimVision"
 
 # ------------------------------------------------------------------------------
-# Generate text coverage report from existing database via IMC
+# Generate coverage summary from simulation log
+# (IMC/xcrg not available in this Xcelium 20.09 installation;
+#  code coverage browsing requires SimVision GUI via 'make cov_gui')
 # ------------------------------------------------------------------------------
 cov_report:
 	@echo "=========================================================================="
-	@echo " [COV_REPORT] Generating IMC coverage text report"
+	@echo " [COV_REPORT] Extracting coverage summary from simulation log"
 	@echo "=========================================================================="
-	@if [ ! -d "$(COV_DIR)" ]; then \
-		echo "ERROR: Coverage database $(COV_DIR)/ not found. Run 'make cov' first."; \
+	@if [ ! -f "$(LOG_DIR)/cov.log" ]; then \
+		echo "ERROR: $(LOG_DIR)/cov.log not found. Run 'make cov' first."; \
 		exit 1; \
 	fi
-	cd $(SIM_DIR) && imc -64bit -nodisplay \
-		-batch -exec \
-		"load -run ../$(COV_DIR)/$(COV_TEST); \
-		 report -detail -all -out ../$(LOG_DIR)/cov_report.txt; \
-		 exit" \
-		2>&1 | tee ../$(LOG_DIR)/cov_report.log
+	@{ echo "=== CGRA Coverage Report (extracted from cov.log) ==="; \
+	   echo "Date: $$(date)"; \
+	   echo ""; \
+	   echo "--- Test Results ---"; \
+	   grep -A 6 'TEST RESULTS' $(LOG_DIR)/cov.log | tail -5; \
+	   echo ""; \
+	   echo "--- AXI Protocol Statistics ---"; \
+	   grep -A 15 'AXI PROTOCOL STATISTICS' $(LOG_DIR)/cov.log | tail -13; \
+	   echo ""; \
+	   echo "--- Functional Coverage ---"; \
+	   grep -A 10 'FUNCTIONAL COVERAGE' $(LOG_DIR)/cov.log | tail -8; \
+	   echo ""; \
+	   echo "--- Coverage Counters ---"; \
+	   grep -A 10 'COVERAGE SUMMARY' $(LOG_DIR)/cov.log | tail -8; \
+	   echo ""; \
+	   echo "--- Coverage Database ---"; \
+	   ls -lh $(COV_DIR)/scope/$(COV_TEST)/*.ucd 2>/dev/null || echo "(no .ucd files found)"; \
+	   echo ""; \
+	   echo "NOTE: For block/expression/toggle breakdown, use 'make cov_gui' (SimVision)."; \
+	 } | tee $(LOG_DIR)/cov_report.txt
+	@echo ""
 	@echo "[COV_REPORT] Report: $(LOG_DIR)/cov_report.txt"
-	@cat $(LOG_DIR)/cov_report.txt 2>/dev/null || \
-		echo "(report not generated — check $(LOG_DIR)/cov_report.log)"
+	@echo "[COV_REPORT] For detailed code coverage: make cov_gui"
 
 # ------------------------------------------------------------------------------
 # Open SimVision with coverage database
@@ -351,21 +367,25 @@ lint: create_flist
 
 # ------------------------------------------------------------------------------
 # HAL: synthesizability + CDC + LINT static analysis
+# Uses Genus check_design (not standalone HAL) — avoids Xcelium 20.09
+# snapshot-path mismatch that causes NOSNAP on all xrun -hal invocations.
+# Genus reads SV directly without a simulation snapshot.
 # ------------------------------------------------------------------------------
-hal: create_flist
+hal:
 	@echo "=========================================================================="
-	@echo " [HAL] Running HAL synthesizability + CDC + LINT checks"
+	@echo " [HAL] Genus RTL synthesizability check (check_design -unresolved)"
+	@echo " Checks: inferred latches, multi-driven nets, unsynthesizable constructs"
 	@echo "=========================================================================="
-	@mkdir -p $(SIM_DIR) $(LOG_DIR)
-	cd $(SIM_DIR) && hal -sv -64bit \
-		-f flist \
-		-check RTL_SYNTH \
-		-check CDC \
-		-check LINT \
-		2>&1 | tee ../$(LOG_DIR)/hal.log
+	@mkdir -p $(SYN_DIR)/reports $(LOG_DIR)
+	cd $(SYN_DIR) && $(GENUS) -batch \
+		-files ../$(SCRIPT_DIR)/genus_check.tcl \
+		-log ../$(LOG_DIR)/hal.log \
+		-overwrite
 	@echo "[HAL] Done - see $(LOG_DIR)/hal.log"
+	@echo "[HAL] check_design report: $(SYN_DIR)/reports/check_design.rpt"
 	@echo "[HAL] Error/Warning summary:"
-	@grep -E "^\*[EW]" $(LOG_DIR)/hal.log | sort | uniq -c | sort -rn | head -30 || true
+	@grep -iE "^(error|warning)" $(SYN_DIR)/reports/check_design.rpt \
+		| sort | uniq -c | sort -rn | head -30 || true
 
 # ------------------------------------------------------------------------------
 # X-Propagation: elaborate with -xprop c and run full regression
@@ -505,9 +525,16 @@ clean:
 	@echo "  - Cleaning simulation logs"
 	@rm -f $(LOG_DIR)/compile.log $(LOG_DIR)/elaborate.log $(LOG_DIR)/sim.log
 	@rm -f $(LOG_DIR)/cov.log $(LOG_DIR)/cov_report.log $(LOG_DIR)/cov_report.txt
-	@rm -f $(LOG_DIR)/lint.log $(LOG_DIR)/hal.log
+	@rm -f $(LOG_DIR)/lint.log $(LOG_DIR)/hal.log $(LOG_DIR)/hal_compile.log
 	@rm -f $(LOG_DIR)/xprop.log $(LOG_DIR)/xprop_elab.log
+	@rm -rf $(SIM_DIR)/hal_run $(SIM_DIR)/hal_cds.lib $(SIM_DIR)/hal.f
+	@rm -rf $(SIM_DIR)/hal_work $(SIM_DIR)/hal.log $(SIM_DIR)/xp_elab.log
+	@rm -rf $(SIM_DIR)/cov_work
+	@rm -f $(SIM_DIR)/xmvlog.log $(SIM_DIR)/xmelab.log $(SIM_DIR)/xmsim.log
 	@rm -rf $(SIM_DIR)/snap_xprop
+	@echo "  - Cleaning Genus HAL artifacts"
+	@rm -f $(SYN_DIR)/genus.log $(SYN_DIR)/genus.cmd
+	@rm -rf $(SYN_DIR)/fv $(SYN_DIR)/reports
 	@echo "  - Cleaning root directory artifacts"
 	@rm -rf xcelium.d INCA_libs xrun.* .simvision
 	@rm -f *.log *.key *.history *.diag *.err
