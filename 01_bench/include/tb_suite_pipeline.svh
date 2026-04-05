@@ -49,8 +49,10 @@ task automatic run_suite_AG_pipeline;
         // MAC accumulates across multiple context cycles
         // Expected: multiple accumulations of 10*3=30
         $display("[AG02] MAC result: 0x%08h (accumulated 10*3 across contexts)", res);
-        if (res != 32'd0) pass("AG02: MAC accumulated non-zero");
-        else fail("AG02: MAC result is zero", "accumulator not working through pipeline");
+        if ($signed(res) >= 32'sd30 && $signed(res) <= 32'sd480)
+            pass($sformatf("AG02: MAC pipeline acc=%0d (range [30,480])", $signed(res)));
+        else
+            fail("AG02: MAC through pipeline", $sformatf("got %0d, expected [30..480]", $signed(res)));
 
         // =================================================================
         // AG03: Stall mid-pipeline (DMA stall during execution)
@@ -98,9 +100,8 @@ task automatic run_suite_AG_pipeline;
         run_cgra(5);
         res = read_pe_result(4'd0);
         $display("[AG06] SPM round-trip: 0x%08h", res);
-        // SPM timing through pipeline is complex — just verify non-zero
-        if (res != 32'd0) pass("AG06: SPM write-back through pipeline");
-        else fail("AG06: SPM round-trip failed", "SPM data lost through pipeline");
+        if (res === 32'hCAFE_BABE) pass("AG06: SPM round-trip 0xCAFE_BABE");
+        else fail("AG06: SPM round-trip", $sformatf("exp=0xCAFE_BABE got=0x%08h", res));
 
         $display("\n[SUITE AG COMPLETE] PE Pipeline verification finished.\n");
     end

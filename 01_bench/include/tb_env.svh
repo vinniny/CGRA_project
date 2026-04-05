@@ -74,6 +74,10 @@ class cgra_env;
         $display("");
         $display("═══════════════════════════════════════════════════════════════");
     endfunction
+
+    function int get_total_errors();
+        return dma_scbd.get_error_count() + pe_scbd.get_error_count();
+    endfunction
 endclass
 
 `endif

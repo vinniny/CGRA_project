@@ -87,7 +87,7 @@ module cgra_control_unit #(
     // Internal Registers
     // =========================================================================
     logic [31:0] cycle_counter;
-    logic [31:0] wall_counter;   // FIX: Wall-clock counter (counts all cycles in RUN, even stalled)
+    logic [32:0] wall_counter;   // 33-bit: prevents wrap-around at 2^32 cycles (~85s @ 50MHz)
     logic        timeout_reached;
     logic [31:0] max_cycles_reg;  // FIX: Latched timeout threshold (prevents mid-run corruption)
     
@@ -162,7 +162,7 @@ module cgra_control_unit #(
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             cycle_counter <= 32'd0;
-            wall_counter <= 32'd0;
+            wall_counter <= 33'd0;
             max_cycles_reg <= 32'd0;
             loop_count_reg <= 16'd0;
             loop_start_reg <= '0;
@@ -175,7 +175,7 @@ module cgra_control_unit #(
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
                 // FIX: Match FSM guard - reload only when actually transitioning to RUN
                 cycle_counter <= 32'd0;
-                wall_counter  <= 32'd0;
+                wall_counter  <= 33'd0;
                 // FIX: Latch all parameters on RUN entry to prevent mid-run corruption
                 max_cycles_reg <= max_cycles_i;
                 loop_start_reg <= loop_start_pc_i[PC_WIDTH-1:0];
@@ -199,7 +199,7 @@ module cgra_control_unit #(
                 loop1_count_reload <= loop_count_i;
             end else if (state == STATE_RUN) begin
                 // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
-                wall_counter <= wall_counter + 32'd1;
+                wall_counter <= wall_counter + 33'd1;
                 // FIX: Only count cycles when PEs actually execute (not stalled by DMA)
                 if (!global_stall_o)
                     cycle_counter <= cycle_counter + 32'd1;

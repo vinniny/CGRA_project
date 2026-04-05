@@ -42,7 +42,7 @@ task automatic run_suite_AT_error_recovery;
         apb_read(ADDR_CU_STATUS, rd);
         // CU should have stopped (done=1 due to timeout)
         if (rd[1] === 1'b1) pass("AT01: CU timeout detected (done=1)");
-        else pass("AT01: CU timeout behavior (CU may auto-stop before timeout)");
+        else fail("AT01: CU timeout not detected", $sformatf("CU_STATUS=0x%08h, done bit not set", rd));
         // Clean up
         apb_write(ADDR_CU_CTRL, 32'h2);
         wait_cycles(3);
@@ -66,7 +66,7 @@ task automatic run_suite_AT_error_recovery;
         // Verify first transfer completed correctly
         rd = ram_read(32'h0000_1000);
         if (rd === 32'd0) pass("AT02: Double DMA start — first transfer intact");
-        else pass("AT02: Double DMA start — DMA completed (data may vary)");
+        else fail("AT02: Double DMA start", $sformatf("dst[0] exp=0 got=0x%08h", rd));
 
         // =================================================================
         // AT03: APB write during DMA — protected vs unprotected

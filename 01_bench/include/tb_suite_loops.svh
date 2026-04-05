@@ -47,10 +47,10 @@ task automatic run_suite_AJ_loops;
         res = read_pe_result(4'd0);
         $display("[AJ01] MAC result after loop: %0d (expected ~120)", $signed(res));
         // With pipeline, exact value depends on timing. Verify non-zero accumulation.
-        if (res != 32'd0 && $signed(res) > 32'sd0)
-            pass("AJ01: Loop MAC accumulated positive value");
+        if ($signed(res) >= 32'sd40 && $signed(res) <= 32'sd120)
+            pass($sformatf("AJ01: Loop MAC=%0d (range [40,120])", $signed(res)));
         else
-            fail("AJ01: Loop MAC result", $sformatf("got %0d, expected positive", $signed(res)));
+            fail("AJ01: Loop MAC result", $sformatf("got %0d, expected [40..120]", $signed(res)));
 
         reset_dut(5);
 
@@ -135,10 +135,10 @@ task automatic run_suite_AJ_loops;
         res = read_pe_result(4'd0);
         $display("[AJ05] Nested loop MAC result: %0d", $signed(res));
         // Should have accumulated more than a single-level loop
-        if ($signed(res) > 32'sd0)
-            pass("AJ05: Nested loop accumulated positive value");
+        if ($signed(res) >= 32'sd4 && $signed(res) <= 32'sd16)
+            pass($sformatf("AJ05: Nested loop MAC=%0d (range [4,16])", $signed(res)));
         else
-            fail("AJ05: Nested loop result", $sformatf("got %0d", $signed(res)));
+            fail("AJ05: Nested loop result", $sformatf("got %0d, expected [4..16]", $signed(res)));
 
         reset_dut(5);
 
@@ -165,10 +165,10 @@ task automatic run_suite_AJ_loops;
 
         res = read_pe_result(4'd0);
         $display("[AJ06] Inner-only MAC result: %0d", $signed(res));
-        if ($signed(res) > 32'sd0)
-            pass("AJ06: Inner loop only - accumulated positive");
+        if ($signed(res) >= 32'sd28 && $signed(res) <= 32'sd84)
+            pass($sformatf("AJ06: Inner-only MAC=%0d (range [28,84])", $signed(res)));
         else
-            fail("AJ06: Inner loop result", $sformatf("got %0d", $signed(res)));
+            fail("AJ06: Inner loop result", $sformatf("got %0d, expected [28..84]", $signed(res)));
 
         reset_dut(5);
 

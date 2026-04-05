@@ -353,10 +353,11 @@ task automatic run_suite_AM_apb_sanity;
             if (rd === 32'h0000_0100) pass("AM36: DMA_SIZE write rejected while busy");
             else fail("AM36: DMA_SIZE not protected", $sformatf("got=0x%08h", rd));
         end else begin
-            // DMA completed too fast — still test, but the protection might not fire
-            pass("AM34: DMA_SRC protection (DMA completed quickly)");
-            pass("AM35: DMA_DST protection (DMA completed quickly)");
-            pass("AM36: DMA_SIZE protection (DMA completed quickly)");
+            // DMA_BUSY not asserted after 2 cycles — 256-byte transfer should never
+            // complete this fast; either DMA_CTRL write failed or DMA engine has a bug.
+            fail("AM34: DMA_SRC protection", "DMA not busy after start — protection untested");
+            fail("AM35: DMA_DST protection", "DMA not busy after start — protection untested");
+            fail("AM36: DMA_SIZE protection", "DMA not busy after start — protection untested");
         end
         wait_dma_done(1000);  // Let DMA finish
 
@@ -396,9 +397,10 @@ task automatic run_suite_AM_apb_sanity;
             if (rd === 32'h0000_000A) pass("AM39: LOOP_COUNT write rejected while busy");
             else fail("AM39: LOOP_COUNT not protected", $sformatf("got=0x%08h", rd));
         end else begin
-            pass("AM37: CU_TIMEOUT protection (CU completed quickly)");
-            pass("AM38: LOOP_START protection (CU completed quickly)");
-            pass("AM39: LOOP_COUNT protection (CU completed quickly)");
+            // CU_BUSY not asserted — CU should be busy with LOOP_COUNT=10; something is wrong.
+            fail("AM37: CU_TIMEOUT protection", "CU not busy after start — protection untested");
+            fail("AM38: LOOP_START protection", "CU not busy after start — protection untested");
+            fail("AM39: LOOP_COUNT protection", "CU not busy after start — protection untested");
         end
         // Stop CU
         apb_write(ADDR_CU_CTRL, 32'h2);

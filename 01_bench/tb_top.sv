@@ -296,6 +296,12 @@ module tb_top;
                         r_id_reg <= axi_arid;
                         axi_arready_reg <= 1'b0;
                         r_state <= R_DATA;
+                        // OOB guard: burst end address must be within memory
+                        if (32'(axi_araddr[21:0]) + (32'(axi_arlen) + 1) * 4 > TB_MEM_SIZE) begin
+                            $error("[BFM] AXI read OOB: addr=0x%08h len=%0d exceeds MEM_SIZE=0x%08h",
+                                   axi_araddr, axi_arlen, TB_MEM_SIZE);
+                            assertion_errors = assertion_errors + 1;
+                        end
                     end
                 end
                 R_DATA: begin
@@ -395,10 +401,16 @@ module tb_top;
             end
 
             if ((axi_awvalid && axi_awready_reg) || axi_waddr_received) begin
-                if (axi_wstrb[0]) mem[target_addr[21:0] + 0] <= axi_wdata[7:0];
-                if (axi_wstrb[1]) mem[target_addr[21:0] + 1] <= axi_wdata[15:8];
-                if (axi_wstrb[2]) mem[target_addr[21:0] + 2] <= axi_wdata[23:16];
-                if (axi_wstrb[3]) mem[target_addr[21:0] + 3] <= axi_wdata[31:24];
+                if (32'(target_addr[21:0]) + 4 > TB_MEM_SIZE) begin
+                    $error("[BFM] AXI write OOB: addr=0x%08h exceeds MEM_SIZE=0x%08h",
+                           target_addr, TB_MEM_SIZE);
+                    assertion_errors = assertion_errors + 1;
+                end else begin
+                    if (axi_wstrb[0]) mem[target_addr[21:0] + 0] <= axi_wdata[7:0];
+                    if (axi_wstrb[1]) mem[target_addr[21:0] + 1] <= axi_wdata[15:8];
+                    if (axi_wstrb[2]) mem[target_addr[21:0] + 2] <= axi_wdata[23:16];
+                    if (axi_wstrb[3]) mem[target_addr[21:0] + 3] <= axi_wdata[31:24];
+                end
             end
         end
     end
@@ -477,9 +489,10 @@ module tb_top;
     initial begin
         #(`TB_WATCHDOG_NS);
         $display("");
-        $display("ERROR: tb_top WATCHDOG TIMEOUT after %0d ns", `TB_WATCHDOG_NS);
+        $error("tb_top WATCHDOG TIMEOUT after %0d ns", `TB_WATCHDOG_NS);
         $display("");
-        $finish;
+        assertion_errors = assertion_errors + 1;
+        $finish(1);
     end
 
     // =========================================================================
@@ -630,13 +643,6 @@ module tb_top;
         $display("  ALL TEST SUITES COMPLETE");
         $display("================================================================\n");
         
-        // =====================================================================
-        // VERIFICATION ENVIRONMENT REPORT (Phase E)
-        // =====================================================================
-        if ($test$plusargs("env_report")) begin
-            env.report();
-        end
-
         $finish;
     end
 
@@ -695,7 +701,24 @@ module tb_top;
         $display("    Stress cycles    : %0d", cov_stress_cycles);
         $display("    Reset tests      : %0d", cov_reset_tests);
 
-        // Section 5: Definitive Verdict Banner
+        // Section 5: Verification environment report (always runs, even on watchdog)
+        env.report();
+
+        // Section 5b: Scoreboard integration + zero-test guard
+        begin
+            int scbd_errors;
+            scbd_errors = env.get_total_errors();
+            if (scbd_errors > 0) begin
+                $display("    Scoreboard failures : %0d (added to error_count)", scbd_errors);
+                error_count = error_count + scbd_errors;
+            end
+        end
+        if (pass_count == 0 && error_count == 0 && assertion_errors == 0) begin
+            $display("  WARNING: No tests passed (pass_count=0) — suspicious PASS suppressed");
+            assertion_errors = assertion_errors + 1;
+        end
+
+        // Section 6: Definitive Verdict Banner
         $display("");
         if (error_count == 0 && assertion_errors == 0) begin
             $display("  ================================================================");
