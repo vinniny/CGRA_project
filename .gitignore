@@ -367,3 +367,10 @@ scripts/License_Plate_Recognition_Cpp/c_alpr/.claude/
 scripts/License_Plate_Recognition_Cpp/c_alpr/models/*.onnx
 # FUSE temp files (SSHFS artifacts)
 .fuse_hidden*
+
+# ==============================================================================
+# Board / Hardware Dev Scripts (contain IPs, key paths — not for version control)
+# ==============================================================================
+tmp_fix_key.sh
+board_cam.sh
+board_info.sh
