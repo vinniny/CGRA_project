@@ -127,7 +127,7 @@ make gui                # Launch SimVision waveform viewer
 
 # Coverage collection
 make cov                # Simulate with -coverage all (4 covergroups)
-make cov_report         # Text summary from coverage database
+make cov_report         # Extract coverage summary from sim log (IMC not required)
 make cov_gui            # Open SimVision with coverage data
 
 # Verbose mode (detailed PE/DMA trace output)
@@ -848,6 +848,7 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
 | UVM-Inspired Testbench | 8915 tests, 25 suites, covergroups, TLM scoreboards, clocking blocks |
+| **Verdict Hardening** | Scoreboard errors propagate to global verdict; zero-test guard; watchdog signals failure; 8 checks tightened to exact/bounded values |
 
 ### Future Enhancements
 
