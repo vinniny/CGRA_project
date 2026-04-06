@@ -41,7 +41,7 @@ The ALU supports 21 operations categorized into arithmetic, logic, flow control,
 0 & NOP & No Operation & 10 & CMP\_GT & (A $>$ B) ? 1 : 0 \\
 1 & ADD & A + B (Saturating) & 11 & CMP\_LT & (A $<$ B) ? 1 : 0 \\
 2 & SUB & A - B (Saturating) & 12 & CMP\_EQ & (A == B) ? 1 : 0 \\
-3 & MUL & A $\times$ B (32-bit) & 13 & LOAD\_SPM & RF $\leftarrow$ SPM[A] \\
+3 & MUL & A $\times$ B (64-bit) & 13 & LOAD\_SPM & RF $\leftarrow$ SPM[A] \\
 4 & MAC & Acc += A $\times$ B (40-bit) & 14 & STORE\_SPM & SPM[A] $\leftarrow$ B \\
 5 & AND & A \& B (Bitwise AND) & 15 & ACC\_CLR & Acc = 0 \\
 6 & OR & A | B (Bitwise OR) & 16 & PASS0 & Output = A \\

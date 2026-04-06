@@ -24,7 +24,7 @@
 //   0  | NOP        | No operation           | 1 cycle
 //   1  | ADD        | A + B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
 //   2  | SUB        | A - B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
-//   3  | MUL        | A × B (32-bit)         | 1 cycle
+//   3  | MUL        | A × B (64-bit)         | 1 cycle
 //   4  | MAC        | Acc += A × B           | 1 cycle
 //   5  | AND        | A & B                  | 1 cycle
 //   6  | OR         | A | B                  | 1 cycle
