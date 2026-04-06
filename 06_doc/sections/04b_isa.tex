@@ -21,7 +21,11 @@ route\_mask & [21:18] & 4 & Multicast Output Mask (N, E, S, W) \\
 pred\_en & [22] & 1 & Enable Predicated Execution \\
 pred\_inv & [23] & 1 & Invert Predicate Logic \\
 imm & [39:24] & 16 & Signed 16-bit Immediate Value \\
-extended & [63:40] & 24 & Reserved for future extensions \\ \hline
+cfg\_dest\_x & [43:40] & 4 & XY routing X coordinate (unicast destination) \\
+branch\_target & [47:44] & 4 & Dynamic branch PC target (context slot 0--15) \\
+branch\_en & [48] & 1 & Enable dynamic branch from PE predicate to CU PC \\
+data\_mode & [50:49] & 2 & SIMD precision: 00=INT32, 01=INT16$\times$2, 10=INT8$\times$4 \\
+reserved & [63:51] & 13 & Reserved \\ \hline
 \end{tabularx}
 \end{table}
 
