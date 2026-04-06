@@ -1,7 +1,7 @@
 `ifndef TB_TEST_SUITES_SVH
 `define TB_TEST_SUITES_SVH
 // ==============================================================================
-// tb_test_suites.svh - Master Verification Suite (8663 Tests Passed, 38 Suites)
+// tb_test_suites.svh - Master Verification Suite (8915 Tests, 25 Active Suites)
 // ==============================================================================
 // Complete Pre-Silicon Verification:
 //   Suites A-F  (80): Infrastructure (DMA, CSR, Protocol, Stress)
