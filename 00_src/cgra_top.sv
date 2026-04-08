@@ -176,6 +176,7 @@ module cgra_top #(
     logic        tile_bank_sel_csr;
     logic [3:0]  array_branch_target;
     logic        array_branch_taken;
+    logic        array_branch_taken_r;  // Registered: breaks LUTLP-1 comb loop
     
     // East-edge result registers (4 rows for LPR 4×4 output capture)
     logic [DATA_WIDTH-1:0] result_row [0:3];
@@ -548,7 +549,7 @@ module cgra_top #(
         .loop2_end_pc_i(cu_loop2_end_pc),
         .loop2_count_i(cu_loop2_count),
         .branch_target_i(array_branch_target),
-        .branch_taken_i(array_branch_taken),
+        .branch_taken_i(array_branch_taken_r),  // Registered: 1-cycle delay slot
         .loops_done_o(cu_loops_done)
     );
     
@@ -657,6 +658,18 @@ module cgra_top #(
     // executed. The _r pipeline latency is absorbed by the BRAM
     // prefetch latency (both are 1-cycle).
 
+    // Register array_branch_taken to break the combinatorial feedback loop:
+    //   branch_taken_o → array_branch_taken → array_done → global_stall_o
+    //   → stall → branch_taken_o  (LUTLP-1 violation in Vivado)
+    // 1-cycle branch delay slot: PC redirects at N+1 instead of N.
+    // Microcode must account for this (instruction after branch still executes).
+    always_ff @(posedge clk) begin
+        if (!rst_n || cu_soft_reset)
+            array_branch_taken_r <= 1'b0;
+        else
+            array_branch_taken_r <= array_branch_taken;
+    end
+
     logic auto_stop_armed;
 
     always_ff @(posedge clk) begin
@@ -680,7 +693,7 @@ module cgra_top #(
     assign array_done = auto_stop_armed
                      && cu_loops_done
                      && (context_pc == 4'(CONTEXT_DEPTH - 1))
-                     && !array_branch_taken;
+                     && !array_branch_taken_r;
     
     // =========================================================================
     // Edge Output Wires for Synthesis Keeper
