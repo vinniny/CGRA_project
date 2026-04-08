@@ -334,7 +334,8 @@ module cgra_top #(
     // =========================================================================
     logic [3:0]  context_pc;       // 4-bit PC counter (0-15) from Control Unit
     logic [3:0]  next_context_pc;  // Next PC (for tile prefetch, accounts for HW loops)
-    logic        global_stall;  // Stall signal to PE array
+    logic        global_stall;      // Stall signal (combinatorial from CU)
+    logic        global_stall_r;   // Registered: reduces 5610-fanout to 1 net + FF tree
 
     // =========================================================================
     // Internal Wires: Hybrid I/O - Result Collection from Array
@@ -670,6 +671,17 @@ module cgra_top #(
             array_branch_taken_r <= array_branch_taken;
     end
 
+    // Pipeline register for global_stall: breaks the 5610-fanout from CU
+    // output directly into PE register enables. One extra cycle of stall
+    // latency is acceptable because stall assertion is already conservative
+    // (triggered by DMA start, which happens between inference frames).
+    always_ff @(posedge clk) begin
+        if (!rst_n)
+            global_stall_r <= 1'b1;  // Hold stall during reset
+        else
+            global_stall_r <= global_stall;
+    end
+
     logic auto_stop_armed;
 
     always_ff @(posedge clk) begin
@@ -744,7 +756,7 @@ module cgra_top #(
 
         // Multi-context + config write
         .context_pc(next_context_pc),
-        .global_stall(global_stall),
+        .global_stall(global_stall_r),    // Registered: avoids 5610-fanout on raw CU output
         .cfg_wr_addr(cfg_wr_addr_mux),
         .cfg_wr_data(cfg_wr_data_mux),
         .cfg_wr_pe_sel(cfg_wr_pe_sel_mux),
