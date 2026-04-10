@@ -3,6 +3,7 @@
 # ==============================================================================
 # Version: 2.6.0 | March 2026
 # ==============================================================================
+SHELL := /bin/bash
 
 # ==============================================================================
 # Directory Structure
@@ -97,11 +98,36 @@ GENUS   := genus
 LEC     := lec
 
 # ==============================================================================
+# FPGA Deployment (Xilinx XSDB / Zynq-7000)
+# ==============================================================================
+XILINX_VITIS    ?= /tools/Xilinx/2025.1/Vitis
+XILINX_SETTINGS := $(XILINX_VITIS)/settings64.sh
+XSDB            := $(XILINX_VITIS)/bin/xsdb
+HW_SERVER_BIN   := $(XILINX_VITIS)/bin/hw_server
+BIT             ?= bitstreams/cgra_top.bit
+ELF             ?=
+REG             ?=
+VAL             ?=
+HW_HOST         ?= localhost
+HW_SERVER_PORT  ?= 3121
+PS_INIT         ?= 1
+
+# Vivado project on Windows (accessible via WSL2 /mnt/)
+VIVADO_PROJECT  ?= /mnt/c/Users/thanh/Desktop/FPGA_CGRA
+VIVADO_IMPL     := $(VIVADO_PROJECT)/cgra_ip.runs/impl_1
+VIVADO_PS7_DIR  := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/ip/design_1_processing_system7_0_0
+VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handoff/design_1.hwh
+
+# ==============================================================================
 # Phony Targets
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
         syn restore_syn lec full create_flist lint check_tools gui \
-        cov cov_gui cov_report hal xprop
+        cov cov_gui cov_report hal xprop \
+        hw_server_start hw_server_stop hw_server_check \
+        program fpga_status run_elf reg_read reg_write reg_dump \
+        pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
+        baremetal run_baremetal
 
 # ==============================================================================
 # Default Target
@@ -159,6 +185,37 @@ help:
 	@echo "   GENUS_GUI_ENABLE=1      - Enable Genus GUI"
 	@echo "   LEC_GUI_ENABLE=1        - Enable Conformal GUI"
 	@echo "   LEC_EFFORT=Auto|Medium  - LEC comparison effort"
+	@echo ""
+	@echo " FPGA Deployment Targets (Xilinx XSDB / Zynq-7000):"
+	@echo "   make program BIT=<file.bit>         - Program PL + init PS"
+	@echo "   make program BIT=<file> PS_INIT=0   - Program PL only (no PS init)"
+	@echo "   make fpga_status                    - Read FPGA state + CGRA registers"
+	@echo "   make run_elf ELF=<file>             - Load & run bare-metal ELF"
+	@echo "   make run_elf ELF=<f> BIT=<b>        - Program PL + run ELF"
+	@echo "   make reg_read REG=<name>            - Read single CGRA register"
+	@echo "   make reg_write REG=<name> VAL=<val> - Write CGRA register"
+	@echo "   make reg_dump                       - Dump all 28 CGRA registers"
+	@echo "   make hw_server_start                - Start Xilinx hw_server"
+	@echo "   make hw_server_stop                 - Stop hw_server"
+	@echo ""
+	@echo " Vivado Integration Targets:"
+	@echo "   make pull_bit             - Pull bitstream from Vivado project"
+	@echo "   make pull_ps7             - Pull ps7_init.tcl from Vivado"
+	@echo "   make pull_hwh             - Pull hardware handoff (.hwh)"
+	@echo "   make pull_all             - Pull all Vivado artifacts"
+	@echo "   make deploy               - Pull bitstream + program FPGA"
+	@echo "   make vivado_reports       - Show timing/utilization/DRC reports"
+	@echo ""
+	@echo " FPGA Options:"
+	@echo "   BIT=path/to/file.bit     - Bitstream file (default: bitstreams/cgra_top.bit)"
+	@echo "   ELF=path/to/file.elf     - ELF binary for ARM"
+	@echo "   PS_INIT=0|1              - PS initialization (default: 1)"
+	@echo "   HW_HOST=<ip>             - Remote hw_server host (default: localhost)"
+	@echo "   VIVADO_PROJECT=<path>    - Vivado project path (default: Windows Desktop)"
+	@echo ""
+	@echo " Bare-Metal Targets:"
+	@echo "   make baremetal            - Build bare-metal CGRA test ELF"
+	@echo "   make run_baremetal        - Build + program FPGA + load ELF + UART monitor"
 	@echo "=========================================================================="
 
 # ==============================================================================
@@ -511,6 +568,235 @@ create_flist:
 	@echo "[FLIST] Done - $(SIM_DIR)/flist"
 
 # ==============================================================================
+# FPGA DEPLOYMENT TARGETS (Xilinx XSDB / Zynq-7000)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# hw_server management
+# ------------------------------------------------------------------------------
+hw_server_start:
+	@if pgrep -x hw_server > /dev/null 2>&1; then \
+		echo "[HW_SERVER] Already running (PID $$(pgrep -x hw_server))"; \
+	else \
+		echo "[HW_SERVER] Starting on port $(HW_SERVER_PORT)..."; \
+		source $(XILINX_SETTINGS) && \
+		$(HW_SERVER_BIN) -d -s tcp::$(HW_SERVER_PORT) > $(LOG_DIR)/hw_server.log 2>&1; \
+		sleep 2; \
+		if pgrep -x hw_server > /dev/null 2>&1; then \
+			echo "[HW_SERVER] Running (PID $$(pgrep -x hw_server))"; \
+		else \
+			echo "[HW_SERVER] FAILED — check $(LOG_DIR)/hw_server.log"; \
+			cat $(LOG_DIR)/hw_server.log 2>/dev/null; \
+			exit 1; \
+		fi; \
+	fi
+
+hw_server_stop:
+	@if pgrep -x hw_server > /dev/null 2>&1; then \
+		echo "[HW_SERVER] Stopping (PID $$(pgrep -x hw_server))..."; \
+		pkill -x hw_server; \
+		echo "[HW_SERVER] Stopped"; \
+	else \
+		echo "[HW_SERVER] Not running"; \
+	fi
+
+hw_server_check:
+	@if pgrep -x hw_server > /dev/null 2>&1; then \
+		echo "[HW_SERVER] Running (PID $$(pgrep -x hw_server))"; \
+	else \
+		echo "[HW_SERVER] Not running"; \
+	fi
+
+# ------------------------------------------------------------------------------
+# Program FPGA bitstream
+# Usage: make program BIT=bitstreams/cgra_top.bit
+#        make program BIT=bitstreams/cgra_top.bit PS_INIT=0
+#        HW_HOST=192.168.1.100 make program BIT=bitstreams/cgra_top.bit
+# ------------------------------------------------------------------------------
+program: hw_server_start
+	@if [ -z "$(BIT)" ]; then \
+		echo "ERROR: No bitstream specified. Usage: make program BIT=path/to/file.bit"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(BIT)" ]; then \
+		echo "ERROR: Bitstream not found: $(BIT)"; \
+		exit 1; \
+	fi
+	@echo "=========================================================================="
+	@echo " [PROGRAM] Programming FPGA: $(BIT)"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	source $(XILINX_SETTINGS) && \
+	XSDB_HW_HOST=$(HW_HOST) XSDB_PS_INIT=$(PS_INIT) \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_program.tcl $(BIT) \
+		$(if $(filter 1,$(PS_INIT)),--ps-init,) \
+		--hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/program.log
+	@echo "[PROGRAM] Log: $(LOG_DIR)/program.log"
+
+# ------------------------------------------------------------------------------
+# Read FPGA status + dump CGRA registers
+# ------------------------------------------------------------------------------
+fpga_status: hw_server_start
+	@echo "=========================================================================="
+	@echo " [FPGA_STATUS] Reading FPGA state + CGRA registers"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_status.tcl \
+		--hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/fpga_status.log
+
+# ------------------------------------------------------------------------------
+# Load and run bare-metal ELF on ARM Cortex-A9
+# Usage: make run_elf ELF=07_sw/build/lpr_demo
+#        make run_elf ELF=07_sw/build/lpr_demo BIT=bitstreams/cgra_top.bit
+# ------------------------------------------------------------------------------
+run_elf: hw_server_start
+	@if [ -z "$(ELF)" ]; then \
+		echo "ERROR: No ELF specified. Usage: make run_elf ELF=path/to/file"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(ELF)" ]; then \
+		echo "ERROR: ELF not found: $(ELF)"; \
+		exit 1; \
+	fi
+	@echo "=========================================================================="
+	@echo " [RUN_ELF] Loading: $(ELF)"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_run_elf.tcl $(ELF) \
+		$(if $(BIT),--bit $(BIT),) \
+		--hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/run_elf.log
+
+# ------------------------------------------------------------------------------
+# Register access helpers
+# Usage: make reg_read REG=DMA_STATUS
+#        make reg_write REG=DMA_SRC VAL=0x10000000
+#        make reg_dump
+# ------------------------------------------------------------------------------
+reg_read: hw_server_start
+	@if [ -z "$(REG)" ]; then \
+		echo "ERROR: No register specified. Usage: make reg_read REG=DMA_STATUS"; \
+		exit 1; \
+	fi
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_regmap.tcl read $(REG) --hw-host $(HW_HOST)
+
+reg_write: hw_server_start
+	@if [ -z "$(REG)" ] || [ -z "$(VAL)" ]; then \
+		echo "ERROR: Usage: make reg_write REG=DMA_SRC VAL=0x10000000"; \
+		exit 1; \
+	fi
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_regmap.tcl write $(REG) $(VAL) --hw-host $(HW_HOST)
+
+reg_dump: hw_server_start
+	@mkdir -p $(LOG_DIR)
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_regmap.tcl dump --hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/reg_dump.log
+
+# ==============================================================================
+# VIVADO INTEGRATION TARGETS (pull from Windows project via WSL2 /mnt/)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Pull bitstream from Vivado impl_1 to bitstreams/
+# ------------------------------------------------------------------------------
+pull_bit:
+	@if [ ! -f "$(VIVADO_IMPL)/design_1_wrapper.bit" ]; then \
+		echo "ERROR: No bitstream at $(VIVADO_IMPL)/design_1_wrapper.bit"; \
+		echo "  Run 'Generate Bitstream' in Vivado first."; \
+		exit 1; \
+	fi
+	@mkdir -p bitstreams
+	@cp "$(VIVADO_IMPL)/design_1_wrapper.bit" bitstreams/cgra_top.bit
+	@echo "[PULL_BIT] Copied to bitstreams/cgra_top.bit"
+	@ls -lh bitstreams/cgra_top.bit
+
+# ------------------------------------------------------------------------------
+# Pull ps7_init.tcl from Vivado generated IP
+# ------------------------------------------------------------------------------
+pull_ps7:
+	@if [ ! -f "$(VIVADO_PS7_DIR)/ps7_init.tcl" ]; then \
+		echo "ERROR: ps7_init.tcl not found at $(VIVADO_PS7_DIR)/"; \
+		exit 1; \
+	fi
+	@cp "$(VIVADO_PS7_DIR)/ps7_init.tcl" $(SCRIPT_DIR)/ps7_init.tcl
+	@echo "[PULL_PS7] Updated $(SCRIPT_DIR)/ps7_init.tcl"
+
+# ------------------------------------------------------------------------------
+# Pull hardware handoff (.hwh) for Pynq/SW integration
+# ------------------------------------------------------------------------------
+pull_hwh:
+	@if [ ! -f "$(VIVADO_HWH)" ]; then \
+		echo "ERROR: HWH not found at $(VIVADO_HWH)"; \
+		exit 1; \
+	fi
+	@mkdir -p bitstreams
+	@cp "$(VIVADO_HWH)" bitstreams/design_1.hwh
+	@echo "[PULL_HWH] Copied to bitstreams/design_1.hwh"
+
+# ------------------------------------------------------------------------------
+# Pull all Vivado artifacts
+# ------------------------------------------------------------------------------
+pull_all: pull_bit pull_ps7 pull_hwh
+	@echo "[PULL_ALL] All Vivado artifacts synced."
+
+# ==============================================================================
+# BARE-METAL TARGETS
+# ==============================================================================
+BAREMETAL_DIR := 07_sw/baremetal
+UART_PORT     ?= /dev/ttyUSB2
+UART_BAUD     ?= 115200
+
+baremetal:
+	@echo "=========================================================================="
+	@echo " [BAREMETAL] Building CGRA test ELF"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) all
+
+run_baremetal: baremetal program
+	@echo "=========================================================================="
+	@echo " [RUN_BAREMETAL] Starting UART monitor on $(UART_PORT) @ $(UART_BAUD)"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	@python3 scripts/uart_monitor.py $(UART_PORT) $(UART_BAUD) \
+		2>&1 | tee $(LOG_DIR)/uart.log &
+	@sleep 1
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_run_elf.tcl $(BAREMETAL_DIR)/cgra_test.elf \
+		--hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/run_elf.log
+	@echo "[RUN_BAREMETAL] ELF running. UART log: $(LOG_DIR)/uart.log"
+
+# ------------------------------------------------------------------------------
+# One-command deploy: pull bitstream + program FPGA
+# ------------------------------------------------------------------------------
+deploy: pull_bit program
+	@echo "[DEPLOY] Complete."
+
+# ------------------------------------------------------------------------------
+# Show key Vivado implementation reports
+# ------------------------------------------------------------------------------
+vivado_reports:
+	@echo "=========================================================================="
+	@echo " Vivado Implementation Reports: $(VIVADO_IMPL)"
+	@echo "=========================================================================="
+	@echo ""
+	@echo "=== Timing Summary ==="
+	@cat "$(VIVADO_IMPL)/design_1_wrapper_timing_summary_routed.rpt" 2>/dev/null | head -80 || echo "  (not found)"
+	@echo ""
+	@echo "=== Utilization ==="
+	@cat "$(VIVADO_IMPL)/design_1_wrapper_utilization_placed.rpt" 2>/dev/null | head -80 || echo "  (not found)"
+	@echo ""
+	@echo "=== DRC ==="
+	@cat "$(VIVADO_IMPL)/design_1_wrapper_drc_routed.rpt" 2>/dev/null | head -40 || echo "  (not found)"
+
+# ==============================================================================
 # CLEAN TARGETS
 # ==============================================================================
 clean:
@@ -527,6 +813,8 @@ clean:
 	@rm -f $(LOG_DIR)/cov.log $(LOG_DIR)/cov_report.log $(LOG_DIR)/cov_report.txt
 	@rm -f $(LOG_DIR)/lint.log $(LOG_DIR)/hal.log $(LOG_DIR)/hal_compile.log
 	@rm -f $(LOG_DIR)/xprop.log $(LOG_DIR)/xprop_elab.log
+	@rm -f $(LOG_DIR)/program.log $(LOG_DIR)/fpga_status.log $(LOG_DIR)/hw_server.log
+	@rm -f $(LOG_DIR)/run_elf.log $(LOG_DIR)/reg_dump.log
 	@rm -rf $(SIM_DIR)/hal_run $(SIM_DIR)/hal_cds.lib $(SIM_DIR)/hal.f
 	@rm -rf $(SIM_DIR)/hal_work $(SIM_DIR)/hal.log $(SIM_DIR)/xp_elab.log
 	@rm -rf $(SIM_DIR)/cov_work

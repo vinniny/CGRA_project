@@ -340,6 +340,17 @@ xcelium.args
 !03_sim/.gitkeep
 !04_syn/.gitkeep
 !05_lec/.gitkeep
+!bitstreams/.gitkeep
+
+# Vivado / FPGA artifacts
+bitstreams/*.hwh
+bitstreams/*.ltx
+07_sw/build/
+07_sw/baremetal/cgra_test.elf
+02_log/uart.log
+02_log/program.log
+02_log/run_elf.log
+02_log/hw_server*.log
 
 # Internal documentation/notes (if any)
 notes/
