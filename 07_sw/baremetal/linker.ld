@@ -23,6 +23,15 @@ _stack_top      = 0x0001FFC0;  /* Supervisor stack top — in OCM */
 _irq_stack_top  = 0x0001EFC0;  /* IRQ-mode stack top, 4 KB below SVC stack */
 _vector_base    = 0x00004000;  /* Vectors live at start of OCM, VBAR points here */
 
+/* ── Symbols the Vitis BSP cache helpers reference ──────────────────────
+ * Xil_L1DCacheInvalidate temporarily swaps SP to __undef_stack to avoid
+ * losing in-flight stack writes during the cache flush sweep. We point
+ * the symbols at the existing IRQ/SVC stack region — they will only
+ * ever be touched during cache ops, which our demo serializes with
+ * normal stack use, so any reasonable in-OCM address works. */
+__undef_stack   = 0x0001EFC0;
+_stack_end      = 0x0001E000;
+
 SECTIONS {
     /DISCARD/ : {
         *(.note.gnu.build-id)
