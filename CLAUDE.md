@@ -70,9 +70,19 @@ protection. Round 3 adds end-to-end GIC interrupt delivery: a bare-metal
 ARMv7 GIC v1 driver in gic.{h,c} sets up the distributor + CPU interface,
 the IRQ vector in start.s saves context and dispatches via gic_irq_entry,
 and test 25 verifies DMA-done + CU-done IRQ delivery, masked-path silence,
-and 5 back-to-back deliveries. Code links to OCM (0x4000), DMA staging in
-DDR (0x100000). UART monitor lives in `scripts/uart_monitor.py` and writes
+and 5 back-to-back deliveries. The CGRA `irq` net is also wired to LED4
+on the board and the LED has been visually confirmed to pulse during the
+test (rapid burst during the CU sub-test, then 5 distinct pulses for the
+back-to-back DMAs). Code links to OCM (0x4000), DMA staging in DDR
+(0x100000). UART monitor lives in `scripts/uart_monitor.py` and writes
 to `02_log/uart.log`.
+
+The current bitstream also includes a Vivado System ILA monitoring the
+CGRA AXI master, the APB control interface, and the DMA debug signals
+(`dbg_dma_busy`, `dbg_dma_read_state[2:0]`, `dbg_dma_write_state[2:0]`,
+`dbg_dma_fifo_full`, `dbg_dma_fifo_empty`, `dbg_dma_write_words_remaining`,
+plus the `irq` output). Open the Vivado hardware manager and refresh
+device to capture traces if any future test fails.
 
 ## Directory Layout
 

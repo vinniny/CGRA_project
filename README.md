@@ -159,7 +159,14 @@ make CROSS=arm-linux-gnueabihf- all
 
 End-to-end JTAG deployment from a Linux/WSL2 host to a Zynq XC7Z020 board
 using Xilinx XSDB. Tested on a custom XC7Z020 board with a Digilent JTAG-SMT3
-probe and a CH340C USB-serial bridge wired to UART0 (MIO[14]/MIO[15]).
+probe, a CH340C USB-serial bridge wired to UART0 (MIO[14]/MIO[15]), and
+LED4 routed to the CGRA `irq` net for visual interrupt confirmation. The
+in-tree bitstream also includes a Vivado **System ILA** core monitoring
+the CGRA AXI master interface and the DMA debug signals (`dbg_dma_busy`,
+`dbg_dma_read_state`, `dbg_dma_write_state`, `dbg_dma_fifo_full`,
+`dbg_dma_fifo_empty`, `dbg_dma_write_words_remaining`, plus the `irq`
+output) — open the Vivado hardware manager and refresh device to capture
+traces if any future test misbehaves.
 
 ```bash
 # One-time: start Xilinx hw_server (talks to the Digilent SMT3 over libusb)
@@ -199,10 +206,12 @@ accumulator boundary, DMA + CU concurrent kicks, and DMA error / register
 protection. Round 3 adds end-to-end GIC interrupt delivery: the bare-metal
 ELF stands up its own ARMv7 GIC v1 driver, registers an ISR for the CGRA
 IRQ (`IRQ_F2P[0]` → GIC ID 61), and verifies DMA-done + CU-done IRQs,
-masked-path silence, and 5 back-to-back deliveries — with a visual LED4
-indicator wired to the same `irq` net. Results are streamed over UART0 at
-115200 baud and captured in `02_log/uart.log`. **Current result on
-hardware: 96 / 96 passed.**
+masked-path silence, and 5 back-to-back deliveries. The same `irq` net is
+also exported to **LED4** on the board, and the LED has been visually
+confirmed to pulse during the test — proving the physical PL→PS→GIC→CPU
+→ISR→W1C path works end to end. Results are streamed over UART0 at 115200
+baud and captured in `02_log/uart.log`. **Current result on hardware:
+96 / 96 passed (LED4 pulse confirmed).**
 
 > **WSL2 USB passthrough.** The JTAG probe (`0403:6010`, Digilent Adept) and
 > the CH340C UART (`1a86:7523`) must both be attached via `usbipd-win` from
@@ -895,7 +904,7 @@ hardware behaviour of the synthesized design after every Vivado push.
 
 | # | Group | Checks | Coverage |
 |---|-------|--------|----------|
-| 25 | GIC interrupt delivery | 4 | DMA-done IRQ delivered (counter advances), CU-done IRQ delivered (counter advances), masked path is silent (`IRQ_MASK=0` produces no ISR fires), 5 back-to-back DMAs deliver 5 IRQs. Uses an OCM-resident ARMv7 GIC v1 driver and an IRQ-mode dispatcher in `start.s`. The same `irq` net is exported to LED4 on the board for visual confirmation. |
+| 25 | GIC interrupt delivery | 4 | DMA-done IRQ delivered (counter advances), CU-done IRQ delivered (counter advances — typically a rapid burst of ~37 fires while the CU's east-edge result-row register churns), masked path is silent (`IRQ_MASK=0` produces no ISR fires), 5 back-to-back DMAs deliver 5 IRQs. Uses an OCM-resident ARMv7 GIC v1 driver and an IRQ-mode dispatcher in `start.s`. The same `irq` net is exported to LED4 on the board — **LED4 has been visually confirmed to pulse** during the test, proving the full PL→PS interrupt path works end to end. |
 
 #### Running on hardware
 
