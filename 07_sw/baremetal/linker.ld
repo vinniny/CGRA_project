@@ -19,8 +19,9 @@ MEMORY {
     OCM  (rwx) : ORIGIN = 0x00004000, LENGTH = 120K
 }
 
-_stack_top = 0x0001FFC0;   /* Stack top — in OCM, 64-byte aligned */
-_vector_base = 0x00004000; /* Vectors live at start of OCM, VBAR points here */
+_stack_top      = 0x0001FFC0;  /* Supervisor stack top — in OCM */
+_irq_stack_top  = 0x0001EFC0;  /* IRQ-mode stack top, 4 KB below SVC stack */
+_vector_base    = 0x00004000;  /* Vectors live at start of OCM, VBAR points here */
 
 SECTIONS {
     /DISCARD/ : {

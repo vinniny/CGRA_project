@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include "uart.h"
 #include "cgra.h"
+#include "gic.h"
 
 #define DDR_STAGE       0x00100000UL   /* DDR scratch area for CGRA DMA      */
 #define DDR_BUF_A       0x00100000UL   /* Test buffers in DDR                */
@@ -1102,6 +1103,126 @@ static void test_dma_error_and_protect(void)
 }
 
 /* =========================================================================
+ * [25] GIC interrupt delivery — verifies the physical PL→PS interrupt path.
+ *
+ * Requires the bitstream to wire `cgra_top_0/irq` to `IRQ_F2P[0]`. The
+ * GIC interrupt ID is then 32 (SPI base) + 29 (IRQ_F2P[0]) = 61.
+ *
+ * Visual indicator: the same `irq` net is also routed to LED4 on the
+ * board, so a working test will pulse LED4 briefly each time the CGRA
+ * raises the IRQ and W1Cs IRQ_STATUS clears it.
+ *
+ * Sub-tests:
+ *   A. DMA-done IRQ delivered (counter++ on a single DMA)
+ *   B. CU-done IRQ delivered (counter++ on a single CU run)
+ *   C. Masked path is silent (IRQ_MASK=0, kick a DMA, counter unchanged)
+ *   D. 5 back-to-back DMAs deliver 5 IRQs (counter advances by 5)
+ * ========================================================================= */
+static volatile uint32_t g_irq_count = 0;
+static volatile uint32_t g_irq_last_status = 0;
+
+static void cgra_irq_handler(void *ctx)
+{
+    (void)ctx;
+    /* Snapshot the live IRQ status, then W1C every set bit. The CGRA holds
+     * the irq line high while any (status & mask) bit is set, so failing
+     * to clear here would cause the GIC to re-fire immediately. */
+    uint32_t s = cgra_rd(CGRA_IRQ_STATUS);
+    g_irq_last_status = s;
+    cgra_wr(CGRA_IRQ_STATUS, s & 0x7u);
+    g_irq_count++;
+}
+
+static int wait_irq_count(uint32_t target, uint32_t timeout)
+{
+    while (timeout--) {
+        if (g_irq_count >= target) return 0;
+        asm volatile("nop");
+    }
+    return -1;
+}
+
+static void test_gic_irq(void)
+{
+    group_begin("[25] GIC interrupt delivery (LED4 pulses on each fire)");
+
+    /* Make sure no stale IRQs are in the GIC pending queue */
+    cgra_clear_irqs();
+    g_irq_count = 0;
+    g_irq_last_status = 0;
+
+    /* Initialise the GIC and register our ISR for the CGRA IRQ ID. */
+    gic_init();
+    gic_register_isr(CGRA_IRQ_ID, cgra_irq_handler, (void *)0,
+                     /* prio= */ 0xA0, /* cpu_mask= */ 0x01);
+
+    /* Unmask the CPU's I-bit so IRQs actually reach us. */
+    cpu_irq_enable();
+
+    /* Enable both DMA-done and CU-done in the CGRA's IRQ_MASK. */
+    cgra_wr(CGRA_IRQ_MASK, IRQ_DMA_DONE | IRQ_CU_DONE);
+
+    /* ── Sub A: DMA-done delivers one IRQ ──────────────────── */
+    volatile uint32_t *a = (volatile uint32_t *)DDR_BUF_A;
+    a[0] = 0xC0FFEE01u;
+    uint32_t prev = g_irq_count;
+    cgra_dma_start(DDR_BUF_A, TILE_BANK0, 4);
+    int wa = wait_irq_count(prev + 1, 5000000u);
+    uart_puts("    DMA IRQ count="); uart_putdec(g_irq_count);
+    uart_puts(" last_status=");      uart_puthex(g_irq_last_status);
+    uart_putchar('\n');
+    check("DMA-done IRQ delivered", wa == 0 && g_irq_count == prev + 1);
+
+    /* ── Sub B: CU-done delivers one IRQ ───────────────────── */
+    cgra_cu_reset(); cfg_all_nop(); cfg_row_pass0_east(0, 0xCAFE);
+    cgra_wr(CGRA_LOOP_START, 0);
+    cgra_wr(CGRA_LOOP_END,   0);
+    cgra_wr(CGRA_LOOP_COUNT, 5);
+    cgra_cu_reset();
+    prev = g_irq_count;
+    cgra_cu_start();
+    int wb = wait_irq_count(prev + 1, 5000000u);
+    uart_puts("    CU IRQ count="); uart_putdec(g_irq_count);
+    uart_puts(" last_status=");     uart_puthex(g_irq_last_status);
+    uart_putchar('\n');
+    check("CU-done IRQ delivered", wb == 0 && g_irq_count == prev + 1);
+    cgra_cu_reset();
+
+    /* ── Sub C: masked path is silent ──────────────────────── */
+    cgra_wr(CGRA_IRQ_MASK, 0u);     /* mask everything */
+    prev = g_irq_count;
+    a[0] = 0xC0FFEE03u;
+    cgra_dma(DDR_BUF_A, TILE_BANK0, 4);    /* blocking — guarantees DMA done */
+    /* The DMA-done status bit was set, but with mask=0 the IRQ line
+     * never asserts, so the GIC sees nothing. Wait a generous time and
+     * confirm g_irq_count did not advance. */
+    for (volatile uint32_t i = 0; i < 200000u; i++) asm volatile("nop");
+    uart_puts("    Masked IRQ count="); uart_putdec(g_irq_count);
+    uart_puts(" (should equal ");       uart_putdec(prev);
+    uart_puts(")\n");
+    check("Masked path silent", g_irq_count == prev);
+    cgra_clear_irqs();
+    cgra_wr(CGRA_IRQ_MASK, IRQ_DMA_DONE | IRQ_CU_DONE);
+
+    /* ── Sub D: 5 back-to-back DMAs deliver 5 IRQs ────────── */
+    prev = g_irq_count;
+    for (int i = 0; i < 5; i++) {
+        a[0] = 0xC0FFEE10u + (uint32_t)i;
+        cgra_dma_start(DDR_BUF_A, TILE_BANK0, 4);
+        if (wait_irq_count(prev + 1 + (uint32_t)i, 5000000u)) break;
+    }
+    uart_puts("    5x IRQ count delta = "); uart_putdec(g_irq_count - prev);
+    uart_putchar('\n');
+    check("5 back-to-back DMAs -> 5 IRQs", (g_irq_count - prev) == 5u);
+
+    /* Restore the test rig: mask CPU IRQs, clear pending. The remaining
+     * tests in main() are polling-based and don't expect ISR activity. */
+    cpu_irq_disable();
+    cgra_wr(CGRA_IRQ_MASK, 0u);
+    cgra_clear_irqs();
+}
+
+/* =========================================================================
  * Entry point
  * ========================================================================= */
 void main(void)
@@ -1109,7 +1230,7 @@ void main(void)
     uart_init();
     uart_puts("\n");
     uart_puts("==========================================\n");
-    uart_puts(" CGRA Bare-Metal Test v3.0 (deep + ALU)\n");
+    uart_puts(" CGRA Bare-Metal Test v4.0 (deep+ALU+IRQ)\n");
     uart_puts(" Zynq-7000 / CGRA 4x4\n");
     uart_puts("==========================================\n");
 
@@ -1137,6 +1258,7 @@ void main(void)
     test_mac_saturation();
     test_concurrency();
     test_dma_error_and_protect();
+    test_gic_irq();
 
     uart_puts("\n==========================================\n");
     uart_puts(" RESULTS: ");

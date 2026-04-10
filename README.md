@@ -8,7 +8,7 @@
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
 [![Sim Tests](https://img.shields.io/badge/Sim-8915%20PASS%20%7C%200%20FAIL-brightgreen)]()
-[![HW Tests](https://img.shields.io/badge/Hardware-92%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![HW Tests](https://img.shields.io/badge/Hardware-96%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(100%25%20covered)-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
@@ -187,7 +187,7 @@ make run_baremetal                                 # program + load + capture UA
 make run_elf ELF=07_sw/build/my_app BIT=bitstreams/cgra_top.bit
 ```
 
-The bare-metal regression covers 24 test groups / 92 checks across two
+The bare-metal regression covers 25 test groups / 96 checks across three
 rounds. Round 1 verifies the APB CSR file, 1D and 2D DMA, varied transfer
 sizes, back-to-back DMA stress, tile bank isolation, PASS0 routing in East
 and South, all four `RESULT_ROW` registers + `PE[3,3] RESULT_DATA`, loop
@@ -196,8 +196,13 @@ stress run, and CU soft reset. Round 2 adds the ALU smoke test (ADD, SUB,
 MUL, AND, OR, XOR), multi-instruction context programs, nested LOOP2 over
 LOOP, North + West routing + 3-way multicast, MAC saturation to the 40-bit
 accumulator boundary, DMA + CU concurrent kicks, and DMA error / register
-protection. Results are streamed over UART0 at 115200 baud and captured in
-`02_log/uart.log`. **Current result on hardware: 92 / 92 passed.**
+protection. Round 3 adds end-to-end GIC interrupt delivery: the bare-metal
+ELF stands up its own ARMv7 GIC v1 driver, registers an ISR for the CGRA
+IRQ (`IRQ_F2P[0]` → GIC ID 61), and verifies DMA-done + CU-done IRQs,
+masked-path silence, and 5 back-to-back deliveries — with a visual LED4
+indicator wired to the same `irq` net. Results are streamed over UART0 at
+115200 baud and captured in `02_log/uart.log`. **Current result on
+hardware: 96 / 96 passed.**
 
 > **WSL2 USB passthrough.** The JTAG probe (`0403:6010`, Digilent Adept) and
 > the CH340C UART (`1a86:7523`) must both be attached via `usbipd-win` from
@@ -796,7 +801,7 @@ void cgra_get_results(uint32_t results[4]) {
 | **Hex Dumper** | app/dump_cgra_hex.c | ~200 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
 | **Golden Model Test** | app/lpr_golden_test.c | ~180 | Standalone golden model validation (no hardware required) |
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
-| **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, start.s, linker.ld} | ~1450 | OCM-resident ARM ELF, 24-group / 92-check CGRA regression streaming results over UART0 |
+| **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, gic.{h,c}, start.s, linker.ld} | ~1700 | OCM-resident ARM ELF, 25-group / 96-check CGRA regression streaming results over UART0; includes a self-contained ARMv7 GIC driver for the round-3 interrupt-delivery test |
 
 ### LPR Golden Model
 
@@ -847,7 +852,8 @@ hardware behaviour of the synthesized design after every Vivado push.
 | `linker.ld` | OCM-only layout. Vectors at `0x4000`, `.init`/`.text` immediately after, stack top at `0x1FFC0`. DMA staging buffer is in DDR at `0x100000`. |
 | `uart.h` | Polled Zynq PS UART0 driver. `uart_init()` resets the FIFOs and writes `BAUD_GEN=124, BAUD_DIV=6` (115200 baud at the 100 MHz UART reference clock that ps7_init configures). `uart_puts()` drains the TX FIFO at every newline so the host CH340 never drops a line on long bursts. |
 | `cgra.h` | Full ISA opcode set, source/route field constants, status bit definitions, register-access inlines, 1D and 2D DMA helpers (`cgra_dma`, `cgra_dma_2d`), async DMA + CU helpers (`cgra_dma_start`, `cgra_dma_done`, `cgra_cu_start`, `cgra_cu_done`, `cgra_wait_dma_and_cu`), `cgra_config_pe` which drives the PE Config RAM double-pump with slot-0 broadcast to all 16 contexts, and `cgra_config_pe_slot` which targets a single context slot for heterogeneous multi-instruction PE programs. |
-| `main.c` | The 24-group / 92-check regression itself. |
+| `gic.h` / `gic.c` | Bare-metal ARMv7 GIC v1 driver targeting the Zynq-7000 GIC (distributor `0xF8F01000` / CPU interface `0xF8F00100`). ~150 LOC, no Vitis BSP dependency. APIs: `gic_init`, `gic_register_isr`, `gic_enable_irq_id`, `gic_set_priority`, `gic_set_target`, `gic_set_level_high`, plus a `gic_irq_dispatch` top-half that the IRQ vector calls to read `GICC_IAR`, dispatch the registered handler, and write `GICC_EOIR`. The CGRA IRQ ID is exposed as `CGRA_IRQ_ID = 61` (IRQ_F2P[0] = SPI 29 + 32 base). |
+| `main.c` | The 25-group / 96-check regression itself. |
 
 #### Test Groups (92 checks total)
 
@@ -884,6 +890,12 @@ hardware behaviour of the synthesized design after every Vivado push.
 | 22 | MAC saturation boundary | 2 | 512 cycles of `0x7FFF² ≈ 2³⁰` peg the 40-bit accumulator (MAX_POS_40), 32-bit output clamps to `0x7FFFFFFF`; `ACC_CLR` pre-step proves the accumulator resets |
 | 23 | DMA + CU concurrency | 3 | CU and DMA kicked in adjacent APB writes at sizes 64 / 256 / 1 K / 4 K B — both finish without deadlock or AXI error, CU result intact |
 | 24 | DMA error + register protection | 6 | Bad source raises `DMA_ERROR=0x7` + `IRQ_STATUS[2]`; W1C clears IRQ; engine recovers on next start; `DMA_SRC` busy-write rejected; `CU_TIMEOUT` busy-write rejected |
+
+**Round 3 — GIC interrupt delivery (4 checks)**
+
+| # | Group | Checks | Coverage |
+|---|-------|--------|----------|
+| 25 | GIC interrupt delivery | 4 | DMA-done IRQ delivered (counter advances), CU-done IRQ delivered (counter advances), masked path is silent (`IRQ_MASK=0` produces no ISR fires), 5 back-to-back DMAs deliver 5 IRQs. Uses an OCM-resident ARMv7 GIC v1 driver and an IRQ-mode dispatcher in `start.s`. The same `irq` net is exported to LED4 on the board for visual confirmation. |
 
 #### Running on hardware
 
@@ -961,7 +973,7 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 | Bi-Directional DMA | AXI4 read + write engines, 32-word FIFO, W_LOCAL fast-drain |
 | Linux Driver (UIO+CMA) | Zynq-7000 PetaLinux 2022.2 ready |
 | **JTAG Bring-Up Flow** | XSDB-driven program / ps7_init / reg dump / ELF load from WSL2 over usbipd |
-| **Bare-Metal HW Regression** | 24-group / 92-check OCM-resident ARM ELF — APB CSR + 1D/2D DMA + ALU (ADD/SUB/MUL/AND/OR/XOR) + MAC saturation + multi-context PC + N/W routing + multicast + DMA-CU concurrency + AXI error + register protection (92/92 PASS on Zynq XC7Z020) |
+| **Bare-Metal HW Regression** | 25-group / 96-check OCM-resident ARM ELF — APB CSR + 1D/2D DMA + ALU (ADD/SUB/MUL/AND/OR/XOR) + MAC saturation + multi-context PC + N/W routing + multicast + DMA-CU concurrency + AXI error + register protection + end-to-end GIC interrupt delivery via PL→PS `IRQ_F2P[0]` (96/96 PASS on Zynq XC7Z020) |
 | LPR Golden Model | Pure-C int32 reference (Vietnamese 30-class) |
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
@@ -1005,6 +1017,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for SNN Inference**
 
-*Silicon-Ready | 8915/8915 Sim Tests | 92/92 Hardware Tests | 100% ISA Coverage | 25 Sim Suites*
+*Silicon-Ready | 8915/8915 Sim Tests | 96/96 Hardware Tests | 100% ISA Coverage | 25 Sim Suites*
 
 </div>

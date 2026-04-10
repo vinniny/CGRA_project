@@ -17,13 +17,13 @@ CFLAGS  := -O1 -Wall -Wextra \
 
 LDFLAGS := -T linker.ld -nostdlib
 
-SRCS    := start.s main.c
+SRCS    := start.s main.c gic.c
 
 .PHONY: all clean dis
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) uart.h cgra.h linker.ld
+$(TARGET): $(SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@
 	@echo "[BUILD] $(TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
