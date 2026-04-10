@@ -25,6 +25,26 @@ make full               # Complete flow: sim + syn + lec
 make clean              # Remove simulation/synthesis artifacts
 ```
 
+FPGA Deployment (Xilinx XSDB / Zynq-7000):
+```bash
+make program BIT=bitstreams/cgra.bit          # Program PL + init PS
+make program BIT=... PS_INIT=0                # Program PL only (no PS init)
+make fpga_status                              # Read FPGA state + CGRA registers
+make run_elf ELF=07_sw/build/app BIT=...      # Load & run bare-metal ELF on ARM
+make reg_dump                                 # Dump all 28 CGRA APB registers
+make reg_read REG=DMA_STATUS                  # Read single register
+make reg_write REG=DMA_SRC VAL=0x10000000     # Write register
+make hw_server_start                          # Start Xilinx hw_server daemon
+make hw_server_stop                           # Stop hw_server
+HW_HOST=192.168.1.100 make program BIT=...    # Use remote hw_server (Windows)
+make pull_bit                                 # Pull bitstream from Vivado project
+make pull_all                                 # Pull bitstream + ps7_init + hwh
+make deploy                                   # Pull bitstream + program FPGA (one command)
+make vivado_reports                           # Show timing/utilization/DRC reports
+```
+
+Vivado project path (Windows via WSL2): `/mnt/c/Users/thanh/Desktop/FPGA_CGRA/` (override with `VIVADO_PROJECT=`).
+
 Software (07_sw/):
 ```bash
 cd 07_sw && make all                              # Native build
@@ -43,7 +63,8 @@ cd 07_sw && make dump_hex                         # Generate .mem files for Suit
 - **05_lec/** — Logical equivalence check outputs (Conformal)
 - **06_doc/** — Thesis documentation (LaTeX)
 - **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
-- **scripts/** — TCL scripts for synthesis and LEC
+- **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization.
+- **bitstreams/** — Staging directory for .bit files generated from Windows Vivado
 
 ## Architecture
 
