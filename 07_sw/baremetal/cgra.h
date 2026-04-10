@@ -110,26 +110,69 @@ static inline uint32_t cgra_rd(uint32_t off) {
 }
 
 /* ── DMA polling ──────────────────────────────────────────────────────── */
+static inline int cgra_dma_done(void)
+{
+    return (cgra_rd(CGRA_DMA_STATUS) & DMA_STATUS_DONE) != 0;
+}
+static inline int cgra_dma_busy(void)
+{
+    return (cgra_rd(CGRA_DMA_STATUS) & DMA_STATUS_BUSY) != 0;
+}
 static inline int cgra_dma_wait(uint32_t timeout)
 {
     while (timeout--) {
-        if (cgra_rd(CGRA_DMA_STATUS) & 0x2)
-            return 0;   /* done */
+        if (cgra_dma_done()) return 0;
     }
-    return -1;  /* timeout */
+    return -1;
 }
 
-/* ── Single 1D DMA transfer ───────────────────────────────────────────── */
-static inline int cgra_dma(uint32_t src, uint32_t dst, uint32_t bytes)
+/* ── Async 1D DMA — kick the engine and return immediately ───────────── */
+static inline void cgra_dma_start(uint32_t src, uint32_t dst, uint32_t bytes)
 {
     cgra_wr(CGRA_DMA_SRC,        src);
     cgra_wr(CGRA_DMA_DST,        dst);
-    cgra_wr(CGRA_DMA_SRC_STRIDE, 0u);   /* clear stale 2D state */
+    cgra_wr(CGRA_DMA_SRC_STRIDE, 0u);
     cgra_wr(CGRA_DMA_ROWS,       0u);
     cgra_wr(CGRA_DMA_COLS,       0u);
     cgra_wr(CGRA_DMA_SIZE,       bytes);
     cgra_wr(CGRA_DMA_CTRL,       1u);
+}
+
+/* ── Blocking 1D DMA — wraps start + wait ────────────────────────────── */
+static inline int cgra_dma(uint32_t src, uint32_t dst, uint32_t bytes)
+{
+    cgra_dma_start(src, dst, bytes);
     return cgra_dma_wait(1000000u);
+}
+
+/* ── Async CU control ────────────────────────────────────────────────── */
+static inline int cgra_cu_done(void)
+{
+    return (cgra_rd(CGRA_CU_STATUS) & CU_STATUS_DONE) != 0;
+}
+static inline int cgra_cu_busy(void)
+{
+    return (cgra_rd(CGRA_CU_STATUS) & CU_STATUS_BUSY) != 0;
+}
+static inline void cgra_cu_start(void)
+{
+    cgra_wr(CGRA_CU_CTRL, 1u);
+}
+static inline int cgra_cu_wait(uint32_t timeout)
+{
+    while (timeout--) {
+        if (cgra_cu_done()) return 0;
+    }
+    return -1;
+}
+
+/* ── Wait for both DMA and CU done with one timeout (concurrency test) ─ */
+static inline int cgra_wait_dma_and_cu(uint32_t timeout)
+{
+    while (timeout--) {
+        if (cgra_dma_done() && cgra_cu_done()) return 0;
+    }
+    return -1;
 }
 
 /* ── 2D strided DMA transfer ──────────────────────────────────────────── */
@@ -175,20 +218,28 @@ static inline void cgra_pe_build(uint64_t *out,
     *out = cfg;
 }
 
-/* pe_id: 0-15 (row*4 + col), slot: always 0 (broadcasts to all)          */
-/* staging_ddr: a physical DDR address (prefix 0x0) to use as DMA source  */
-static inline int cgra_config_pe(uint32_t pe_id, uint32_t staging_ddr,
-                                   uint32_t opcode,
-                                   uint32_t src0, uint32_t src1,
-                                   uint32_t dst,  uint32_t route,
-                                   uint16_t imm)
+/* Write a single 64-bit config word to PE[pe_id], slot[slot_idx].
+ * Address layout for the PE Config RAM (cgra_top.sv:362-366):
+ *   addr = 0x20000000 | (pe_id << 7) | (slot_idx << 3) | (hi_lo << 2)
+ * Slot 0 writes auto-broadcast to slots 1..15 (cgra_top.sv:289). To get a
+ * heterogeneous N-instruction program, write slot 0 first, then explicitly
+ * overwrite slots 1..N-1. The broadcast FSM completes in 15 cycles, well
+ * within DMA serialization, so subsequent slot writes land cleanly. */
+static inline int cgra_config_pe_slot(uint32_t pe_id, uint32_t slot_idx,
+                                      uint32_t staging_ddr,
+                                      uint32_t opcode,
+                                      uint32_t src0, uint32_t src1,
+                                      uint32_t dst,  uint32_t route,
+                                      uint16_t imm)
 {
     uint64_t cfg;
     cgra_pe_build(&cfg, opcode, src0, src1, dst, route, imm);
 
     uint32_t hi32 = (uint32_t)(cfg >> 32);
     uint32_t lo32 = (uint32_t)(cfg & 0xFFFFFFFF);
-    uint32_t cfg_base = CGRA_PFX_CONFIG | (pe_id << 7);  /* slot 0, hi */
+    uint32_t cfg_base = CGRA_PFX_CONFIG
+                      | ((pe_id & 0xF)   << 7)
+                      | ((slot_idx & 0xF) << 3);
 
     volatile uint32_t *staging = (volatile uint32_t *)staging_ddr;
 
@@ -196,11 +247,22 @@ static inline int cgra_config_pe(uint32_t pe_id, uint32_t staging_ddr,
     *staging = hi32;
     if (cgra_dma(staging_ddr, cfg_base, 4u)) return -1;
 
-    /* Write LO word → addr[2]=1 (commits 64-bit, triggers slot-0 broadcast) */
+    /* Write LO word → addr[2]=1 (commits 64-bit; if slot=0 also broadcasts) */
     *staging = lo32;
     if (cgra_dma(staging_ddr, cfg_base | 0x4u, 4u)) return -1;
 
     return 0;
+}
+
+/* Backwards-compatible single-slot helper — writes slot 0 (broadcasts). */
+static inline int cgra_config_pe(uint32_t pe_id, uint32_t staging_ddr,
+                                   uint32_t opcode,
+                                   uint32_t src0, uint32_t src1,
+                                   uint32_t dst,  uint32_t route,
+                                   uint16_t imm)
+{
+    return cgra_config_pe_slot(pe_id, 0, staging_ddr,
+                               opcode, src0, src1, dst, route, imm);
 }
 
 #endif /* CGRA_H */

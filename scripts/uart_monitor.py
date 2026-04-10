@@ -27,7 +27,7 @@ except serial.SerialException as e:
 print(f"[UART] Listening... (Ctrl+C to stop, idle timeout 10s)")
 
 last_activity = time.time()
-idle_timeout = 30  # seconds to wait after last output before giving up
+idle_timeout = 60  # seconds to wait after last output before giving up
 
 try:
     while True:
