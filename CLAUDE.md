@@ -58,10 +58,17 @@ Bare-metal hardware regression (07_sw/baremetal/):
 make baremetal           # Build cgra_test.elf with arm-none-eabi-gcc
 make run_baremetal       # Program FPGA + load ELF + capture UART (CH340 @ 115200)
 ```
-17 test groups (64 checks) over registers, 1D/2D DMA, all four PE result rows,
-North/South/East routing, loop control, IRQ status, and stress repeats. Code
-links to OCM (0x4000), DMA staging in DDR (0x100000). UART monitor lives in
-`scripts/uart_monitor.py` and writes to `02_log/uart.log`.
+24 test groups (92 checks) split into two rounds. Round 1 covers the APB CSR
+file, 1D/2D DMA (varied sizes, back-to-back, tile bank isolation), all four
+RESULT_ROW registers + RESULT_DATA, PASS0 East/South routing, loop control,
+CU_CYCLES monotonicity, IRQ_STATUS W1C, 20-iteration stress, and CU soft
+reset. Round 2 adds the ALU smoke test (ADD/SUB/MUL/AND/OR/XOR), multi-
+instruction context programs via cgra_config_pe_slot, nested LOOP2 over
+LOOP, North + West routing + 3-way multicast, MAC saturation to the 40-bit
+accumulator boundary, DMA + CU concurrency, and DMA error / register-
+protection. Code links to OCM (0x4000), DMA staging in DDR (0x100000).
+UART monitor lives in `scripts/uart_monitor.py` and writes to
+`02_log/uart.log`.
 
 ## Directory Layout
 
@@ -73,7 +80,7 @@ links to OCM (0x4000), DMA staging in DDR (0x100000). UART monitor lives in
 - **05_lec/** — Logical equivalence check outputs (Conformal)
 - **06_doc/** — Thesis documentation (LaTeX)
 - **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
-- **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VFP enable + BSS), linker.ld (OCM 0x4000 + vectors + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA helpers, PE config double-pump), uart.h (Zynq UART0 driver, baud divisors matching ps7_init), main.c (17-group, 64-test regression).
+- **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VFP enable + BSS), linker.ld (OCM 0x4000 + vectors + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA + async helpers, single-slot and multi-slot PE config double-pump, cgra_wait_dma_and_cu for concurrency tests), uart.h (Zynq UART0 driver, baud divisors matching ps7_init, per-line drain), main.c (24-group / 92-check regression covering registers, DMA, ALU, MAC, multi-context, all 4 routing directions, multicast, concurrency, error path).
 - **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl, xsdb_debug_uart.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization. uart_monitor.py is a pyserial reader for the CH340 UART (/dev/ttyUSB2 in WSL2).
 - **bitstreams/** — Staging directory for .bit files generated from Windows Vivado
 
@@ -93,6 +100,13 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 **Extensions:** Mixed-precision INT8x4 / INT16x2 SIMD (config bits [50:49]), dynamic branching from PE predicate to CU PC (config bits [48:44]), nested hardware loops (2 levels).
 
 **Key parameters:** DATA_WIDTH=32, CONFIG_WIDTH=64, CONTEXT_DEPTH=16, NUM_PES=16 (4x4), FIFO_DEPTH=32, BANK_DEPTH=4096.
+
+**Hardware quirks discovered during bring-up** (relevant when writing PE programs):
+- The CU **always runs PC 0..15 to completion**. `LOOP_END` only confines the PC while `LOOP_COUNT > 0`; once the loop exhausts, PC advances naturally through to slot 15 before `done` asserts. Tests must keep slots `LOOP_END+1..15` NOP-clean (NOP doesn't write `alu_result`) or the last PC's value will overwrite the loop body's result.
+- The 3-stage PE pipeline (decode → _r → _r2) **has no RF read-after-write bypass**. A dependent RF read in slot N+1 sees stale data because slot N's writeback hasn't landed yet. Multi-instruction RF chaining within one PE needs spacing or routing through neighbor ports.
+- `src0_sel`/`src1_sel` is both a source-type selector AND the RF read address; effectively only `RF[0]` is readable (`SRC_RF=0` reads `RF[rf_raddr=0]`; values 1-6 select N/E/S/W/SPM/IMM, not RF[1..6]). `dst_sel` is a real 4-bit RF write address, but writes to `RF[1..15]` are functionally invisible.
+- The MAC accumulator update has the **same pipeline hazard** — only ~1/3 of back-to-back MACs contribute. Use enough cycles (the saturation test runs 512 to peg MAX_POS_40 = 0x7F_FFFF_FFFF, with 32-bit output clamped to 0x7FFFFFFF).
+- `IRQ_STATUS[2]` is W1C and clears immediately. The latched `DMA_ERROR` register is sticky until the next `DMA_CTRL[0]` start, not on IRQ W1C.
 
 ## APB Register Map (28 registers, 0x00-0x74)
 
