@@ -58,17 +58,21 @@ Bare-metal hardware regression (07_sw/baremetal/):
 make baremetal           # Build cgra_test.elf with arm-none-eabi-gcc
 make run_baremetal       # Program FPGA + load ELF + capture UART (CH340 @ 115200)
 ```
-24 test groups (92 checks) split into two rounds. Round 1 covers the APB CSR
-file, 1D/2D DMA (varied sizes, back-to-back, tile bank isolation), all four
-RESULT_ROW registers + RESULT_DATA, PASS0 East/South routing, loop control,
-CU_CYCLES monotonicity, IRQ_STATUS W1C, 20-iteration stress, and CU soft
-reset. Round 2 adds the ALU smoke test (ADD/SUB/MUL/AND/OR/XOR), multi-
-instruction context programs via cgra_config_pe_slot, nested LOOP2 over
-LOOP, North + West routing + 3-way multicast, MAC saturation to the 40-bit
-accumulator boundary, DMA + CU concurrency, and DMA error / register-
-protection. Code links to OCM (0x4000), DMA staging in DDR (0x100000).
-UART monitor lives in `scripts/uart_monitor.py` and writes to
-`02_log/uart.log`.
+25 test groups (96 checks) split into three rounds. Round 1 covers the APB
+CSR file, 1D/2D DMA (varied sizes, back-to-back, tile bank isolation), all
+four RESULT_ROW registers + RESULT_DATA, PASS0 East/South routing, loop
+control, CU_CYCLES monotonicity, IRQ_STATUS W1C, 20-iteration stress, and
+CU soft reset. Round 2 adds the ALU smoke test (ADD/SUB/MUL/AND/OR/XOR),
+multi-instruction context programs via cgra_config_pe_slot, nested LOOP2
+over LOOP, North + West routing + 3-way multicast, MAC saturation to the
+40-bit accumulator boundary, DMA + CU concurrency, and DMA error / register
+protection. Round 3 adds end-to-end GIC interrupt delivery: a bare-metal
+ARMv7 GIC v1 driver in gic.{h,c} sets up the distributor + CPU interface,
+the IRQ vector in start.s saves context and dispatches via gic_irq_entry,
+and test 25 verifies DMA-done + CU-done IRQ delivery, masked-path silence,
+and 5 back-to-back deliveries. Code links to OCM (0x4000), DMA staging in
+DDR (0x100000). UART monitor lives in `scripts/uart_monitor.py` and writes
+to `02_log/uart.log`.
 
 ## Directory Layout
 
@@ -80,7 +84,7 @@ UART monitor lives in `scripts/uart_monitor.py` and writes to
 - **05_lec/** — Logical equivalence check outputs (Conformal)
 - **06_doc/** — Thesis documentation (LaTeX)
 - **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
-- **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VFP enable + BSS), linker.ld (OCM 0x4000 + vectors + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA + async helpers, single-slot and multi-slot PE config double-pump, cgra_wait_dma_and_cu for concurrency tests), uart.h (Zynq UART0 driver, baud divisors matching ps7_init, per-line drain), main.c (24-group / 92-check regression covering registers, DMA, ALU, MAC, multi-context, all 4 routing directions, multicast, concurrency, error path).
+- **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VBAR + VFP enable + IRQ-mode SP + BSS + IRQ vector saving caller-saved regs and dispatching via gic_irq_entry), linker.ld (OCM 0x4000 + vectors + IRQ stack at 0x1EFC0 + SVC stack at 0x1FFC0 + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA + async helpers, single-slot and multi-slot PE config double-pump, cgra_wait_dma_and_cu for concurrency tests), gic.h / gic.c (bare-metal ARMv7 GIC v1 driver targeting Zynq distributor 0xF8F01000 + CPU interface 0xF8F00100, ~150 LOC, no Vitis BSP — gic_init / gic_register_isr / gic_enable_irq_id and a gic_irq_dispatch top-half for the IRQ vector), uart.h (Zynq UART0 driver, baud divisors matching ps7_init, per-line drain), main.c (25-group / 96-check regression covering registers, DMA, ALU, MAC, multi-context, all 4 routing directions, multicast, concurrency, error path, and end-to-end GIC interrupt delivery).
 - **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl, xsdb_debug_uart.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization. uart_monitor.py is a pyserial reader for the CH340 UART (/dev/ttyUSB2 in WSL2).
 - **bitstreams/** — Staging directory for .bit files generated from Windows Vivado
 

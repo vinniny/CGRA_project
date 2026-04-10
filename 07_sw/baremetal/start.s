@@ -31,9 +31,16 @@ trap_dabt:
 trap_resv:
     mov r11, #0x05
     b   abort_loop
+/* IRQ entry. The CPU has just switched to IRQ mode and saved CPSR -> SPSR_irq.
+ * lr_irq holds the faulting PC + 4 (one ahead of the interrupted instruction).
+ * Save the caller-saved AAPCS registers + lr, call the C dispatcher, restore,
+ * and return via subs pc, lr, #4 (subtract the +4 hardware-added offset). */
 trap_irq:
-    mov r11, #0x06
-    b   abort_loop
+    sub     lr, lr, #4              /* correct return PC */
+    push    {r0-r3, r12, lr}        /* save caller-saved + return addr */
+    bl      gic_irq_entry           /* C dispatcher in gic.c */
+    pop     {r0-r3, r12, lr}
+    movs    pc, lr                  /* return from exception (restores SPSR) */
 trap_fiq:
     mov r11, #0x07
     b   abort_loop
@@ -68,7 +75,14 @@ _start:
     mov     r0, #0x40000000
     vmsr    fpexc, r0
 
-    /* Set stack pointer (grows down from STACK_TOP in OCM) */
+    /* Set IRQ-mode stack first. CPSR = IRQ mode (0x12) | I=1 | F=1.
+     * We allocate a small dedicated IRQ stack inside OCM just below the
+     * Supervisor stack. */
+    msr     cpsr_c, #0xD2           /* IRQ mode, IRQ+FIQ masked */
+    ldr     sp, =_irq_stack_top
+
+    /* Back to Supervisor mode for the rest of init + main() */
+    msr     cpsr_c, #0xD3           /* SVC mode, IRQ+FIQ masked */
     ldr     sp, =_stack_top
 
     /* Clear BSS section */
