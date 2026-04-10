@@ -53,6 +53,16 @@ cd 07_sw && make test                             # Golden model tests
 cd 07_sw && make dump_hex                         # Generate .mem files for Suite RAP
 ```
 
+Bare-metal hardware regression (07_sw/baremetal/):
+```bash
+make baremetal           # Build cgra_test.elf with arm-none-eabi-gcc
+make run_baremetal       # Program FPGA + load ELF + capture UART (CH340 @ 115200)
+```
+17 test groups (64 checks) over registers, 1D/2D DMA, all four PE result rows,
+North/South/East routing, loop control, IRQ status, and stress repeats. Code
+links to OCM (0x4000), DMA staging in DDR (0x100000). UART monitor lives in
+`scripts/uart_monitor.py` and writes to `02_log/uart.log`.
+
 ## Directory Layout
 
 - **00_src/** — RTL sources (SystemVerilog). Core modules: cgra_top, cgra_pe, cgra_router, cgra_array (parameterized N*M), cgra_dma_engine, cgra_control_unit, cgra_apb_csr, cgra_tile_memory, cgra_tile. Uses BSG memory library (bsg_mem/).
@@ -63,7 +73,8 @@ cd 07_sw && make dump_hex                         # Generate .mem files for Suit
 - **05_lec/** — Logical equivalence check outputs (Conformal)
 - **06_doc/** — Thesis documentation (LaTeX)
 - **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
-- **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization.
+- **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VFP enable + BSS), linker.ld (OCM 0x4000 + vectors + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA helpers, PE config double-pump), uart.h (Zynq UART0 driver, baud divisors matching ps7_init), main.c (17-group, 64-test regression).
+- **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl, xsdb_debug_uart.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization. uart_monitor.py is a pyserial reader for the CH340 UART (/dev/ttyUSB2 in WSL2).
 - **bitstreams/** — Staging directory for .bit files generated from Windows Vivado
 
 ## Architecture

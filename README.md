@@ -7,7 +7,8 @@
 *Version 3.0.0 | April 2026*
 
 [![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Tests](https://img.shields.io/badge/Tests-8915%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Sim Tests](https://img.shields.io/badge/Sim-8915%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![HW Tests](https://img.shields.io/badge/Hardware-64%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(100%25%20covered)-blue)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
@@ -153,6 +154,53 @@ make clean                       # Clean build artifacts
 # Cross-compile for Zynq ARM (Cortex-A9)
 make CROSS=arm-linux-gnueabihf- all
 ```
+
+### FPGA Hardware Bring-Up (Zynq-7000)
+
+End-to-end JTAG deployment from a Linux/WSL2 host to a Zynq XC7Z020 board
+using Xilinx XSDB. Tested on a custom XC7Z020 board with a Digilent JTAG-SMT3
+probe and a CH340C USB-serial bridge wired to UART0 (MIO[14]/MIO[15]).
+
+```bash
+# One-time: start Xilinx hw_server (talks to the Digilent SMT3 over libusb)
+make hw_server_start
+
+# Pull the freshly built bitstream + ps7_init.tcl + .hwh from a Vivado project
+make pull_all                                      # default: /mnt/c/Users/.../FPGA_CGRA
+VIVADO_PROJECT=/path/to/proj make pull_all         # override path
+
+# Program PL + run ps7_init (DDR, MIO, UART, clocks) + AXI sanity check
+make program BIT=bitstreams/cgra_top.bit
+make program BIT=... PS_INIT=0                     # PL only, skip PS init
+
+# Inspect FPGA + every CGRA APB register
+make fpga_status
+make reg_dump                                      # all 28 registers, decoded
+make reg_read  REG=DMA_STATUS
+make reg_write REG=DMA_SRC VAL=0x10000000
+
+# Build the bare-metal regression and run it on Cortex-A9 #0
+make baremetal                                     # arm-none-eabi-gcc -> cgra_test.elf
+make run_baremetal                                 # program + load + capture UART
+
+# Load any other bare-metal ELF
+make run_elf ELF=07_sw/build/my_app BIT=bitstreams/cgra_top.bit
+```
+
+The bare-metal regression covers 17 test groups / 64 checks: register sanity,
+all R/W register patterns, 1D and 2D DMA, varied transfer sizes, back-to-back
+DMA stress, tile bank isolation, PASS0 routing in East and South directions,
+all four `RESULT_ROW` registers, `PE[3,3] RESULT_DATA`, loop count sweeps,
+`CU_CYCLES` monotonicity, `IRQ_STATUS` W1C, a 20-iteration stress run, and CU
+soft reset. Results are streamed over UART0 at 115200 baud and captured in
+`02_log/uart.log`. **Current result on hardware: 64 / 64 passed.**
+
+> **WSL2 USB passthrough.** The JTAG probe (`0403:6010`, Digilent Adept) and
+> the CH340C UART (`1a86:7523`) must both be attached via `usbipd-win` from
+> Windows before running the flow:
+> ```powershell
+> usbipd attach --wsl --busid <jtag>; usbipd attach --wsl --busid <uart>
+> ```
 
 ### C ALPR (Real-Time License Plate Recognition)
 
@@ -744,6 +792,7 @@ void cgra_get_results(uint32_t results[4]) {
 | **Hex Dumper** | app/dump_cgra_hex.c | ~200 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
 | **Golden Model Test** | app/lpr_golden_test.c | ~180 | Standalone golden model validation (no hardware required) |
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
+| **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, start.s, linker.ld} | ~870 | OCM-resident ARM ELF, 17-group / 64-check CGRA regression streaming results over UART0 |
 
 ### LPR Golden Model
 
@@ -780,6 +829,56 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 - FC layer (784→30) is fully offloaded to the CGRA with Q8.8 activations and INT8 weights
 - Calls `cgra_acc_clr` before each inference, then drives 61 DMA+CU chunk iterations
 - Reads RESULT_ROW0-3 and applies argmax for the final character prediction
+
+### Bare-Metal Hardware Regression (`07_sw/baremetal/`)
+
+A standalone arm-none-eabi ELF that boots from OCM, brings up UART0 directly,
+and exercises the CGRA over the AXI GP0 APB interface — no Linux, no driver,
+no XSDB scripting in the loop. Used to validate the silicon-equivalent
+hardware behaviour of the synthesized design after every Vivado push.
+
+| File | Purpose |
+|------|---------|
+| `start.s` | ARM Cortex-A9 reset vector. Disables IRQ/FIQ, sets `VBAR=0x4000`, enables VFP/NEON (CPACR cp10/cp11 + FPEXC.EN), zeros BSS, calls `main`. Includes a vector table with tagged trap handlers (`r11` carries the trap type, `lr` carries the faulting PC). |
+| `linker.ld` | OCM-only layout. Vectors at `0x4000`, `.init`/`.text` immediately after, stack top at `0x1FFC0`. DMA staging buffer is in DDR at `0x100000`. |
+| `uart.h` | Polled Zynq PS UART0 driver. `uart_init()` resets the FIFOs and writes `BAUD_GEN=124, BAUD_DIV=6` (115200 baud at the 100 MHz UART reference clock that ps7_init configures). `uart_puts()` drains the TX FIFO at every newline so the host CH340 never drops a line on long bursts. |
+| `cgra.h` | Full ISA opcode set, source/route field constants, status bit definitions, register-access inlines, 1D and 2D DMA helpers (`cgra_dma`, `cgra_dma_2d`), CU soft-reset, and `cgra_config_pe` which drives the PE Config RAM double-pump (write hi32 then lo32 → slot-0 broadcast to all 16 contexts). |
+| `main.c` | The 17-group / 64-check regression itself. |
+
+#### Test Groups (64 checks total)
+
+| # | Group | Checks | Coverage |
+|---|-------|--------|----------|
+| 1 | Register sanity | 5 | Reset values for `DMA_STATUS`, `CU_STATUS`, `LOOP_END`, `LOOP2_END`; `CU_TIMEOUT` round-trip |
+| 2 | All RW registers | 15 | Four-pattern (A5/5A/00/FF) write/read on every R/W register including `IRQ_MASK`, `LOOP*`, `LOOP2*`, `TILE_BANK_SEL` |
+| 3 | DMA round-trip 16 B | 3 | DDR→Tile→DDR with 4-word integrity check |
+| 4 | DMA round-trip 1 KB | 3 | 256-word integrity check |
+| 5 | DMA varied sizes | 4 | 4 / 32 / 256 / 4096 byte transfers |
+| 6 | DMA 2D strided | 3 | 4 rows × 16 B with `SRC_STRIDE=32` |
+| 7 | Back-to-back DMA | 1 | 16 sequential DMAs, no state leak |
+| 8 | Tile bank isolation | 4 | Two banks at `addr[13:12]` stride |
+| 9 | PASS0 East routing | 2 | Row 0, 4× East hops |
+| 10 | PASS0 South routing | 2 | Col 0, 4× South + 3× East hops |
+| 11 | All four rows | 5 | Different immediates on rows 0-3 |
+| 12 | `RESULT_DATA` (PE[3,3]) | 5 | Direct register + `RESULT_STATUS` valid bit |
+| 13 | Loop count sweep | 4 | Counts of 1, 5, 16, 100 |
+| 14 | `CU_CYCLES` monotonicity | 2 | Cycles grow with loop count |
+| 15 | `IRQ_STATUS` W1C | 4 | DMA done, CU done, write-1-to-clear |
+| 16 | Stress repeats | 1 | 20 iterations of test 11 with varying immediates |
+| 17 | CU soft reset | 2 | `BUSY` clears, `DONE` correctly sticky |
+
+#### Running on hardware
+
+```bash
+make baremetal           # arm-none-eabi-gcc -> 07_sw/baremetal/cgra_test.elf
+make run_baremetal       # programs PL, runs ps7_init, loads ELF, captures UART
+cat 02_log/uart.log      # full test transcript
+```
+
+The flow expects the JTAG probe and CH340 UART to be visible in WSL2 (see the
+USB passthrough note in the FPGA bring-up section above). Diagnostic registers
+can be inspected from the host at any time via `make reg_dump` / `make reg_read
+REG=...` even while the ELF is parked in its `wfi` hang loop.
 
 ---
 
@@ -843,6 +942,8 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | East-Edge Result Capture | 4-row APB-readable registers |
 | Bi-Directional DMA | AXI4 read + write engines, 32-word FIFO, W_LOCAL fast-drain |
 | Linux Driver (UIO+CMA) | Zynq-7000 PetaLinux 2022.2 ready |
+| **JTAG Bring-Up Flow** | XSDB-driven program / ps7_init / reg dump / ELF load from WSL2 over usbipd |
+| **Bare-Metal HW Regression** | 17-group / 64-check OCM-resident ARM ELF, UART0 streamed (64/64 PASS on Zynq XC7Z020) |
 | LPR Golden Model | Pure-C int32 reference (Vietnamese 30-class) |
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
@@ -855,8 +956,7 @@ Intermediate layer dumps are written to `golden_dump/` (Conv1, Pool1, Conv2, Poo
 | Enhancement | Priority | Description |
 |-------------|----------|-------------|
 | **3rd Pipeline Stage** | High | Register between DSP48 multiply and saturation for 100 MHz |
-| **Vivado Block Design** | High | PS + AXI interconnect + CGRA IP for Zynq-7020 bitstream |
-| **Device Tree Overlay** | High | UIO entry for PetaLinux `/dev/uio0` |
+| **Device Tree Overlay** | High | UIO entry for PetaLinux `/dev/uio0` (Vivado bitstream + bring-up flow already done) |
 | **On-Chip Learning (STDP)** | Medium | Spike-Timing-Dependent Plasticity for local weight updates |
 | **Python Config Generator** | Medium | Script to generate 64-bit config frames from assembly syntax |
 | **Floating-Point PE** | Low | Optional FPU datapath for scientific computing |
@@ -887,6 +987,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for SNN Inference**
 
-*Silicon-Ready | 8915/8915 Verified | 100% ISA Coverage | 25 Test Suites*
+*Silicon-Ready | 8915/8915 Sim Tests | 64/64 Hardware Tests | 100% ISA Coverage | 25 Sim Suites*
 
 </div>
