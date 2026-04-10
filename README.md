@@ -155,6 +155,36 @@ make clean                       # Clean build artifacts
 make CROSS=arm-linux-gnueabihf- all
 ```
 
+### ASCII Image Accelerator Demo
+
+A standalone Vitis-style C application that visually demonstrates the
+full hardware pipeline (`ARM → DMA → CGRA → IRQ → ARM`) by inverting an
+8×8 pixel-art letter "Z" through the CGRA. Designed for live audiences:
+heavily commented, ANSI-colored UART output, single `wfi` block in
+main(), and an LED4 visual indicator on every IRQ. Lives at
+`07_sw/baremetal/demo_ascii_inverter.c` and uses the **real Xilinx Vitis
+BSP** (`XScuGic`, `Xil_DCacheFlushRange`, `Xil_ExceptionRegisterHandler`)
+rather than the round-3 hand-rolled GIC driver.
+
+```bash
+make demo                # builds 07_sw/baremetal/demo_ascii.elf
+make run_demo            # programs FPGA, loads demo, captures UART
+```
+
+The demo source file is **identical** between two build paths:
+
+| Build path | Who provides BSP / xparameters.h | Use case |
+|---|---|---|
+| WSL2 (this repo's Makefile) | The Makefile pulls Vitis BSP source from `/tools/Xilinx/2025.1/data/embeddedsw/` and links our hand-rolled `xparameters.h` + `xscugic_g.c` | Bring-up + iteration |
+| Windows Vitis Workbench | Vitis auto-generates `xparameters.h`, `xscugic_g.c`, the linker script, and the boot/vector code from the bitstream `.hwh` | Live demo |
+
+To port the demo to Vitis Workbench on Windows: create an Empty
+Application project against the same `.xsa`, **import only
+`demo_ascii_inverter.c`** into `src/`, build, and run. No other file
+from this repo is needed — the demo source defines its own UART driver,
+hardcodes the CGRA IRQ ID (61), and doesn't reference any project-local
+header.
+
 ### FPGA Hardware Bring-Up (Zynq-7000)
 
 End-to-end JTAG deployment from a Linux/WSL2 host to a Zynq XC7Z020 board

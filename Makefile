@@ -127,7 +127,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
         hw_server_start hw_server_stop hw_server_check \
         program fpga_status run_elf reg_read reg_write reg_dump \
         pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
-        baremetal run_baremetal
+        baremetal run_baremetal demo run_demo
 
 # ==============================================================================
 # Default Target
@@ -216,6 +216,8 @@ help:
 	@echo " Bare-Metal Targets:"
 	@echo "   make baremetal            - Build bare-metal CGRA test ELF"
 	@echo "   make run_baremetal        - Build + program FPGA + load ELF + UART monitor"
+	@echo "   make demo                 - Build ASCII Image Accelerator demo ELF (Vitis BSP)"
+	@echo "   make run_demo             - Build + program FPGA + load demo + UART monitor"
 	@echo "=========================================================================="
 
 # ==============================================================================
@@ -772,6 +774,29 @@ run_baremetal: baremetal program
 		--hw-host $(HW_HOST) \
 		2>&1 | tee $(LOG_DIR)/run_elf.log
 	@echo "[RUN_BAREMETAL] ELF running. UART log: $(LOG_DIR)/uart.log"
+
+# ------------------------------------------------------------------------------
+# ASCII Image Accelerator demo (Vitis BSP, drops cleanly into Vitis Workbench)
+# ------------------------------------------------------------------------------
+demo:
+	@echo "=========================================================================="
+	@echo " [DEMO] Building ASCII Image Accelerator ELF (Vitis BSP)"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) demo
+
+run_demo: demo program
+	@echo "=========================================================================="
+	@echo " [RUN_DEMO] Starting UART monitor on $(UART_PORT) @ $(UART_BAUD)"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	@python3 scripts/uart_monitor.py $(UART_PORT) $(UART_BAUD) \
+		2>&1 | tee $(LOG_DIR)/demo_uart.log &
+	@sleep 1
+	source $(XILINX_SETTINGS) && \
+	$(XSDB) $(SCRIPT_DIR)/xsdb_run_elf.tcl $(BAREMETAL_DIR)/demo_ascii.elf \
+		--hw-host $(HW_HOST) \
+		2>&1 | tee $(LOG_DIR)/demo_run_elf.log
+	@echo "[RUN_DEMO] ELF running. UART log: $(LOG_DIR)/demo_uart.log"
 
 # ------------------------------------------------------------------------------
 # One-command deploy: pull bitstream + program FPGA
