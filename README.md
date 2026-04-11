@@ -44,16 +44,14 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ## Datasheet
 
-### Electrical Characteristics
+### Operating Points (Repository-Backed)
 
-| Parameter | Symbol | Min | Typ | Max | Unit |
-|-----------|--------|-----|-----|-----|------|
-| Operating Frequency | f_CLK | 10 | 100 | 213.72 | MHz |
-| Supply Voltage | V_DD | 0.9 | 1.0 | 1.1 | V |
-| Operating Temperature | T_A | -40 | 25 | 85 | °C |
-| Reset Pulse Width | t_RST | 10 | - | - | ns |
-
-*Fmax of 213.72 MHz achieved with timing-optimized synthesis on Zynq UltraScale+*
+| Item | Value | Source in repo |
+|------|-------|----------------|
+| FPGA target | Xilinx Zynq-7000 XC7Z020 | XSDB scripts + bring-up flow |
+| Hardware-validated clock | 50 MHz | Bare-metal bring-up / hardware regression flow |
+| Synthesis constraint target | 100 MHz (10 ns period) | `scripts/genus_syn.tcl` (`create_clock -period 10.0`) |
+| Reset polarity/type | Active-low, synchronous | RTL (`always_ff @(posedge clk)` + `if (!rst_n)`) |
 
 ### Architecture Specifications
 
@@ -88,25 +86,11 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | Clock | Single | - | Rising edge |
 | Reset | Active-low | - | Synchronous |
 
-### Timing Specifications
+### Timing and Resource Notes
 
-| Parameter | Symbol | Min | Typ | Max | Unit |
-|-----------|--------|-----|-----|-----|------|
-| Clock Period | t_CLK | 4.68 | 10 | 100 | ns |
-| APB Setup Time | t_SU | 2 | - | - | ns |
-| APB Hold Time | t_HD | 1 | - | - | ns |
-| DMA Latency | t_DMA | 4 | 6 | 10 | cycles |
-| Config Load Time | t_CFG | 2 | - | - | cycles |
-| Execution Startup | t_EXEC | 3 | - | - | cycles |
-
-### Resource Utilization (Target: Xilinx Zynq UltraScale+ XCZU4EV)
-
-| Resource | Usage | Available | Utilization |
-|----------|-------|-----------|-------------|
-| CLB LUTs | ~12,500 | 230,400 | ~5.5% |
-| Flip-Flops | ~8,200 | 460,800 | ~1.8% |
-| Block RAM (36Kb) | 24 | 312 | ~7.7% |
-| DSP48E2 Slices | 32 | 1,728 | ~1.9% |
+- This repository does not include checked-in sign-off timing/resource reports for an UltraScale+ target.
+- Current documented deployment target is **XC7Z020 at 50 MHz**.
+- Synthesis scripts are configured with a **100 MHz** target clock for implementation experiments.
 
 ---
 
@@ -470,7 +454,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 |----------------|--------|------------|
 | 0x0XXX_XXXX | External AXI / DDR | Direct AXI burst pass-through |
 | 0x1XXX_XXXX | Tile Memory | [13:12]=Bank, [11:0]=Byte offset |
-| 0x2XXX_XXXX | Config RAM | [11:8]=PE ID, [6:3]=Slot, [2]=Hi/Lo word |
+| 0x2XXX_XXXX | Config RAM | [10:7]=PE ID, [6:3]=Slot, [2]=Hi/Lo word |
 
 **Important:** Staging buffers in DDR **must** use prefix `0x0`. Addresses with prefix `0x1` or `0x2` are routed to internal memories, not external RAM.
 
@@ -623,8 +607,8 @@ cd ..     && make sim       # Suite RAP verifies 4/4 result rows match golden
 | Simulator | Version | Status | Notes |
 |-----------|---------|--------|-------|
 | Cadence Xcelium | 20.09+ | Pass | Primary tool, covergroups supported |
-| Verilator | 5.x+ | Pass | CI/local (no covergroup support) |
-| Synopsys VCS | 2023+ | Untested | -- |
+| Verilator | 5.x+ | Not in checked-in flow | Testbench includes Verilator lint pragmas, but full regression flow is Xcelium-based |
+| Synopsys VCS | 2023+ | Untested | No checked-in VCS run scripts in this repo |
 
 ---
 
@@ -700,8 +684,8 @@ cgra_top #(
 
 | Signal | Requirement |
 |--------|-------------|
-| clk | 10–200 MHz, 50% duty cycle ±5% (Fmax 213.72 MHz) |
-| rst_n | Synchronous, active-low, min 2 cycles |
+| clk | 50 MHz validated on XC7Z020 hardware; synthesis scripts use 100 MHz target |
+| rst_n | Synchronous, active-low (assert for at least 1 cycle; 2+ recommended) |
 
 ---
 
@@ -812,17 +796,17 @@ void cgra_get_results(uint32_t results[4]) {
 
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
-| cgra_top | cgra_top.sv | ~880 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop |
-| cgra_apb_csr | cgra_apb_csr.sv | ~356 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
-| cgra_dma_engine | cgra_dma_engine.sv | ~1120 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
-| cgra_control_unit | cgra_control_unit.sv | ~380 | FSM, 2-level nested loops, timeout, loops_done_o, global stall |
-| cgra_tile_memory | cgra_tile_memory.sv | ~280 | 4-bank x 4096 SRAM, double-buffer bank_sel, prefetch PC |
-| cgra_array | cgra_array.sv | ~198 | Parameterized N*M PE mesh (generate blocks, 83% smaller) |
+| cgra_top | cgra_top.sv | ~904 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop |
+| cgra_apb_csr | cgra_apb_csr.sv | ~381 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
+| cgra_dma_engine | cgra_dma_engine.sv | ~1199 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
+| cgra_control_unit | cgra_control_unit.sv | ~379 | FSM, 2-level nested loops, timeout, loops_done_o, global stall |
+| cgra_tile_memory | cgra_tile_memory.sv | ~302 | 4-bank x 4096 SRAM, double-buffer bank_sel, prefetch PC |
+| cgra_array | cgra_array.sv | ~244 | Parameterized N*M PE mesh (generate blocks) |
 | cgra_tile | cgra_tile.sv | ~230 | PE + Router wrapper with branch passthrough |
-| cgra_pe | cgra_pe.sv | ~770 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
-| cgra_router | cgra_router.sv | ~417 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
-| cgra_config_mem_bsg | bsg_mem/ | ~81 | BSG SRAM wrapper (16x64-bit config RAM per PE) |
-| **Total** | **17 files** | **~6,700** | -- |
+| cgra_pe | cgra_pe.sv | ~767 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
+| cgra_router | cgra_router.sv | ~519 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
+| cgra_config_mem_bsg | bsg_mem/cgra_config_mem_bsg.sv | ~94 | BSG SRAM wrapper (16x64-bit config RAM per PE) |
+| **Total** | **17 files** | **~5,900** | All `.sv` files under `00_src/` + `00_src/bsg_mem/` |
 
 ---
 
