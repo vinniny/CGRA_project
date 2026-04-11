@@ -29,7 +29,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 - **Bi-Directional DMA**: AXI4 burst master with 32-word FIFO, 2D strided transfers, W_LOCAL fast-drain path.
 - **Nested Hardware Loops**: 2-level zero-overhead loops with loop-aware auto-stop for multi-tile execution.
 - **Dynamic Branching**: PE predicate flag drives CU PC jump for data-dependent control flow.
-- **Pipelined ALU**: Registered operand stage (_r) for timing closure on DSP48 paths.
+- **Pipelined ALU**: 3-stage pipeline (decode → _r → _r2) for timing closure on DSP48 paths.
 - **End-to-End FC Acceleration**: Verified 784->30 fully-connected layer offload matching software golden model bit-exactly.
 - **UVM-Inspired Verification**: 8915 tests, 25 suites, transaction-based monitors/scoreboards, SystemVerilog covergroups, clocking blocks, constrained-random classes.
 
@@ -475,8 +475,8 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 **Important:** Staging buffers in DDR **must** use prefix `0x0`. Addresses with prefix `0x1` or `0x2` are routed to internal memories, not external RAM.
 
 **Config double-pump write sequence (64-bit atomic):**
-1. Write `data[63:32]` to `0x2XXXXXXX | 0x4` — latches upper 32 bits (addr[2]=1)
-2. Write `data[31:0]` to `0x2XXXXXXX` — commits full 64-bit config entry (addr[2]=0)
+1. Write `data[63:32]` to `0x2XXXXXXX` — latches upper 32 bits (addr[2]=0)
+2. Write `data[31:0]` to `0x2XXXXXXX | 0x4` — commits full 64-bit config entry (addr[2]=1)
 
 **Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE. Writing to slots 1–15 updates only that specific slot.
 
@@ -770,13 +770,13 @@ void cgra_load_tile(uint32_t src_phys, uint32_t bank, uint32_t offset, uint32_t 
 void cgra_config_pe(uint32_t pe_id, uint32_t slot, uint64_t config,
                     uint32_t scratch_phys, uint32_t scratch_virt) {
     uint32_t base = 0x20000000 | (pe_id << 7) | (slot << 3);
-    // HI word (addr[2]=1 — latches upper 32 bits)
+    // HI word (addr[2]=0 — latches upper 32 bits)
     *(uint32_t*)scratch_virt = (uint32_t)(config >> 32);
-    REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base | 4;
-    REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
-    // LO word (addr[2]=0 — commits full 64-bit entry)
-    *(uint32_t*)scratch_virt = (uint32_t)config;
     REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base;
+    REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
+    // LO word (addr[2]=1 — commits full 64-bit entry)
+    *(uint32_t*)scratch_virt = (uint32_t)config;
+    REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base | 4;
     REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
 }
 
@@ -894,7 +894,7 @@ hardware behaviour of the synthesized design after every Vivado push.
 | `gic.h` / `gic.c` | Bare-metal ARMv7 GIC v1 driver targeting the Zynq-7000 GIC (distributor `0xF8F01000` / CPU interface `0xF8F00100`). ~150 LOC, no Vitis BSP dependency. APIs: `gic_init`, `gic_register_isr`, `gic_enable_irq_id`, `gic_set_priority`, `gic_set_target`, `gic_set_level_high`, plus a `gic_irq_dispatch` top-half that the IRQ vector calls to read `GICC_IAR`, dispatch the registered handler, and write `GICC_EOIR`. The CGRA IRQ ID is exposed as `CGRA_IRQ_ID = 61` (IRQ_F2P[0] = SPI 29 + 32 base). |
 | `main.c` | The 25-group / 96-check regression itself. |
 
-#### Test Groups (92 checks total)
+#### Test Groups (96 checks total)
 
 **Round 1 — register, DMA, basic CU, IRQ polling, stress (64 checks)**
 
@@ -986,7 +986,7 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 - **Loop-aware auto-stop:** The CU asserts `done` only when all loop iterations are exhausted AND context_pc reaches slot 15. Dynamic branches at PC=15 are respected (auto-stop deferred until branch completes).
 - **Protected registers:** DMA config registers (SRC/DST/SIZE/STRIDE/ROWS/COLS) are write-protected while DMA is busy. CU config registers (TIMEOUT/LOOP*/LOOP2*) are write-protected while CU is busy. TILE_BANK_SEL is write-protected while either DMA or CU is busy.
 - **AXI error detection:** DMA engine detects both SLVERR (2'b01) and DECERR (2'b10) on BRESP/RRESP channels. Error code and flag are captured in DMA_ERROR (0x38) and IRQ_STATUS[2]. Errors are sticky (cleared on new cfg_start or via W1C on IRQ_STATUS).
-- **Current Fmax:** 50 MHz on Zynq-7000. The DSP48 multiply-to-saturation path needs a 3rd pipeline stage for 100 MHz.
+- **Current Fmax:** 50 MHz on Zynq-7000 (3-stage pipeline already implemented; timing closure on DSP48 paths may require additional constraints for 100 MHz).
 
 ---
 
@@ -1004,7 +1004,7 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 | Dynamic Branching | PE predicate drives CU PC jump (config bits [48:44]) |
 | Nested Hardware Loops | 2-level (L1+L2) with loop-aware auto-stop |
 | 2D Strided DMA | DMA_SRC_STRIDE, DMA_ROWS, DMA_COLS registers |
-| Pipelined ALU | _r registers between operand mux and ALU |
+| Pipelined ALU | 3-stage pipeline: decode → _r (operand register) → _r2 (multiply/compute register) |
 | BSG Memory Macros | ASIC-ready SRAM wrappers |
 | RELU / MAX Operations | ANN/LPR extensions (opcodes 19-20) |
 | LIF Neuron | Hardware Leaky Integrate-and-Fire (opcode 18) |
@@ -1024,7 +1024,6 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 
 | Enhancement | Priority | Description |
 |-------------|----------|-------------|
-| **3rd Pipeline Stage** | High | Register between DSP48 multiply and saturation for 100 MHz |
 | **Device Tree Overlay** | High | UIO entry for PetaLinux `/dev/uio0` (Vivado bitstream + bring-up flow already done) |
 | **On-Chip Learning (STDP)** | Medium | Spike-Timing-Dependent Plasticity for local weight updates |
 | **Python Config Generator** | Medium | Script to generate 64-bit config frames from assembly syntax |
