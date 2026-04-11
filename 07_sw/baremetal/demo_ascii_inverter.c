@@ -291,15 +291,26 @@ static void cgra_config_pe(uint32_t pe_id, uint64_t cfg)
     cgra_dma_blocking((uint32_t)(uintptr_t)g_cfg_word, base | 0x4U, 4);
 }
 
-/* ── Pretty-print an 8x8 image to UART using ANSI color codes ───────── */
+/* ── Pretty-print an 8x8 image to UART using pure 7-bit ASCII ────────
+ *
+ * Each ON pixel renders as "##", each OFF pixel as "  ". The earlier
+ * version used UTF-8 green block characters (U+2588) wrapped in ANSI
+ * color escapes, but the Vitis Serial Terminal's Eclipse-Java receive
+ * pipeline occasionally drops a byte on sustained 115200-baud bursts,
+ * which landed in the middle of 3-byte UTF-8 sequences and produced
+ * replacement characters (U+FFFD) on screen. With pure ASCII every
+ * byte is standalone, so at worst a single dropped byte turns one
+ * '#' into something else rather than corrupting a whole codepoint.
+ * This renders pristine in the Vitis Terminal, Hercules, PuTTY,
+ * and any other terminal. For a fancier UTF-8 + green-block render,
+ * use Tera Term with encoding set to UTF-8. */
 static void print_ascii_image(const uint32_t *img)
 {
     for (int r = 0; r < IMG_H; r++) {
         uart_puts("    ");
         for (int c = 0; c < IMG_W; c++) {
             if (img[r * IMG_W + c] == ON) {
-                /* Two solid Unicode blocks U+2588 in green. */
-                uart_puts("\x1b[32m\xe2\x96\x88\xe2\x96\x88\x1b[0m");
+                uart_puts("##");
             } else {
                 uart_puts("  ");
             }
@@ -509,8 +520,8 @@ int main(void)
     g_total_cycles = 0;
     start_chunk(0);
 
-    uart_puts("\n\x1b[33m[ARM] CGRA is running. CPU goes to sleep "
-              "waiting for IRQ...\x1b[0m\n");
+    uart_puts("\n[ARM] CGRA is running. CPU goes to sleep "
+              "waiting for IRQ...\n");
 
     /* The user-spec'd single blocking wait. Behind the scenes the ISR
      * fires 16 times (once per chunk) — the wfi wakes for each fire,
@@ -529,8 +540,7 @@ int main(void)
      * that a DMA engine writes into (from outside the CPU) need
      * invalidation after the DMA. */
 
-    uart_puts("\n\x1b[32m[IRQ] Interrupt received! "
-              "CGRA Finished.\x1b[0m\n");
+    uart_puts("\n[IRQ] Interrupt received! CGRA Finished.\n");
 
     uart_puts("\n[ARM] Processed Image (Inverted):\n");
     print_ascii_image(g_output_image);
