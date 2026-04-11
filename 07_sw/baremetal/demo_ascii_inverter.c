@@ -84,7 +84,14 @@ static inline void uart_putc(char c)
 {
     volatile uint32_t *sr   = (volatile uint32_t *)(UART0_BASE + UART_SR_OFF);
     volatile uint32_t *fifo = (volatile uint32_t *)(UART0_BASE + UART_FIFO_OFF);
-    while (*sr & UART_SR_TXFULL) { /* spin */ }
+    /* Wait for TX FIFO to be fully EMPTY (not just non-full) before
+     * writing the next byte. This caps effective throughput at 1 byte
+     * per ~87 us at 115200 baud (~ 11520 B/s), which prevents the
+     * CH340 USB-serial bridge downstream from dropping bytes when the
+     * Cortex-A9 runs at full 666 MHz with the dcache enabled. Dropped
+     * bytes in the middle of a 3-byte UTF-8 block char sequence show
+     * up as replacement characters in the terminal. */
+    while (!(*sr & UART_SR_TXEMPTY)) { /* spin */ }
     *fifo = (uint32_t)(unsigned char)c;
 }
 
