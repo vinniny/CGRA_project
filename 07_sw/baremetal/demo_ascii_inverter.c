@@ -214,9 +214,30 @@ static volatile int      g_all_done      = 0;
 static volatile uint32_t g_total_cycles  = 0;
 static          XScuGic  g_intc;
 
-/* ── Tiny CGRA register helpers (no driver — direct AXI GP0 writes) ── */
-static inline void     cgra_wr(uint32_t addr, uint32_t v) { *(volatile uint32_t *)addr = v; }
-static inline uint32_t cgra_rd(uint32_t addr)             { return *(volatile uint32_t *)addr; }
+/* ── Tiny CGRA register helpers (no driver — direct AXI GP0 writes) ──
+ * The Vitis 2025.1 editor runs a clangd language server that (mis-)
+ * configures itself for the host x86_64 target where pointers are
+ * 64 bits, so it flags the 32-bit-int-to-pointer cast. The real
+ * build target is arm-none-eabi / Cortex-A9 where
+ *   sizeof(uint32_t) == sizeof(void *) == 4
+ * and the cast is a safe no-op, which arm-none-eabi-gcc correctly
+ * accepts without any warning. Wrap the two helpers in a pragma so
+ * the editor's red squiggles don't distract during live demos. */
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wint-to-pointer-cast"
+#endif
+static inline void cgra_wr(uint32_t addr, uint32_t v)
+{
+    *(volatile uint32_t *)addr = v;
+}
+static inline uint32_t cgra_rd(uint32_t addr)
+{
+    return *(volatile uint32_t *)addr;
+}
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 /* Blocking 1D DMA wrapper. Always clears stale 2D state first. */
 static void cgra_dma_blocking(uint32_t src, uint32_t dst, uint32_t bytes)
@@ -492,11 +513,14 @@ int main(void)
         __asm__ volatile ("wfi");
     }
 
-    /* Cache-invalidate the output image so the ARM picks up the
-     * fresh values the ISR just stored, instead of any cached
-     * pre-DMA values. (No-op on WSL2 without MMU; meaningful on
-     * Windows Vitis Workbench with the BSP's full cache setup.) */
-    Xil_DCacheInvalidateRange((UINTPTR)g_output_image, sizeof(g_output_image));
+    /* Note: do NOT Xil_DCacheInvalidateRange(g_output_image). That array
+     * is filled by the ISR's own ARM stores (not by a peripheral DMA),
+     * so it lives entirely inside the Cortex-A9 cache — no coherency
+     * action is needed. On Cortex-A9 with write-back dcache enabled,
+     * invalidate-by-MVA on a DIRTY line actually *drops* the pending
+     * writebacks, which would zero the whole output array. Only buffers
+     * that a DMA engine writes into (from outside the CPU) need
+     * invalidation after the DMA. */
 
     uart_puts("\n\x1b[32m[IRQ] Interrupt received! "
               "CGRA Finished.\x1b[0m\n");
