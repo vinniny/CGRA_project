@@ -35,7 +35,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 
 ### Target Applications
 - **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
-- **License Plate Recognition**: Convolutional inference with tiled MatMul offload (PYNQ-Z2 demo)
+- **License Plate Recognition**: Convolutional inference with tiled MatMul offload (Zynq-7000 XC7Z020 demo)
 - **Sparse Linear Algebra**: Compressed Sparse Column (CSC) matrix operations
 - **Signal Processing**: FIR/IIR filters, FFT acceleration
 - **Edge AI**: Ultra-low latency inference on FPGA
@@ -53,7 +53,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | Operating Temperature | T_A | -40 | 25 | 85 | °C |
 | Reset Pulse Width | t_RST | 10 | - | - | ns |
 
-*Fmax of 213.72 MHz achieved with timing-optimized synthesis on Zynq UltraScale+*
+*Fmax of 213.72 MHz is the target achieved by timing-optimized synthesis on Zynq UltraScale+ (XCZU4EV, speed grade -2). **Current silicon on Zynq-7000 (XC7Z020) runs at 50 MHz** — see "Known Design Constraints" for the pipeline-stage upgrade required to reach 100 MHz on 7-series.*
 
 ### Architecture Specifications
 
@@ -99,7 +99,11 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | Config Load Time | t_CFG | 2 | - | - | cycles |
 | Execution Startup | t_EXEC | 3 | - | - | cycles |
 
-### Resource Utilization (Target: Xilinx Zynq UltraScale+ XCZU4EV)
+*Clock Period min of 4.68 ns corresponds to the 213.72 MHz UltraScale+ Fmax target. Current Zynq-7000 silicon runs at 50 MHz (20 ns period).*
+
+### Resource Utilization
+
+**Projection on Xilinx Zynq UltraScale+ XCZU4EV** (from post-synthesis estimates, not measured on current silicon):
 
 | Resource | Usage | Available | Utilization |
 |----------|-------|-----------|-------------|
@@ -107,6 +111,8 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | Flip-Flops | ~8,200 | 460,800 | ~1.8% |
 | Block RAM (36Kb) | 24 | 312 | ~7.7% |
 | DSP48E2 Slices | 32 | 1,728 | ~1.9% |
+
+Current silicon targets **Zynq-7000 XC7Z020** (DSP48E1, different resource counts). Post-implementation reports from the in-tree Vivado project can be pulled with `make vivado_reports` once a fresh bitstream is generated.
 
 ---
 
@@ -430,7 +436,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
-| 0x40 | RESULT_DATA | RO | 0x0 | PE[15] output (global_result) |
+| 0x40 | RESULT_DATA | RO | 0x0 | PE[3,3] east-edge output (latched by `global_result_reg`, same tap as RESULT_ROW3) |
 | 0x44 | RESULT_STATUS | RO | 0x0 | [0] result_valid |
 
 **Hardware Loop Control (3 registers):**
@@ -438,7 +444,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
 | 0x48 | LOOP_START | RW | 0x0 | Hardware loop start PC [15:0] |
-| 0x4C | LOOP_END | RW | 0x0 | Hardware loop end PC [15:0] (inclusive) |
+| 0x4C | LOOP_END | RW | **0xF** | Hardware loop end PC [15:0] (inclusive). Resets to `0xF` so the default loop range covers the full 16-slot context (verified in round-1 bare-metal regression). |
 | 0x50 | LOOP_COUNT | RW | 0x0 | Extra iterations beyond the first pass [15:0] (0 = run once) |
 
 **LPR Row Results (4 registers — East-edge output capture):**
@@ -470,15 +476,15 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 |----------------|--------|------------|
 | 0x0XXX_XXXX | External AXI / DDR | Direct AXI burst pass-through |
 | 0x1XXX_XXXX | Tile Memory | [13:12]=Bank, [11:0]=Byte offset |
-| 0x2XXX_XXXX | Config RAM | [11:8]=PE ID, [6:3]=Slot, [2]=Hi/Lo word |
+| 0x2XXX_XXXX | Config RAM | [10:7]=PE ID, [6:3]=Slot, [2]=Hi/Lo word |
 
 **Important:** Staging buffers in DDR **must** use prefix `0x0`. Addresses with prefix `0x1` or `0x2` are routed to internal memories, not external RAM.
 
-**Config double-pump write sequence (64-bit atomic):**
-1. Write `data[63:32]` to `0x2XXXXXXX | 0x4` — latches upper 32 bits (addr[2]=1)
-2. Write `data[31:0]` to `0x2XXXXXXX` — commits full 64-bit config entry (addr[2]=0)
+**Config double-pump write sequence (64-bit atomic, verified against `cgra_top.sv:234, 246` and the bare-metal `cgra_config_pe_slot` helper):**
+1. Write `data[63:32]` to `0x2XXXXXXX` (addr[2]=0) — latches the upper 32 bits into `config_high_loaded`
+2. Write `data[31:0]` to `0x2XXXXXXX | 0x4` (addr[2]=1) — commits the full 64-bit config entry (fires `config_commit_en`)
 
-**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE. Writing to slots 1–15 updates only that specific slot.
+**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE (the broadcast FSM at `cgra_top.sv:289` runs for 15 cycles after the commit). Writing to slots 1–15 updates only that specific slot.
 
 ---
 
@@ -486,31 +492,43 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 ### Opcode Summary (21 Operations)
 
-| Op | Mnemonic | Operation | Flags | Latency |
-|----|----------|-----------|-------|---------|
-| 0 | NOP | No operation | - | 1 |
-| 1 | ADD | A + B (saturating) | OVF | 1 |
-| 2 | SUB | A - B (saturating) | OVF | 1 |
-| 3 | MUL | A × B (64-bit full precision) | - | 1 |
-| 4 | MAC | Acc += A × B (64-bit, saturating to 40b) | OVF | 1 |
-| 5 | AND | A & B | - | 1 |
-| 6 | OR | A \| B | - | 1 |
-| 7 | XOR | A ^ B | - | 1 |
-| 8 | SHL | A << B[4:0] | - | 1 |
-| 9 | SHR | A >>> B[4:0] (arithmetic) | - | 1 |
-| 10 | CMP_GT | A > B ? 1 : 0 | - | 1 |
-| 11 | CMP_LT | A < B ? 1 : 0 | - | 1 |
-| 12 | CMP_EQ | A == B ? 1 : 0 | - | 1 |
-| 13 | LOAD_SPM | RF ← SPM[A] | - | 1 |
-| 14 | STORE_SPM | SPM[A] ← B | - | 1 |
-| 15 | ACC_CLR | Acc = 0 | - | 1 |
-| 16 | PASS0 | Output = A (pass operand A east) | - | 1 |
-| 17 | PASS1 | Output = B (pass operand B east) | - | 1 |
-| 18 | LIF | Spiking neuron (Leaky Integrate-and-Fire) | SPIKE | 1 |
-| 19 | RELU | max(0, A) | - | 1 |
-| 20 | MAX | max(A, B) signed | - | 1 |
+`A` is the operand selected by `src0_sel`, `B` is the operand selected by
+`src1_sel`. The `Throughput` column gives the CU issue rate (1 op per cycle
+for all ops); the PE pipeline end-to-end latency from issue to an observable
+result on a neighbour port is 3–4 cycles (the 3-stage `_r / _r2` pipeline
+plus the east-edge register). Dependent RF reads in the same PE across
+adjacent context slots see stale data because there is no write-back
+bypass — route through a neighbour or insert a NOP if you need forwarding.
 
-**MUL/MAC precision:** Both operands are sign-extended to 64 bits before multiplication, yielding a full 64-bit product. For MAC, the product is accumulated into the 40-bit saturating accumulator with overflow detection on bits [63:39].
+| Op | Mnemonic | Operation | Side effects | Thr. |
+|----|----------|-----------|--------------|------|
+| 0 | NOP | No operation (preserves `alu_result` and accumulator) | — | 1 |
+| 1 | ADD | `alu_result = sat32(A + B)` | — | 1 |
+| 2 | SUB | `alu_result = sat32(A - B)` | — | 1 |
+| 3 | MUL | `alu_result = (A × B)[31:0]` — lower 32 bits of 64-bit product (see note below) | — | 1 |
+| 4 | MAC | `Acc += A × B` (40-bit accumulator saturates to ±2³⁹, then `alu_result` is clamped to ±2³¹) | — | 1 |
+| 5 | AND | `alu_result = A & B` | — | 1 |
+| 6 | OR | `alu_result = A \| B` | — | 1 |
+| 7 | XOR | `alu_result = A ^ B` | — | 1 |
+| 8 | SHL | `alu_result = A << B[4:0]` | — | 1 |
+| 9 | SHR | `alu_result = A >>> B[4:0]` (arithmetic, sign-preserving) | — | 1 |
+| 10 | CMP_GT | `alu_result = (A >s B) ? 1 : 0` | sets `predicate_flag` | 1 |
+| 11 | CMP_LT | `alu_result = (A <s B) ? 1 : 0` | sets `predicate_flag` | 1 |
+| 12 | CMP_EQ | `alu_result = (A == B) ? 1 : 0` | sets `predicate_flag` | 1 |
+| 13 | LOAD_SPM | `alu_result = SPM[B]`, then written to `RF[dst]` — **address comes from operand B** | — | 1 |
+| 14 | STORE_SPM | `SPM[B] = A` — **address comes from operand B, data from operand A** | `spm_we=1` | 1 |
+| 15 | ACC_CLR | `Acc = 0` **and** `alu_result = 0` (both the 40-bit accumulator and the 32-bit output are zeroed) | — | 1 |
+| 16 | PASS0 | `alu_result = A` (route direction is set by `route_mask`, not the opcode) | — | 1 |
+| 17 | PASS1 | `alu_result = B` (route direction is set by `route_mask`, not the opcode) | — | 1 |
+| 18 | LIF | Leaky Integrate-and-Fire: if `v_next ≥ θ`, fire (`alu_result=1`, `Acc=0`); else accumulate (`Acc=v_next`, `alu_result=0`) | sets `predicate_flag` on fire | 1 |
+| 19 | RELU | `alu_result = max(0, A)` (signed) | — | 1 |
+| 20 | MAX | `alu_result = max(A, B)` (signed) | — | 1 |
+
+**MUL/MAC precision.** Internally, both operands are sign-extended to 64 bits before multiplication, yielding a full 64-bit product. `OP_MUL` writes *only the lower 32 bits* of that product into `alu_result` (see `cgra_pe.sv:635-641`), so any overflow into the upper 32 bits is silently dropped. `OP_MAC` accumulates the full 64-bit product into the 40-bit saturating accumulator (clamping to `±2³⁹ − 1`), then saturates the visible `alu_result` output a second time to the 32-bit signed range (`±2³¹ − 1`). Both saturation boundaries are verified by the bare-metal regression test group 22 (512 cycles of `0x7FFF × 0x7FFF` peg `Acc` at MAX_POS_40 and clamp the output to `0x7FFF_FFFF`).
+
+**No overflow flag.** ADD, SUB, MAC, and MUL all saturate internally but the PE does not expose any software-visible overflow flag — there's no status register, no APB bit, no predicate update from overflow. If you need to detect saturation you have to compare the output against the saturation constants in software. The `predicate_flag` register is set only by CMP_GT / CMP_LT / CMP_EQ / LIF.
+
+**Predicated execution.** When `pred_en` (bit 22 of the config word) is set, a PE's writeback and output are gated by `predicate_flag`; `pred_inv` (bit 23) inverts the sense. The `branch_en` bit (bit 48) forwards `predicate_flag` to the CU's PC jump logic for data-dependent control flow.
 
 ### Configuration Frame Format (64-bit)
 
@@ -700,7 +718,7 @@ cgra_top #(
 
 | Signal | Requirement |
 |--------|-------------|
-| clk | 10–200 MHz, 50% duty cycle ±5% (Fmax 213.72 MHz) |
+| clk | 10–200 MHz, 50% duty cycle ±5% (Fmax 213.72 MHz on UltraScale+; current Zynq-7000 silicon at 50 MHz) |
 | rst_n | Synchronous, active-low, min 2 cycles |
 
 ---
@@ -726,7 +744,7 @@ cgra_top #(
 #define DMA_ERROR     0x38    // [0]=error_flag, [2:1]=error_code (RO, W1C via IRQ_STATUS[2])
 #define IRQ_STATUS    0x30    // W1C: [0]=dma_done, [1]=cu_done, [2]=dma_error
 #define IRQ_MASK      0x34
-#define RESULT_DATA   0x40    // PE[15] output (global_result)
+#define RESULT_DATA   0x40    // PE[3,3] east-edge output (global_result_reg)
 #define RESULT_STATUS 0x44    // [0]=result_valid
 #define LOOP_START    0x48    // HW loop start PC [15:0]
 #define LOOP_END      0x4C    // HW loop end PC [15:0] (inclusive)
@@ -766,17 +784,20 @@ void cgra_load_tile(uint32_t src_phys, uint32_t bank, uint32_t offset, uint32_t 
     cgra_dma_wait();
 }
 
-// Configure PE (64-bit config, double-pump: HI word first, LO word commits)
+// Configure PE (64-bit config, double-pump: HI word first, LO word commits).
+// HI goes to addr[2]=0 (base), LO goes to addr[2]=1 (base|0x4). The
+// bare-metal cgra_config_pe_slot() at 07_sw/baremetal/cgra.h:165 is
+// the verified-on-hardware reference for this protocol.
 void cgra_config_pe(uint32_t pe_id, uint32_t slot, uint64_t config,
                     uint32_t scratch_phys, uint32_t scratch_virt) {
     uint32_t base = 0x20000000 | (pe_id << 7) | (slot << 3);
-    // HI word (addr[2]=1 — latches upper 32 bits)
+    // HI word (addr[2]=0 — latches upper 32 bits)
     *(uint32_t*)scratch_virt = (uint32_t)(config >> 32);
-    REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base | 4;
-    REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
-    // LO word (addr[2]=0 — commits full 64-bit entry)
-    *(uint32_t*)scratch_virt = (uint32_t)config;
     REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base;
+    REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
+    // LO word (addr[2]=1 — commits full 64-bit entry, triggers slot-0 broadcast)
+    *(uint32_t*)scratch_virt = (uint32_t)config;
+    REG(DMA_SRC) = scratch_phys; REG(DMA_DST) = base | 0x4;
     REG(DMA_SIZE) = 4; REG(DMA_CTRL) = 1; cgra_dma_wait();
 }
 
@@ -812,17 +833,18 @@ void cgra_get_results(uint32_t results[4]) {
 
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
-| cgra_top | cgra_top.sv | ~880 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop |
-| cgra_apb_csr | cgra_apb_csr.sv | ~356 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
-| cgra_dma_engine | cgra_dma_engine.sv | ~1120 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
-| cgra_control_unit | cgra_control_unit.sv | ~380 | FSM, 2-level nested loops, timeout, loops_done_o, global stall |
-| cgra_tile_memory | cgra_tile_memory.sv | ~280 | 4-bank x 4096 SRAM, double-buffer bank_sel, prefetch PC |
-| cgra_array | cgra_array.sv | ~198 | Parameterized N*M PE mesh (generate blocks, 83% smaller) |
-| cgra_tile | cgra_tile.sv | ~230 | PE + Router wrapper with branch passthrough |
-| cgra_pe | cgra_pe.sv | ~770 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
-| cgra_router | cgra_router.sv | ~417 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
-| cgra_config_mem_bsg | bsg_mem/ | ~81 | BSG SRAM wrapper (16x64-bit config RAM per PE) |
-| **Total** | **17 files** | **~6,700** | -- |
+| cgra_top | cgra_top.sv | 904 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop, System ILA hooks |
+| cgra_apb_csr | cgra_apb_csr.sv | 381 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
+| cgra_dma_engine | cgra_dma_engine.sv | 1199 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
+| cgra_control_unit | cgra_control_unit.sv | 379 | FSM, 2-level nested loops, timeout, loops_done_o, global stall (registered to break 5610-fanout) |
+| cgra_tile_memory | cgra_tile_memory.sv | 302 | 4-bank × 4096 SRAM, double-buffer bank_sel, prefetch PC |
+| cgra_array | cgra_array.sv | 244 | Parameterized N×M PE mesh (generate blocks) |
+| cgra_tile | cgra_tile.sv | 230 | PE + Router wrapper with branch passthrough (registered to break LUTLP-1 loop) |
+| cgra_pe | cgra_pe.sv | 767 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
+| cgra_router | cgra_router.sv | 519 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
+| bsg_mem/ wrappers | bsg_mem/*.sv + *.v | 633 | BSG SRAM macros + DFF library (16×64-bit config RAM per PE, sync 1r1w) |
+| axi_ram (sim only) | axi_ram.sv | 373 | Testbench AXI slave model, not synthesized |
+| **Total synthesizable** | **11 modules, 16 files** | **~5,560** | RTL excluding the testbench AXI RAM model |
 
 ---
 
@@ -832,15 +854,17 @@ void cgra_get_results(uint32_t results[4]) {
 
 | Component | Files | Lines | Description |
 |-----------|-------|-------|-------------|
-| **CGRA Driver** | driver/cgra_driver.{c,h} | ~519 | UIO+CMA Linux driver for PYNQ-Z2; full register API, IRQ handling |
+| **CGRA Driver** | driver/cgra_driver.{c,h} | ~740 | UIO+CMA Linux driver for Zynq-7000 (target-board agnostic); full register API, IRQ handling, `/dev/udmabuf` buffer allocation |
 | **Tiler Library** | lib/cgra_tiler.{c,h} | ~340 | Im2Col + CSC conversion; CGRA-aware 4-row tile chunking |
-| **LPR Golden Model** | lib/lpr_golden.{c,h} | ~400 | Pure-C reference CNN (no ONNX, no float); bit-exact int32 output |
+| **LPR Golden Model** | lib/lpr_golden.{c,h} | ~460 | Pure-C reference CNN (no ONNX, no float); bit-exact int32 output |
 | **LPR Demo** | app/lpr_demo.c | ~426 | HW/SW latency comparison: FC MatMul on CGRA vs. ARM |
-| **CGRA Accelerator** | app/lpr_cgra_accel.c | ~350 | Production classifier: Conv/Pool on ARM, FC on CGRA (Q8.8 activations) |
-| **Hex Dumper** | app/dump_cgra_hex.c | ~200 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
-| **Golden Model Test** | app/lpr_golden_test.c | ~180 | Standalone golden model validation (no hardware required) |
+| **CGRA Accelerator** | app/lpr_cgra_accel.c | ~590 | Production classifier: Conv/Pool on ARM, FC on CGRA (Q8.8 activations) |
+| **Live LPR Demo** | app/lpr_live_demo.c | ~640 | Video/webcam pipeline: plate detection + CGRA-offloaded OCR, per-frame latency stats |
+| **Hex Dumper** | app/dump_cgra_hex.c | ~375 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
+| **Golden Model Test** | app/lpr_golden_test.c | ~255 | Standalone golden model validation (no hardware required) |
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
-| **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, gic.{h,c}, start.s, linker.ld} | ~1700 | OCM-resident ARM ELF, 25-group / 96-check CGRA regression streaming results over UART0; includes a self-contained ARMv7 GIC driver for the round-3 interrupt-delivery test |
+| **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, gic.{h,c}, start.s, linker.ld} | ~2000 | OCM-resident ARM ELF, 25-group / 96-check CGRA regression streaming results over UART0; includes a self-contained ARMv7 GIC driver for the round-3 interrupt-delivery test |
+| **ASCII Image Accelerator Demo** | baremetal/{demo_ascii_inverter.c, xparameters.h, xscugic_g.c, bspconfig.h} | ~660 | Vitis-BSP standalone application that inverts an 8×8 letter Z through the CGRA end-to-end; identical source for WSL2 and Windows Vitis Workbench; uses real `XScuGic` / `Xil_DCache*` APIs |
 
 ### LPR Golden Model
 
@@ -894,7 +918,7 @@ hardware behaviour of the synthesized design after every Vivado push.
 | `gic.h` / `gic.c` | Bare-metal ARMv7 GIC v1 driver targeting the Zynq-7000 GIC (distributor `0xF8F01000` / CPU interface `0xF8F00100`). ~150 LOC, no Vitis BSP dependency. APIs: `gic_init`, `gic_register_isr`, `gic_enable_irq_id`, `gic_set_priority`, `gic_set_target`, `gic_set_level_high`, plus a `gic_irq_dispatch` top-half that the IRQ vector calls to read `GICC_IAR`, dispatch the registered handler, and write `GICC_EOIR`. The CGRA IRQ ID is exposed as `CGRA_IRQ_ID = 61` (IRQ_F2P[0] = SPI 29 + 32 base). |
 | `main.c` | The 25-group / 96-check regression itself. |
 
-#### Test Groups (92 checks total)
+#### Test Groups (96 checks total)
 
 **Round 1 — register, DMA, basic CU, IRQ polling, stress (64 checks)**
 
