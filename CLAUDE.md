@@ -59,6 +59,8 @@ make baremetal           # Build cgra_test.elf with arm-none-eabi-gcc
 make run_baremetal       # Program FPGA + load ELF + capture UART (CH340 @ 115200)
 make demo                # Build demo_ascii.elf — ASCII Image Accelerator demo
 make run_demo            # Program FPGA + load demo + capture UART
+make bench               # Build bench_cgra.elf — 11-category performance benchmark
+make bench_res           # Build bench_resolution.elf — resolution sweep for demo planning
 ```
 The demo (`07_sw/baremetal/demo_ascii_inverter.c`) is a Vitis-BSP-style
 standalone application that inverts an 8x8 letter Z through the CGRA
@@ -134,7 +136,7 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 - The MAC accumulator update has the **same pipeline hazard** — only ~1/3 of back-to-back MACs contribute. Use enough cycles (the saturation test runs 512 to peg MAX_POS_40 = 0x7F_FFFF_FFFF, with 32-bit output clamped to 0x7FFFFFFF).
 - `IRQ_STATUS[2]` is W1C and clears immediately. The latched `DMA_ERROR` register is sticky until the next `DMA_CTRL[0]` start, not on IRQ W1C.
 
-## APB Register Map (28 registers, 0x00-0x74)
+## APB Register Map (29 registers, 0x00-0x78)
 
 DMA: DMA_CTRL(0x00 RW), DMA_STATUS(0x04 RO), DMA_SRC(0x08 RW), DMA_DST(0x0C RW), DMA_SIZE(0x10 RW), DMA_SRC_STRIDE(0x14 RW), DMA_ROWS(0x18 RW), DMA_COLS(0x1C RW).
 CU: CU_CTRL(0x20 RW), CU_STATUS(0x24 RO), CU_CYCLES(0x28 RO), CU_TIMEOUT(0x2C RW).
@@ -144,14 +146,15 @@ Loop L1: LOOP_START(0x48 RW), LOOP_END(0x4C RW), LOOP_COUNT(0x50 RW).
 Row Results: RESULT_ROW0-3(0x58-0x64 RO).
 Loop L2: LOOP2_START(0x68 RW), LOOP2_END(0x6C RW), LOOP2_COUNT(0x70 RW).
 Double-Buffer: TILE_BANK_SEL(0x74 RW).
+Tile Auto-Inc: TILE_AUTO_INC(0x78 RW — [0] enable tile addr auto-advance by 16/loop iter).
 
 Error: DMA_ERROR(0x38 RO) — [0] error_flag, [2:1] error_code (W1C via IRQ_STATUS[2]).
 
-Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. CU_TIMEOUT/LOOP*/LOOP2* rejected while CU busy. TILE_BANK_SEL rejected while DMA or CU busy. DMA_CTRL[0] and CU_CTRL[0] auto-clear after 1 cycle.
+Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. CU_TIMEOUT/LOOP*/LOOP2*/TILE_AUTO_INC rejected while CU busy. TILE_BANK_SEL rejected while DMA or CU busy. DMA_CTRL[0] and CU_CTRL[0] auto-clear after 1 cycle.
 
 ## Testbench Architecture
 
-5-layer modular TB with 25 test suites, 8915 tests + UVM-inspired transaction layer:
+5-layer modular TB with 26 test suites, 8926 tests + UVM-inspired transaction layer:
 - Layer 1: tb_defs.svh — macros, constants, assertion helpers (CHECK_EQ, ASSERT_TRUE, etc.)
 - Layer 2: tb_scenario_gen.svh — constrained-random classes (cgra_dma_stim, cgra_pe_stim, cgra_apb_stim) + sequence base classes
 - Layer 3: tb_tasks.svh — APB/DMA/PE driver tasks + clocking-block variants (apb_cb_write/read)
