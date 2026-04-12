@@ -185,6 +185,7 @@ module tb_top;
     `include "include/tb_suite_soft_reset.svh"       // Suite AS: Soft Reset Recovery
     `include "include/tb_suite_error_recovery.svh"   // Suite AT: Error Recovery Path
     `include "include/tb_suite_hwemu.svh"            // Suite HE: Hardware Emulation
+    `include "include/tb_suite_tile_autoinc.svh"    // Suite TAI: Tile Auto-Increment
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -637,6 +638,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_HE_hwemu();
+
+        // =====================================================================
+        // Suite TAI: Tile Auto-Increment
+        // =====================================================================
+        reset_dut(5);
+        run_suite_TAI_tile_autoinc();
 
         // Print functional coverage before finishing
         print_functional_coverage();
