@@ -385,7 +385,9 @@ module tb_top;
     // Memory Write - use tracked address
     // FIX: Guard on valid address (AW received either this cycle or earlier)
     // to prevent writing to stale/uninitialized axi_waddr_next
-    always_ff @(posedge clk) begin
+    // NOTE: Use 'always' (not always_ff) because assertion_errors is a shared
+    // testbench counter written from multiple blocks (MULAXX fix for Xcelium).
+    always @(posedge clk) begin
         if (axi_wvalid && axi_wready_reg) begin
             logic [31:0] target_addr;
             if (axi_awvalid && axi_awready_reg) begin
