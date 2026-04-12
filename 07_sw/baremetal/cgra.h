@@ -53,6 +53,7 @@
 #define CGRA_LOOP2_END       0x6C
 #define CGRA_LOOP2_COUNT     0x70
 #define CGRA_TILE_BANK_SEL   0x74
+#define CGRA_TILE_AUTO_INC   0x78
 
 /* ── ISA opcodes ──────────────────────────────────────────────────────── */
 #define OP_NOP        0u
@@ -100,6 +101,15 @@
 #define ROUTE_E     0x4u  /* bit 20 */
 #define ROUTE_S     0x2u  /* bit 19 */
 #define ROUTE_W     0x1u  /* bit 18 */
+
+/* ── Tile address auto-increment ──────────────────────────────────────── */
+/* When enabled, tile memory address auto-advances by 16 words on each
+ * hardware loop iteration. Pre-load tile with sequential data, run with
+ * LOOP_COUNT=N to process N+1 chunks of 16 words in one CU pass. */
+static inline void cgra_tile_auto_inc(int enable)
+{
+    cgra_wr(CGRA_TILE_AUTO_INC, enable ? 1u : 0u);
+}
 
 /* ── Data mode (SIMD) — config bits [50:49] = extended[10:9] ─────────── */
 #define DATA_MODE_INT32   0u   /* 1× 32-bit (default) */

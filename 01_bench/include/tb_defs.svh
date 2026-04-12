@@ -209,8 +209,11 @@ localparam logic [31:0] ADDR_LOOP2_COUNT    = 32'h70;  // Outer loop iterations 
 // --- Double-Buffer Control (0x74) ---
 localparam logic [31:0] ADDR_TILE_BANK_SEL  = 32'h74;  // [0] PE buffer select (0/1)
 
+// --- Tile Auto-Increment (0x78) ---
+localparam logic [31:0] ADDR_TILE_AUTO_INC  = 32'h78;  // [0] Enable tile addr auto-increment
+
 // --- Unmapped address for negative testing ---
-localparam logic [31:0] ADDR_UNMAPPED       = 32'h80;
+localparam logic [31:0] ADDR_UNMAPPED       = 32'h84;  // Updated: 0x78 is now TILE_AUTO_INC
 
 // ============================================================================
 // 7. DMA ADDRESS SPACE PREFIXES

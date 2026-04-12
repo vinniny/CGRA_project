@@ -70,7 +70,10 @@ DEMO_TARGET := demo_ascii.elf
 BENCH_SRCS   := start.s bench_cgra.c gic.c
 BENCH_TARGET := bench_cgra.elf
 
-.PHONY: all clean dis demo bench
+BENCH_RES_SRCS   := start.s bench_resolution.c gic.c
+BENCH_RES_TARGET := bench_resolution.elf
+
+.PHONY: all clean dis demo bench bench_res
 
 all: $(TARGET)
 
@@ -78,9 +81,16 @@ demo: $(DEMO_TARGET)
 
 bench: $(BENCH_TARGET)
 
+bench_res: $(BENCH_RES_TARGET)
+
 $(BENCH_TARGET): $(BENCH_SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(BENCH_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(BENCH_RES_TARGET): $(BENCH_RES_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_RES_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_RES_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 $(TARGET): $(SRCS) uart.h cgra.h gic.h linker.ld
@@ -97,4 +107,4 @@ dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) *.o
