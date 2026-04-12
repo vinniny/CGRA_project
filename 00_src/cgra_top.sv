@@ -174,6 +174,8 @@ module cgra_top #(
     logic [15:0] cu_loop2_end_pc;
     logic [15:0] cu_loop2_count;
     logic        tile_bank_sel_csr;
+    logic        tile_auto_inc_en;
+    logic [7:0]  cu_next_tile_offset;
     logic [3:0]  array_branch_target;
     logic        array_branch_taken;
     logic        array_branch_taken_r;  // Registered: breaks LUTLP-1 comb loop
@@ -423,7 +425,8 @@ module cgra_top #(
         .loop2_start_pc(cu_loop2_start_pc),
         .loop2_end_pc(cu_loop2_end_pc),
         .loop2_count(cu_loop2_count),
-        .tile_bank_sel(tile_bank_sel_csr)
+        .tile_bank_sel(tile_bank_sel_csr),
+        .tile_auto_inc_en(tile_auto_inc_en)
     );
     
     // =========================================================================
@@ -551,7 +554,10 @@ module cgra_top #(
         .loop2_count_i(cu_loop2_count),
         .branch_target_i(array_branch_target),
         .branch_taken_i(array_branch_taken_r),  // Registered: 1-cycle delay slot
-        .loops_done_o(cu_loops_done)
+        .loops_done_o(cu_loops_done),
+        .tile_auto_inc_en_i(tile_auto_inc_en),
+        .tile_base_offset_o(),                      // registered (unused at top level)
+        .next_tile_base_offset_o(cu_next_tile_offset) // combinational for prefetch
     );
     
     // =========================================================================
@@ -580,13 +586,18 @@ module cgra_top #(
     ) u_tile_mem (
         .clk(clk),
         .rst_n(rst_n),
-        .bank_sel_i(tile_bank_sel_csr),  // C2: double-buffer PE selector
+        // When tile auto-increment is active, offset[7] drives bank_sel_i
+        // to access the upper half of tile SRAM. Otherwise legacy double-buffer.
+        .bank_sel_i(tile_auto_inc_en ? cu_next_tile_offset[7] : tile_bank_sel_csr),
 
         // FIX 3: Dynamic Memory Addressing (Streaming Mode)
         // Each bank address = context_pc, enabling 16-word streaming per run
         
         // Bank 0 (Row 0) - Read port to array
-        .bank0_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency (0-15)
+        // Tile auto-inc: addr = {offset[6:0], pc[3:0]}; offset[7] is routed via bank_sel_i above.
+        // Legacy: addr = {0000_0000, pc[3:0]} (only 16 words accessed).
+        .bank0_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
+                                     : {8'd0, tile_prefetch_pc}),
         .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
         .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
@@ -594,7 +605,8 @@ module cgra_top #(
         .bank0_valid(row_valid[0]),
 
         // Bank 1 (Row 1) - Read port to array
-        .bank1_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
+        .bank1_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
+                                     : {8'd0, tile_prefetch_pc}),
         .bank1_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
@@ -602,7 +614,8 @@ module cgra_top #(
         .bank1_valid(row_valid[1]),
 
         // Bank 2 (Row 2) - Read port to array
-        .bank2_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
+        .bank2_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
+                                     : {8'd0, tile_prefetch_pc}),
         .bank2_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
@@ -610,7 +623,8 @@ module cgra_top #(
         .bank2_valid(row_valid[2]),
 
         // Bank 3 (Row 3) - Read port to array
-        .bank3_addr({8'd0, tile_prefetch_pc}), // Prefetch: compensates 1-cycle sync read latency
+        .bank3_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
+                                     : {8'd0, tile_prefetch_pc}),
         .bank3_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),

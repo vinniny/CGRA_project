@@ -69,7 +69,12 @@ module cgra_control_unit #(
     input  logic                branch_taken_i,
 
     // Loop completion status (for auto-stop gating in cgra_top)
-    output logic                loops_done_o
+    output logic                loops_done_o,
+
+    // Tile address auto-increment
+    input  logic                tile_auto_inc_en_i,
+    output logic [7:0]          tile_base_offset_o,
+    output logic [7:0]          next_tile_base_offset_o
 );
 
     // =========================================================================
@@ -90,6 +95,7 @@ module cgra_control_unit #(
     logic [32:0] wall_counter;   // 33-bit: prevents wrap-around at 2^32 cycles (~85s @ 50MHz)
     logic        timeout_reached;
     logic [31:0] max_cycles_reg;  // FIX: Latched timeout threshold (prevents mid-run corruption)
+    logic [7:0]  tile_base_offset; // Auto-incrementing tile address offset
     
     // Hardware Loop Registers
     logic [15:0] loop_count_reg;  // Remaining loop iterations (internal counter)
@@ -171,6 +177,7 @@ module cgra_control_unit #(
             loop2_start_reg <= '0;
             loop2_end_reg   <= '0;
             loop1_count_reload <= 16'd0;
+            tile_base_offset <= 8'd0;
         end else begin
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
                 // FIX: Match FSM guard - reload only when actually transitioning to RUN
@@ -197,6 +204,8 @@ module cgra_control_unit #(
                     loop2_count_reg <= loop2_count_i;
                 // Save initial loop1 count for reload on outer loop iteration
                 loop1_count_reload <= loop_count_i;
+                // Reset tile offset on every new CU run
+                tile_base_offset <= 8'd0;
             end else if (state == STATE_RUN) begin
                 // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
                 wall_counter <= wall_counter + 33'd1;
@@ -218,6 +227,10 @@ module cgra_control_unit #(
                         loop_count_reg  <= loop1_count_reload;
                         loop2_count_reg <= loop2_count_reg - 16'd1;
                     end
+                    // Tile auto-increment: advance offset when loop wraps back
+                    if (tile_auto_inc_en_i &&
+                        (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0))
+                        tile_base_offset <= tile_base_offset + 8'd1;
                 end
             end
         end
@@ -290,6 +303,24 @@ module cgra_control_unit #(
             next_context_pc_o = pc_counter;
         end
     end
+
+    // =========================================================================
+    // Next Tile Base Offset (combinational) — for tile memory prefetch
+    // =========================================================================
+    // Mirrors the loop-wrap detection above. Advances the offset on the same
+    // cycle as next_context_pc jumps to loop_start, so tile SRAM prefetch
+    // reads from the correct address (new_offset + loop_start) one cycle
+    // ahead of PE execution.
+    always_comb begin
+        if (tile_auto_inc_en_i && pe_enable && !global_stall_o &&
+            (pc_counter == loop_end_reg) &&
+            (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0))
+            next_tile_base_offset_o = tile_base_offset + 8'd1;
+        else
+            next_tile_base_offset_o = tile_base_offset;
+    end
+
+    assign tile_base_offset_o = tile_base_offset;
 
     // =========================================================================
     // Global Stall Logic

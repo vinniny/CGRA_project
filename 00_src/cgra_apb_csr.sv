@@ -83,7 +83,10 @@ module cgra_apb_csr #(
     output logic [15:0]           loop2_count,
 
     // Double-Buffering — C2
-    output logic                  tile_bank_sel
+    output logic                  tile_bank_sel,
+
+    // Tile Auto-Increment
+    output logic                  tile_auto_inc_en
 );
 
     // =========================================================================
@@ -122,7 +125,10 @@ module cgra_apb_csr #(
 
     // Double-Buffering — C2
     localparam ADDR_TILE_BANK_SEL = 8'h74; // RW: PE buffer selector (bit[0])
-    
+
+    // Tile Auto-Increment
+    localparam ADDR_TILE_AUTO_INC = 8'h78; // RW: bit[0] = enable tile addr auto-inc on loop wrap
+
     // =========================================================================
     // Internal Registers
     // =========================================================================
@@ -149,6 +155,7 @@ module cgra_apb_csr #(
     logic [31:0] reg_loop2_end;
     logic [31:0] reg_loop2_count;
     logic [31:0] reg_tile_bank_sel;   // C2: double-buffer selector
+    logic [31:0] reg_tile_auto_inc;  // Tile address auto-increment enable
 
     // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
@@ -247,6 +254,7 @@ module cgra_apb_csr #(
             reg_loop2_end   <= 32'd15;
             reg_loop2_count <= 32'd0;
             reg_tile_bank_sel <= 32'd0;
+            reg_tile_auto_inc <= 32'd0;
         end else begin
             // APB Write Phase
             // FIX: Reject writes to DMA config regs while DMA is busy, and
@@ -270,6 +278,7 @@ module cgra_apb_csr #(
                     ADDR_LOOP2_END:   if (!cu_busy_i) reg_loop2_end   <= pwdata;
                     ADDR_LOOP2_COUNT:    if (!cu_busy_i) reg_loop2_count    <= pwdata;
                     ADDR_TILE_BANK_SEL:  if (!dma_busy_i && !cu_busy_i) reg_tile_bank_sel <= pwdata;
+                    ADDR_TILE_AUTO_INC:  if (!cu_busy_i) reg_tile_auto_inc <= pwdata;
                     // Read-only registers: ignore writes
                     default: ;
                 endcase
@@ -311,6 +320,7 @@ module cgra_apb_csr #(
             ADDR_LOOP2_END:   prdata = reg_loop2_end;
             ADDR_LOOP2_COUNT:    prdata = reg_loop2_count;
             ADDR_TILE_BANK_SEL:  prdata = reg_tile_bank_sel;
+            ADDR_TILE_AUTO_INC:  prdata = reg_tile_auto_inc;
             default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
@@ -340,6 +350,7 @@ module cgra_apb_csr #(
     assign loop2_end_pc   = reg_loop2_end[15:0];
     assign loop2_count    = reg_loop2_count[15:0];
     assign tile_bank_sel  = reg_tile_bank_sel[0];
+    assign tile_auto_inc_en = reg_tile_auto_inc[0];
     
     // =========================================================================
     // IRQ Generation
