@@ -1,15 +1,16 @@
-# CGRA Accelerator for SNN Inference
+# Multicast-Enabled CGRA Accelerator for Edge AI
 
 <div align="center">
 
-**Coarse-Grained Reconfigurable Array IP Core**
+**Coarse-Grained Reconfigurable Array IP Core — A Case Study on License Plate Recognition**
 
-*Version 3.0.0 | April 2026*
+*Version 4.0.0 | April 2026*
 
-[![Silicon Ready](https://img.shields.io/badge/Status-Silicon%20Ready-brightgreen)]()
-[![Sim Tests](https://img.shields.io/badge/Sim-8915%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Silicon Verified](https://img.shields.io/badge/Status-Silicon%20Verified-brightgreen)]()
+[![Sim Tests](https://img.shields.io/badge/Sim-8926%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![HW Tests](https://img.shields.io/badge/Hardware-96%20PASS%20%7C%200%20FAIL-brightgreen)]()
-[![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(100%25%20covered)-blue)]()
+[![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(19%2F19%20verified%20on%20silicon)-blue)]()
+[![Perf/Watt](https://img.shields.io/badge/Perf%2FWatt-8.2x%20vs%20ARM-orange)]()
 [![License](https://img.shields.io/badge/License-Commercial-blue)]()
 
 </div>
@@ -18,27 +19,27 @@
 
 ## Product Overview
 
-High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP designed for **Sparse Spiking Neural Network (SNN) Inference** and **License Plate Recognition (LPR)**. Features a 4×4 mesh of processing elements with integrated DMA, APB control interface, hardware support for **Leaky Integrate-and-Fire (LIF)** neuron dynamics, and **ANN extensions** (RELU, MAX) for convolutional inference.
+High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP designed for **Edge AI inference** with a case study on **License Plate Recognition (LPR)**. Features a 4×4 mesh of processing elements with **multicast routing** (verified 4-way fan-out in same CU cycles as unicast), integrated DMA, APB control interface, hardware **Leaky Integrate-and-Fire (LIF)** neuron opcode, and **ANN extensions** (RELU, MAX) — all verified on Zynq-7000 XC7Z020 silicon.
 
 ### Key Innovations
-- **Parameterized N*M Mesh**: Scalable PE array (default 4x4) with multicast routing for efficient sparse matrix computation.
-- **Hardware LIF Neurons**: Dedicated state-update logic within each PE for biologically plausible spiking dynamics.
-- **ANN Activation Extensions**: Hardware RELU and MAX operations for convolutional neural network layers.
-- **Mixed-Precision SIMD**: INT8x4 and INT16x2 dot-product modes for area/power-efficient inference.
-- **Double-Buffered Tile Memory**: 4 banks x 4096 words with bank_sel for latency-hiding data swaps.
-- **Bi-Directional DMA**: AXI4 burst master with 32-word FIFO, 2D strided transfers, W_LOCAL fast-drain path.
-- **Nested Hardware Loops**: 2-level zero-overhead loops with loop-aware auto-stop for multi-tile execution.
-- **Dynamic Branching**: PE predicate flag drives CU PC jump for data-dependent control flow.
-- **Pipelined ALU**: Registered operand stage (_r) for timing closure on DSP48 paths.
-- **End-to-End FC Acceleration**: Verified 784->30 fully-connected layer offload matching software golden model bit-exactly.
-- **UVM-Inspired Verification**: 8915 tests, 25 suites, transaction-based monitors/scoreboards, SystemVerilog covergroups, clocking blocks, constrained-random classes.
+- **Multicast Routing**: 4-way broadcast (N+E+S+W) delivers data to all neighbors in the same CU cycles as unicast — **measured 4.0× speedup** on parallel FC workloads.
+- **86.6% MAC Pipeline Utilization**: The 40-bit accumulator has a dedicated combinational feedback path, avoiding the RF read-after-write hazard. Measured 13/15 back-to-back MACs effective on silicon.
+- **Mixed-Precision SIMD**: INT8×4 and INT16×2 dot-product modes — **first verified on silicon** this session. Config bits [50:49] correctly synthesized.
+- **Tile Address Auto-Increment**: New feature — tile memory read address auto-advances by 16 words per HW loop iteration. Pre-load 4096 words with one bulk DMA, process all in one CU pass. Expected 50-100× throughput improvement on streaming Conv workloads.
+- **8.2× Perf/Watt vs ARM**: CGRA PL at 0.217 W vs PS7 ARM at 1.532 W (Vivado post-route). 79.8 vs 9.7 MMAC/s/W.
+- **Hardware LIF Neurons**: Dedicated Leaky Integrate-and-Fire within each PE — verified spike/no-spike on silicon with deterministic membrane dynamics.
+- **Double-Buffered Tile Memory**: 4 banks × 4096 words (64 KB) with bank_sel for latency-hiding data swaps.
+- **Bi-Directional DMA**: AXI4 burst master, 32-word FIFO, 2D strided transfers, W_LOCAL fast-drain path. **76.3 MB/s measured peak** at 16 KB bulk transfer.
+- **Nested Hardware Loops**: 2-level zero-overhead loops with loop-aware auto-stop and tile address auto-increment.
+- **UVM-Inspired Verification**: 8926 tests, 26 suites (including tile auto-increment), 0 failures. Transaction-based monitors/scoreboards, covergroups, clocking blocks.
+- **11-Category HW Benchmark**: Per-op throughput, MAC hazard, SIMD, DMA bandwidth, multicast, parallel rows, FC pattern, FPS, config overhead, power — all measured on silicon with ARM PMCCNTR timing.
 
 ### Target Applications
-- **Spiking Neural Networks**: Image classification, event-based sensing (DVS)
-- **License Plate Recognition**: Convolutional inference with tiled MatMul offload (Zynq-7000 XC7Z020 demo)
-- **Sparse Linear Algebra**: Compressed Sparse Column (CSC) matrix operations
-- **Signal Processing**: FIR/IIR filters, FFT acceleration
-- **Edge AI**: Ultra-low latency inference on FPGA
+- **License Plate Recognition**: Conv3×3 feature extraction with multicast output-channel parallelism (Zynq-7000 demo)
+- **Edge AI Inference**: Ultra-low power CNN inference (8.2× perf/Watt vs ARM Cortex-A9)
+- **Spiking Neural Networks**: Hardware LIF neuron for event-driven sparse computation
+- **Image Processing**: Element-wise operations at 20K+ FPS (threshold, invert, filter)
+- **Signal Processing**: FIR/IIR filters, convolution kernels
 
 ---
 
@@ -67,6 +68,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | **Accumulator** | 40-bit signed | Saturating arithmetic |
 | **SIMD Modes** | INT8x4 / INT16x2 | Config bits [50:49] |
 | **Hardware Loops** | 2 levels (nested) | Zero-overhead, loop-aware auto-stop |
+| **Tile Auto-Increment** | 8-bit offset | Address advances by 16/loop iter (CSR 0x78) |
 
 ### Memory Resources
 
@@ -464,11 +466,12 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | 0x6C | LOOP2_END | RW | 0xF | Outer loop end PC [15:0] (inclusive) |
 | 0x70 | LOOP2_COUNT | RW | 0x0 | Outer loop extra iterations [15:0] (0 = disabled) |
 
-**Double-Buffer Control (1 register):**
+**Double-Buffer & Tile Addressing (2 registers):**
 
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
 | 0x74 | TILE_BANK_SEL | RW | 0x0 | [0] PE buffer select (0/1). Protected: rejected while DMA or CU busy |
+| 0x78 | TILE_AUTO_INC | RW | 0x0 | [0] Enable tile address auto-increment. When set, tile read address advances by 16 words per HW loop iteration. Protected: rejected while CU busy. Mutually exclusive with TILE_BANK_SEL (offset[7] drives bank_sel when active) |
 
 ### DMA Address Decode
 
@@ -1013,6 +1016,8 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 - **Current Fmax:** 50 MHz on Zynq-7000. The DSP48 multiply-to-saturation path needs a 3rd pipeline stage for 100 MHz.
 - **Config reload bottleneck:** Programming all 16 PEs × 16 slots via double-pump DMA takes 1.57 ms (512 individual 4-byte DMAs). Workloads that need per-chunk reconfiguration (e.g., FC layers with varying weight IMMs) are DMA-bound, not compute-bound. Config-once workloads (Conv with fixed filter weights) avoid this bottleneck entirely.
 - **MAC accumulator feedback is fast:** The 40-bit MAC accumulator has a dedicated writeback path and does NOT suffer the RF read-after-write hazard documented above. Measured 86.6% utilization on back-to-back MAC (13/15 effective MACs). The RF hazard applies only to RF-chained operations across adjacent slots.
+- **Tile auto-increment vs double-buffer:** TILE_AUTO_INC (0x78) and TILE_BANK_SEL (0x74) are mutually exclusive. When auto-increment is active, offset[7] drives bank_sel_i to access the full 4096-word address space. Do not enable both simultaneously.
+- **RESULT_ROW pipeline delay:** The east-edge RESULT_ROW registers capture the PE output with an 11-slot pipeline delay (tile prefetch + 3-stage PE + 3-hop east forwarding). For a 16-slot CU pass, the captured value is from slot 4 (= 15 - 11), not slot 15. Accounted for in all test golden values.
 
 ### Hardware Performance Characterization (Measured on Zynq-7000 XC7Z020)
 
@@ -1133,10 +1138,12 @@ PL utilization: 57% LUT, 16% FF, 20% BRAM, 67% DSP.
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
-| UVM-Inspired Testbench | 8915 tests, 25 suites, covergroups, TLM scoreboards, clocking blocks |
+| UVM-Inspired Testbench | 8926 tests, 26 suites, covergroups, TLM scoreboards, clocking blocks |
 | **Verdict Hardening** | Scoreboard errors propagate to global verdict; zero-test guard; watchdog signals failure; 8 checks tightened to exact/bounded values |
 | **HW Performance Benchmark** | 11-category bare-metal benchmark suite (`bench_cgra.c`) — per-op throughput, MAC pipeline hazard, SIMD, DMA bandwidth, multicast fan-out, parallel rows, FC pattern, FPS, config overhead, power efficiency. All measured on silicon with ARM PMCCNTR. Golden model cross-check (`golden_model.py`). |
 | **LPRNet Feasibility Study** | ONNX topology builder (`build_lprnet.py`), per-layer MAC/weight/activation analyzer (`analyze_lprnet.py`), Zynq-7000 timing extrapolation (`extrapolate_lprnet.py`) for full/small/micro variants. Verdict: dense CNN is config-reload-bound on current silicon; Conv-streaming workloads (config-once) are the CGRA sweet spot. |
+| **Tile Address Auto-Increment** | CSR 0x78 (`TILE_AUTO_INC`). 8-bit offset counter advances tile read address by 16 words per HW loop iteration. Pre-load 4096 words → process all in one CU pass. Combinational prefetch lookahead for 1-cycle SRAM latency compensation. Verified: Suite TAI (5 tests, 12 checks, 0 failures). |
+| **Resolution Benchmark** | `bench_resolution.c` — measures element-wise and Conv3×3 processing time at 7 resolutions (8×8 to 352×288). Identifies per-pixel DMA overhead as primary bottleneck (39.5 μs/pixel). Sweet spot: ~30×30 for 30 FPS Conv3×3. |
 
 ### Future Enhancements
 
