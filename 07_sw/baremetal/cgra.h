@@ -101,6 +101,35 @@
 #define ROUTE_S     0x2u  /* bit 19 */
 #define ROUTE_W     0x1u  /* bit 18 */
 
+/* ── Data mode (SIMD) — config bits [50:49] = extended[10:9] ─────────── */
+#define DATA_MODE_INT32   0u   /* 1× 32-bit (default) */
+#define DATA_MODE_INT16X2 1u   /* 2× 16-bit SIMD */
+#define DATA_MODE_INT8X4  2u   /* 4× 8-bit SIMD */
+
+/* ── ARM Cortex-A9 Performance Monitor cycle counter (PMCCNTR) ───────── */
+/* Runs at CPU clock (666.67 MHz). 32-bit, wraps at ~6.4 s. */
+static inline void arm_pmu_enable(void)
+{
+    uint32_t v;
+    asm volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(v));  /* PMCR */
+    v |= 0x5u;   /* bit 0 = enable, bit 2 = reset CCNT */
+    asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(v));
+    asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(1u << 31));  /* PMCNTENSET: enable CCNT */
+}
+static inline uint32_t arm_ccnt_read(void)
+{
+    uint32_t v;
+    asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(v));  /* PMCCNTR */
+    return v;
+}
+static inline void arm_ccnt_reset(void)
+{
+    uint32_t v;
+    asm volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(v));
+    v |= 0x4u;   /* bit 2 = reset CCNT */
+    asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(v));
+}
+
 /* ── Register access ──────────────────────────────────────────────────── */
 static inline void cgra_wr(uint32_t off, uint32_t v) {
     *(volatile uint32_t *)(CGRA_BASE + off) = v;
@@ -263,6 +292,56 @@ static inline int cgra_config_pe(uint32_t pe_id, uint32_t staging_ddr,
 {
     return cgra_config_pe_slot(pe_id, 0, staging_ddr,
                                opcode, src0, src1, dst, route, imm);
+}
+
+/* ── Extended config builder (with data_mode for SIMD) ───────────────── */
+/* Config word layout with data_mode:
+ *   [5:0]   opcode       [9:6]   src0_sel    [13:10] src1_sel
+ *   [17:14] dst_sel      [21:18] route_mask  [23:22] pred_en/inv
+ *   [39:24] immediate    [50:49] data_mode   [63:51] other extended */
+static inline void cgra_pe_build_ex(uint64_t *out,
+                                     uint32_t opcode,
+                                     uint32_t src0, uint32_t src1,
+                                     uint32_t dst,  uint32_t route,
+                                     uint16_t imm,
+                                     uint32_t data_mode)
+{
+    uint64_t cfg = ((uint64_t)opcode & 0x3F)
+                 | (((uint64_t)src0  & 0xF) << 6)
+                 | (((uint64_t)src1  & 0xF) << 10)
+                 | (((uint64_t)dst   & 0xF) << 14)
+                 | (((uint64_t)route & 0xF) << 18)
+                 | ((uint64_t)imm           << 24)
+                 | (((uint64_t)data_mode & 0x3) << 49);
+    *out = cfg;
+}
+
+static inline int cgra_config_pe_slot_ex(uint32_t pe_id, uint32_t slot_idx,
+                                          uint32_t staging_ddr,
+                                          uint32_t opcode,
+                                          uint32_t src0, uint32_t src1,
+                                          uint32_t dst,  uint32_t route,
+                                          uint16_t imm,
+                                          uint32_t data_mode)
+{
+    uint64_t cfg;
+    cgra_pe_build_ex(&cfg, opcode, src0, src1, dst, route, imm, data_mode);
+
+    uint32_t hi32 = (uint32_t)(cfg >> 32);
+    uint32_t lo32 = (uint32_t)(cfg & 0xFFFFFFFF);
+    uint32_t cfg_base = CGRA_PFX_CONFIG
+                      | ((pe_id & 0xF)   << 7)
+                      | ((slot_idx & 0xF) << 3);
+
+    volatile uint32_t *staging = (volatile uint32_t *)staging_ddr;
+
+    *staging = hi32;
+    if (cgra_dma(staging_ddr, cfg_base, 4u)) return -1;
+
+    *staging = lo32;
+    if (cgra_dma(staging_ddr, cfg_base | 0x4u, 4u)) return -1;
+
+    return 0;
 }
 
 #endif /* CGRA_H */

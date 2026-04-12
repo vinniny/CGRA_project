@@ -67,11 +67,21 @@ DEMO_SRCS := \
 
 DEMO_TARGET := demo_ascii.elf
 
-.PHONY: all clean dis demo
+BENCH_SRCS   := start.s bench_cgra.c gic.c
+BENCH_TARGET := bench_cgra.elf
+
+.PHONY: all clean dis demo bench
 
 all: $(TARGET)
 
 demo: $(DEMO_TARGET)
+
+bench: $(BENCH_TARGET)
+
+$(BENCH_TARGET): $(BENCH_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 $(TARGET): $(SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@
@@ -87,4 +97,4 @@ dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) *.o
