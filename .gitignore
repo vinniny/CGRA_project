@@ -385,3 +385,33 @@ scripts/License_Plate_Recognition_Cpp/c_alpr/models/*.onnx
 tmp_fix_key.sh
 board_cam.sh
 board_info.sh
+
+# ==============================================================================
+# LPRNet Evaluation (Python venvs, ONNX binaries)
+# ==============================================================================
+07_sw/lprnet_eval/.venv/
+07_sw/lprnet_eval/*.onnx
+
+# ==============================================================================
+# FPGA Bitstreams (generated, large binaries)
+# ==============================================================================
+bitstreams/
+
+# ==============================================================================
+# LaTeX build artifacts
+# ==============================================================================
+06_doc/*.aux
+06_doc/*.fdb_latexmk
+06_doc/*.fls
+06_doc/*.lot
+06_doc/*.synctex.gz
+06_doc/*.toc
+06_doc/*.log
+06_doc/*.out
+06_doc/*.bbl
+06_doc/*.blg
+
+# ==============================================================================
+# Bare-metal ELF binaries (regenerated from source)
+# ==============================================================================
+07_sw/baremetal/*.elf

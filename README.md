@@ -1084,6 +1084,36 @@ All multicast configurations deliver in the same CU_CYCLES as unicast. Served-bi
 | 8×8 elementwise (DMA + CU) | 4.8 μs | **20,475** |
 | FC 784→30 (config-reload-bound) | 199 ms | 0.5 |
 
+#### Tile Auto-Increment Benchmark (Conv3×3 with vs without)
+
+Measured via `bench_tile_autoinc.c`. Deep verification: **45/45 PASS** (CSR, all ISA ops, routing, SIMD, multi-row, MAC accumulation, nested loops, edge cases, data integrity).
+
+**Conv3×3 28×28 detailed breakdown:**
+
+| Metric | Per-pixel DMA (old) | Auto-inc Bulk (new) |
+|--------|--------------------:|--------------------:|
+| Total ARM cycles | 13,015,986 | 568,513 |
+| DMA cycles | 1,952,333 | 376,824 |
+| CU cycles | 10,255,068 | 148,053 |
+| ARM overhead | 808,585 | 43,636 |
+| **Total time** | **1952 ms** | **85.2 ms** |
+| **FPS** | **5.1** | **117.2** |
+| Per-pixel | 288.8 μs | 12.6 μs |
+| MMAC/s | 3.1 | 71.3 |
+| **Speedup** | | **22.8×** |
+
+**Resolution sweep (Conv3×3, 1 output channel):**
+
+| Resolution | Pixels | Old (ms) | Old FPS | New (ms) | New FPS | Speedup |
+|------------|-------:|---------:|--------:|---------:|--------:|--------:|
+| 8×8 | 36 | 104 | 96 | 6.7 | **1,474** | 15.3× |
+| 16×16 | 196 | 566 | 17.6 | 25 | **398** | 22.5× |
+| 28×28 | 676 | 1,952 | 5.1 | 85 | **117** | 22.8× |
+| 64×64 | 3,844 | 11,019 | 0.9 | 482 | **20.7** | 22.8× |
+| 160×80 | 12,324 | 35,300 | 0.2 | 1,539 | **6.4** | 22.9× |
+
+Consistent **22-23× speedup** from the tile auto-increment feature. 28×28 Conv3×3 at **117 FPS** enables real-time LPR character feature extraction.
+
 #### Power Efficiency (Vivado Post-Route)
 
 | Component | Power | MMAC/s | MMAC/s/W |
@@ -1142,8 +1172,8 @@ PL utilization: 57% LUT, 16% FF, 20% BRAM, 67% DSP.
 | **Verdict Hardening** | Scoreboard errors propagate to global verdict; zero-test guard; watchdog signals failure; 8 checks tightened to exact/bounded values |
 | **HW Performance Benchmark** | 11-category bare-metal benchmark suite (`bench_cgra.c`) — per-op throughput, MAC pipeline hazard, SIMD, DMA bandwidth, multicast fan-out, parallel rows, FC pattern, FPS, config overhead, power efficiency. All measured on silicon with ARM PMCCNTR. Golden model cross-check (`golden_model.py`). |
 | **LPRNet Feasibility Study** | ONNX topology builder (`build_lprnet.py`), per-layer MAC/weight/activation analyzer (`analyze_lprnet.py`), Zynq-7000 timing extrapolation (`extrapolate_lprnet.py`) for full/small/micro variants. Verdict: dense CNN is config-reload-bound on current silicon; Conv-streaming workloads (config-once) are the CGRA sweet spot. |
-| **Tile Address Auto-Increment** | CSR 0x78 (`TILE_AUTO_INC`). 8-bit offset counter advances tile read address by 16 words per HW loop iteration. Pre-load 4096 words → process all in one CU pass. Combinational prefetch lookahead for 1-cycle SRAM latency compensation. Verified: Suite TAI (5 tests, 12 checks, 0 failures). |
-| **Resolution Benchmark** | `bench_resolution.c` — measures element-wise and Conv3×3 processing time at 7 resolutions (8×8 to 352×288). Identifies per-pixel DMA overhead as primary bottleneck (39.5 μs/pixel). Sweet spot: ~30×30 for 30 FPS Conv3×3. |
+| **Tile Address Auto-Increment** | CSR 0x78 (`TILE_AUTO_INC`). 8-bit offset counter advances tile read address by 16 words per HW loop iteration. Deep verification: 45/45 PASS on silicon (all ISA ops, routing, SIMD, multi-row, MAC, nested loops, data integrity, Conv3×3). **22.8× speedup** on 28×28 Conv3×3 (5.1 → 117 FPS). |
+| **Resolution Benchmark** | `bench_resolution.c` + `bench_tile_autoinc.c` — resolution sweep with/without auto-inc at 5 resolutions. Cycle-level breakdown (DMA/CU/ARM). MMAC/s and GOPS/W metrics. |
 
 ### Future Enhancements
 

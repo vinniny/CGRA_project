@@ -73,7 +73,10 @@ BENCH_TARGET := bench_cgra.elf
 BENCH_RES_SRCS   := start.s bench_resolution.c gic.c
 BENCH_RES_TARGET := bench_resolution.elf
 
-.PHONY: all clean dis demo bench bench_res
+BENCH_TAI_SRCS   := start.s bench_tile_autoinc.c gic.c
+BENCH_TAI_TARGET := bench_tile_autoinc.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai
 
 all: $(TARGET)
 
@@ -83,6 +86,8 @@ bench: $(BENCH_TARGET)
 
 bench_res: $(BENCH_RES_TARGET)
 
+bench_tai: $(BENCH_TAI_TARGET)
+
 $(BENCH_TARGET): $(BENCH_SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(BENCH_TARGET) OK"
@@ -91,6 +96,11 @@ $(BENCH_TARGET): $(BENCH_SRCS) uart.h cgra.h gic.h linker.ld
 $(BENCH_RES_TARGET): $(BENCH_RES_SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_RES_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(BENCH_RES_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(BENCH_TAI_TARGET): $(BENCH_TAI_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_TAI_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_TAI_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 $(TARGET): $(SRCS) uart.h cgra.h gic.h linker.ld
@@ -107,4 +117,4 @@ dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) *.o

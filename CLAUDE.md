@@ -61,6 +61,7 @@ make demo                # Build demo_ascii.elf — ASCII Image Accelerator demo
 make run_demo            # Program FPGA + load demo + capture UART
 make bench               # Build bench_cgra.elf — 11-category performance benchmark
 make bench_res           # Build bench_resolution.elf — resolution sweep for demo planning
+make bench_tai           # Build bench_tile_autoinc.elf — tile auto-inc deep verification + benchmark
 ```
 The demo (`07_sw/baremetal/demo_ascii_inverter.c`) is a Vitis-BSP-style
 standalone application that inverts an 8x8 letter Z through the CGRA

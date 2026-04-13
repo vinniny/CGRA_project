@@ -30,6 +30,11 @@
  *    0x5C  RESULT_ROW1     RO  East-edge row 1
  *    0x60  RESULT_ROW2     RO  East-edge row 2
  *    0x64  RESULT_ROW3     RO  East-edge row 3
+ *    0x68  LOOP2_START     RW  Nested loop start PC [15:0]
+ *    0x6C  LOOP2_END       RW  Nested loop end PC [15:0]
+ *    0x70  LOOP2_COUNT     RW  Nested loop iterations [15:0]
+ *    0x74  TILE_BANK_SEL   RW  Double-buffer PE selector [0]
+ *    0x78  TILE_AUTO_INC   RW  Tile addr auto-advance by 16/loop [0]
  * =================================================================== */
 
 #ifndef CGRA_DRIVER_H
@@ -72,6 +77,7 @@ extern "C" {
 #define CGRA_LOOP2_END        0x6C    /* Nested loop end PC */
 #define CGRA_LOOP2_COUNT      0x70    /* Nested loop iterations (0=disabled) */
 #define CGRA_TILE_BANK_SEL    0x74    /* Double-buffer PE selector (bit[0]) */
+#define CGRA_TILE_AUTO_INC    0x78    /* [0] Tile addr auto-advance by 16/loop iter */
 
 #define CGRA_RESULT_ROW0      0x58
 #define CGRA_RESULT_ROW1      0x5C
