@@ -37,6 +37,7 @@ task automatic run_suite_SG_sg_dma;
 
         // Start chain
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);     // bit[1] = chain_start
         wait_dma_done(2000);
 
@@ -92,6 +93,7 @@ task automatic run_suite_SG_sg_dma;
 
         // Start chain
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
         wait_dma_done(5000);
 
@@ -141,6 +143,7 @@ task automatic run_suite_SG_sg_dma;
         ram_write(32'h100C, 32'h0000_0000);   // NULL = end
 
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
         wait_dma_done(2000);
 
@@ -210,6 +213,7 @@ task automatic run_suite_SG_sg_dma;
         ram_write(32'h100C, 32'h0000_0000);          // next = NULL
 
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
         wait_dma_done(3000);
 
@@ -254,6 +258,7 @@ task automatic run_suite_SG_sg_dma;
         ram_write(32'h100C, 32'h0000_0000);  // end
 
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
         wait_dma_done(3000);
 
@@ -305,6 +310,7 @@ task automatic run_suite_SG_sg_dma;
         ram_write(32'h102C, 32'h0000_0000);
 
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
 
         // Wait a bit then abort
@@ -357,6 +363,7 @@ task automatic run_suite_SG_sg_dma;
         end
 
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
         wait_dma_done(20000);
 
