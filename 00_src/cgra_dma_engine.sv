@@ -342,10 +342,11 @@ module cgra_dma_engine #(
             desc_word_idx <= '0;
             desc_fetch_pending <= 1'b0;
             chain_xfer_ready <= 1'b0;
-        end else if (cfg_abort) begin
-            // AXI-SAFE ABORT: Do NOT drop VALID signals mid-handshake.
-            // Transition to R_DRAIN to complete any in-flight AXI transaction
-            // before returning to IDLE. This prevents AXI protocol violations.
+        end else if (cfg_abort && r_state != R_DRAIN) begin
+            // AXI-SAFE ABORT: Transition to R_DRAIN on first abort cycle.
+            // Once in R_DRAIN, the normal case block handles beat draining
+            // (cfg_abort is a level signal held for 50+ cycles — must not
+            // re-enter this handler while already draining).
             read_words_remaining <= '0;
             read_2d_mode <= 1'b0;
             read_rows_remaining <= '0;
@@ -559,24 +560,26 @@ module cgra_dma_engine #(
                 
                 R_DRAIN: begin
                     // AXI-SAFE ABORT DRAIN STATE
-                    // CRITICAL: Never drop RREADY while beats are pending.
-                    // Phase 1: If ARVALID still asserted, complete the handshake.
-                    // Phase 2: Assert RREADY, accept all beats until RLAST.
-                    // Phase 3: Only go IDLE when no beats pending.
-                    if (m_axi_arvalid) begin
-                        if (m_axi_arready) begin
-                            m_axi_arvalid <= 1'b0;
-                            m_axi_rready <= 1'b1;
-                        end
-                    end else if (m_axi_rvalid) begin
-                        // Beats available — must accept them
+                    // Handle AR handshake and R data beats SIMULTANEOUSLY.
+                    // AXI allows outstanding reads: a previous burst's data
+                    // can arrive while a new AR is still pending.
+
+                    // AR channel: complete any pending handshake
+                    if (m_axi_arvalid && m_axi_arready)
+                        m_axi_arvalid <= 1'b0;
+
+                    // R channel: always accept beats when rvalid is high
+                    if (m_axi_rvalid) begin
                         m_axi_rready <= 1'b1;
                         if (m_axi_rready && m_axi_rlast) begin
+                            // Last beat of burst drained
                             m_axi_rready <= 1'b0;
-                            r_state <= R_IDLE;
+                            if (!m_axi_arvalid)
+                                r_state <= R_IDLE;  // Both channels done
+                            // else: AR still pending, stay in drain
                         end
-                    end else if (!m_axi_rready) begin
-                        // No ARVALID, no RVALID, no RREADY — safe to IDLE
+                    end else if (!m_axi_arvalid && !m_axi_rready) begin
+                        // No AR pending, no R beats pending — safe to idle
                         r_state <= R_IDLE;
                     end
                 end
@@ -711,11 +714,12 @@ module cgra_dma_engine #(
             broadcast_bank_cnt <= 2'd0;
             chain_next_req <= 1'b0;
             chain_done_req <= 1'b0;
-        end else if (cfg_abort) begin
+        end else if (cfg_abort && w_state != W_DRAIN) begin
             chain_next_req <= 1'b0;
             chain_done_req <= 1'b0;
-            // AXI-SAFE ABORT: Transition to W_DRAIN to complete any in-flight
-            // AXI write transactions before returning to IDLE. Prevents AXI
+            // AXI-SAFE ABORT: Transition to W_DRAIN on first abort cycle.
+            // Once in W_DRAIN, the normal case block handles the drain
+            // (cfg_abort level signal — must not re-enter while draining).
             // protocol violations (VALID must not drop without READY handshake).
             write_words_remaining <= '0;
             dst_is_axi <= 1'b0;
