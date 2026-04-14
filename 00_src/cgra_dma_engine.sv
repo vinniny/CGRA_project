@@ -270,7 +270,8 @@ module cgra_dma_engine #(
     logic        desc_fetch_pending;    // Descriptor fetch AXI read in progress
     logic        chain_next_req;       // W_DONE requests read FSM to fetch next descriptor
     logic        chain_done_req;       // W_DONE signals chain complete
-    logic        chain_xfer_ready;    // Read FSM loaded desc, write FSM can start
+    logic        chain_xfer_ready;    // Read FSM: descriptor loaded, write FSM can start
+    logic        chain_xfer_ack;      // Write FSM: acknowledged, read FSM can clear
 
     assign chain_active_o    = chain_mode;
     assign desc_completed_o  = desc_completed_cnt;
@@ -429,6 +430,7 @@ module cgra_dma_engine #(
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     tile_read_phase <= 1'b0;
+                    chain_xfer_ready <= 1'b0;  // Clear before potential re-set in R_DESC_LOAD
                     // SG chain continuation: W_DONE set chain_next_req
                     if (chain_mode && chain_next_req) begin
                         desc_completed_cnt <= desc_completed_cnt + 16'd1;
@@ -462,8 +464,8 @@ module cgra_dma_engine #(
                 end
                 
                 R_ADDR: begin
-                    // Auto-clear chain_xfer_ready after 1 cycle
-                    chain_xfer_ready <= 1'b0;
+                    // chain_xfer_ready stays high until W_IDLE consumes it.
+                    // Do NOT clear here — the write FSM needs to see it.
                     if (src_is_tile) begin
                         // Tile reads: no AXI AR needed, go directly to R_DATA
                         tile_read_phase <= 1'b0;
@@ -731,8 +733,10 @@ module cgra_dma_engine #(
             dst_broadcast <= 1'b0;
             broadcast_bank_cnt <= 2'd0;
             chain_done_req <= 1'b0;
+            chain_xfer_ack <= 1'b0;
         end else if (cfg_abort && w_state != W_DRAIN) begin
             chain_done_req <= 1'b0;
+            chain_xfer_ack <= 1'b0;
             // AXI-SAFE ABORT: Transition to W_DRAIN on first abort cycle.
             // Once in W_DRAIN, the normal case block handles the drain
             // (cfg_abort level signal — must not re-enter while draining).
@@ -851,6 +855,10 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
+            // Clear-before-case defaults: these are overridden by specific states.
+            // chain_xfer_ack must be a 1-cycle pulse — clear every cycle by default.
+            chain_xfer_ack <= 1'b0;
+
             case (w_state)
                 W_IDLE: begin
                     local_write_en <= 1'b0;
@@ -865,7 +873,7 @@ module cgra_dma_engine #(
                     if (chain_done_req && r_state == R_IDLE) chain_done_req <= 1'b0;
                     if (chain_mode && chain_xfer_ready) begin
                         // SG mode: read engine loaded desc, start write side
-                        write_addr <= {1'b0, desc_buf[1][30:0]}; // clear broadcast bit from addr
+                            write_addr <= {1'b0, desc_buf[1][30:0]}; // clear broadcast bit from addr
                         write_words_remaining <= desc_buf[2][31:2];
                         dst_is_axi    <= (desc_buf[1][31:28] == 4'h0) && !desc_buf[1][31];
                         dst_is_tile   <= (desc_buf[1][31:28] == 4'h1) || desc_buf[1][31];
