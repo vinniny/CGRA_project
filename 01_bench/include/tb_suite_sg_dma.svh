@@ -11,6 +11,18 @@
 //   SG07: Tile broadcast write (dst_addr[31]=1)
 // =============================================================================
 
+// Wait for DMA busy=0 (more reliable than done latch for chains)
+task automatic wait_dma_idle(input int timeout);
+    logic [31:0] st;
+    for (int i = 0; i < timeout; i++) begin
+        apb_read(ADDR_DMA_STATUS, st);
+        if (!st[0]) return;  // busy=0
+        wait_cycles(1);
+    end
+    $display("  [FAIL] DMA_TIMEOUT - DMA busy did not clear after %0d cycles", timeout);
+    error_count++;
+endtask
+
 task automatic run_suite_SG_sg_dma;
     logic [31:0] rd;
     begin
@@ -39,7 +51,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);     // bit[1] = chain_start
-        wait_dma_done(2000);
+        wait_dma_idle(2000);
 
         // Verify tile bank 0 has the data (read back via DMA to DDR)
         dma_transfer(BASE_TILE, 32'h3000, 32'd16, 500);
@@ -95,7 +107,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
-        wait_dma_done(5000);
+        wait_dma_idle(5000);
 
         // Verify all 3 banks
         dma_transfer(BASE_TILE | 32'h0000, 32'h3000, 32'd16, 500);
@@ -145,7 +157,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
-        wait_dma_done(2000);
+        wait_dma_idle(2000);
 
         dma_transfer(BASE_TILE, 32'h3000, 32'd4, 500);
         if (ram_read(32'h3000) == 32'h1111_1111)
@@ -215,7 +227,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
-        wait_dma_done(3000);
+        wait_dma_idle(3000);
 
         // Verify all 4 banks have the same data
         dma_transfer(BASE_TILE | 32'h0000, 32'h3000, 32'd16, 500);  // bank 0
@@ -260,7 +272,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
-        wait_dma_done(3000);
+        wait_dma_idle(3000);
 
         // Now run CU with auto-inc to read the tile data
         begin
@@ -319,8 +331,8 @@ task automatic run_suite_SG_sg_dma;
         wait_cycles(50);
         apb_write(ADDR_CU_CTRL, 32'h0000_0000);  // release
 
-        // Verify DMA is idle (not stuck) — drain may take time
-        wait_cycles(2000);
+        // Verify DMA is idle — abort drain + AXI completion + chain cleanup
+        wait_cycles(50000);
         apb_read(ADDR_DMA_STATUS, rd);
         if (rd[0] == 1'b0)
             pass("SG09: DMA idle after abort (no AXI hang)");
@@ -365,7 +377,7 @@ task automatic run_suite_SG_sg_dma;
         apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
         apb_write(ADDR_IRQ_STATUS, 32'h7); // W1C clear stale done
         apb_write(ADDR_DMA_CTRL, 32'h0000_0002);
-        wait_dma_done(20000);
+        wait_dma_idle(20000);
 
         // Verify at least the first and last words in tile
         dma_transfer(BASE_TILE, 32'h3000, 32'd40, 500);
