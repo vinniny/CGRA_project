@@ -106,8 +106,12 @@ module cgra_apb_csr #(
     // Address Map - Register Definitions
     // =========================================================================
     // DMA Region
-    localparam ADDR_DMA_CTRL   = 8'h00;  // RW: [0] Start (auto-clear)
+    localparam ADDR_DMA_CTRL   = 8'h00;  // RW: [0] Start, [1] Chain start (both auto-clear)
     localparam ADDR_DMA_STATUS = 8'h04;  // RO: [0] Busy, [1] Done
+
+    // DMA_CTRL bit definitions
+    localparam DMA_CTRL_START       = 0;   // [0] Legacy single-shot start (auto-clear)
+    localparam DMA_CTRL_CHAIN_START = 1;   // [1] Scatter-gather chain start (auto-clear)
     localparam ADDR_DMA_SRC    = 8'h08;  // RW: Source address
     localparam ADDR_DMA_DST    = 8'h0C;  // RW: Dest address
     localparam ADDR_DMA_SIZE   = 8'h10;  // RW: Transfer size (bytes)
@@ -210,16 +214,26 @@ module cgra_apb_csr #(
             dma_error_valid_prev <= 1'b0;
         end else begin
             dma_error_valid_prev <= dma_error_valid_i;  // Edge detect register
-            // DMA done latch — strict priority:
-            //   1. cfg_start / chain_start: unconditionally clear on ANY new transfer
-            //   2. status_done pulse: set when hardware finishes
-            //   3. Software W1C via IRQ_STATUS[0]
-            if (dma_start || dma_chain_start)
-                dma_done_latch <= 1'b0;
-            else if (dma_done_i)
-                dma_done_latch <= 1'b1;
-            else if (irq_w1c && pwdata[0])
-                dma_done_latch <= 1'b0;
+
+            // Immediate APB start-command detect — catches the write to DMA_CTRL
+            // in the SAME cycle, before reg_dma_ctrl propagates next cycle.
+            // This ensures dma_done_latch clears before wait_dma_done can read it.
+            begin
+                logic dma_start_cmd;
+                dma_start_cmd = psel && penable && pwrite && (paddr[7:0] == ADDR_DMA_CTRL)
+                              && (pwdata[DMA_CTRL_START] || pwdata[DMA_CTRL_CHAIN_START]);
+
+                // DMA done latch — strict priority:
+                //   1. Immediate APB write / derived start / soft_reset: clear
+                //   2. status_done pulse from hardware: set
+                //   3. Software W1C via IRQ_STATUS[0]: clear
+                if (dma_start_cmd || dma_start || dma_chain_start || reg_cu_ctrl[1])
+                    dma_done_latch <= 1'b0;
+                else if (dma_done_i)
+                    dma_done_latch <= 1'b1;
+                else if (irq_w1c && pwdata[0])
+                    dma_done_latch <= 1'b0;
+            end // dma_start_cmd scope
 
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
