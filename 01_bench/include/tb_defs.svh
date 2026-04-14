@@ -212,8 +212,15 @@ localparam logic [31:0] ADDR_TILE_BANK_SEL  = 32'h74;  // [0] PE buffer select (
 // --- Tile Auto-Increment (0x78) ---
 localparam logic [31:0] ADDR_TILE_AUTO_INC  = 32'h78;  // [0] Enable tile addr auto-increment
 
+// --- Scatter-Gather DMA (0x7C-0x80) ---
+localparam logic [31:0] ADDR_DMA_DESC_HEAD   = 32'h7C; // RW: descriptor chain head pointer
+localparam logic [31:0] ADDR_DMA_DESC_STATUS = 32'h80; // RO: [0] chain_active, [15:8] completed
+
+// --- Result FIFO Skip (0x54) ---
+localparam logic [31:0] ADDR_RESULT_SKIP    = 32'h54;  // [3:0] warmup skip count (default 13)
+
 // --- Unmapped address for negative testing ---
-localparam logic [31:0] ADDR_UNMAPPED       = 32'h84;  // Updated: 0x78 is now TILE_AUTO_INC
+localparam logic [31:0] ADDR_UNMAPPED       = 32'h88;  // Beyond register space
 
 // ============================================================================
 // 7. DMA ADDRESS SPACE PREFIXES

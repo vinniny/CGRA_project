@@ -89,11 +89,17 @@ module cgra_apb_csr #(
     output logic                  tile_auto_inc_en,
 
     // Result FIFO
-    output logic [3:0]            result_skip_count,    // warmup skip (default 11)
+    output logic [3:0]            result_skip_count,    // warmup skip (default 13)
     input  logic                  result_overflow_i,    // pulse from FIFO
     input  logic                  result_underflow_i,   // pulse from FIFO
     input  logic [8:0]            result_fifo_count_i,
-    input  logic                  result_fifo_pop_valid_i
+    input  logic                  result_fifo_pop_valid_i,
+
+    // Scatter-Gather DMA
+    output logic [31:0]           dma_desc_head,        // descriptor chain head pointer
+    output logic                  dma_chain_start,      // pulse: start chain execution
+    input  logic                  dma_chain_active_i,   // chain in progress
+    input  logic [15:0]           dma_desc_completed_i  // descriptors completed
 );
 
     // =========================================================================
@@ -139,6 +145,10 @@ module cgra_apb_csr #(
     // Tile Auto-Increment
     localparam ADDR_TILE_AUTO_INC = 8'h78; // RW: bit[0] = enable tile addr auto-inc on loop wrap
 
+    // Scatter-Gather DMA
+    localparam ADDR_DMA_DESC_HEAD   = 8'h7C; // RW: descriptor chain head pointer (DDR addr)
+    localparam ADDR_DMA_DESC_STATUS = 8'h80; // RO: [0] chain_active, [15:8] desc_completed
+
     // =========================================================================
     // Internal Registers
     // =========================================================================
@@ -167,6 +177,7 @@ module cgra_apb_csr #(
     logic [31:0] reg_tile_bank_sel;   // C2: double-buffer selector
     logic [31:0] reg_tile_auto_inc;  // Tile address auto-increment enable
     logic [31:0] reg_result_skip;   // Result FIFO warmup skip count
+    logic [31:0] reg_dma_desc_head; // SG DMA descriptor chain head pointer
     logic        result_overflow_sticky;   // W1C via RESULT_STATUS[9]
     logic        result_underflow_sticky;  // W1C via RESULT_STATUS[10]
 
@@ -271,6 +282,7 @@ module cgra_apb_csr #(
             reg_result_skip <= 32'd13;     // default skip = 13 (pipeline warmup: 3-stage PE × 3 hops + router delays)
             result_overflow_sticky <= 1'b0;
             result_underflow_sticky <= 1'b0;
+            reg_dma_desc_head <= 32'd0;
         end else begin
             // APB Write Phase
             // FIX: Reject writes to DMA config regs while DMA is busy, and
@@ -296,6 +308,7 @@ module cgra_apb_csr #(
                     ADDR_TILE_BANK_SEL:  if (!dma_busy_i && !cu_busy_i) reg_tile_bank_sel <= pwdata;
                     ADDR_TILE_AUTO_INC:  if (!cu_busy_i) reg_tile_auto_inc <= pwdata;
                     ADDR_RESULT_SKIP:    if (!cu_busy_i) reg_result_skip <= pwdata;
+                    ADDR_DMA_DESC_HEAD:  if (!dma_busy_i) reg_dma_desc_head <= pwdata;
                     // RESULT_STATUS W1C: writing 1 to bits [10:9] clears sticky flags
                     8'h44: begin
                         if (pwdata[9])  result_overflow_sticky  <= 1'b0;
@@ -310,6 +323,8 @@ module cgra_apb_csr #(
             // Prevents multi-cycle pulse during back-to-back APB writes to other regs
             if (reg_dma_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_DMA_CTRL))
                 reg_dma_ctrl[0] <= 1'b0;
+            if (reg_dma_ctrl[1] && !(psel && penable && pwrite && paddr[7:0] == ADDR_DMA_CTRL))
+                reg_dma_ctrl[1] <= 1'b0;  // chain_start auto-clear
             if (reg_cu_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_CU_CTRL))
                 reg_cu_ctrl[0] <= 1'b0;
 
@@ -349,6 +364,9 @@ module cgra_apb_csr #(
             ADDR_RESULT_SKIP:     prdata = reg_result_skip;
             ADDR_TILE_BANK_SEL:  prdata = reg_tile_bank_sel;
             ADDR_TILE_AUTO_INC:  prdata = reg_tile_auto_inc;
+            ADDR_DMA_DESC_HEAD:  prdata = reg_dma_desc_head;
+            ADDR_DMA_DESC_STATUS: prdata = {16'b0, dma_desc_completed_i,
+                                            7'b0, dma_chain_active_i};
             default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
@@ -380,6 +398,8 @@ module cgra_apb_csr #(
     assign tile_bank_sel  = reg_tile_bank_sel[0];
     assign tile_auto_inc_en = reg_tile_auto_inc[0];
     assign result_skip_count = reg_result_skip[3:0];
+    assign dma_desc_head = reg_dma_desc_head;
+    assign dma_chain_start = reg_dma_ctrl[1];  // DMA_CTRL[1] = chain start (auto-clears)
     
     // =========================================================================
     // IRQ Generation

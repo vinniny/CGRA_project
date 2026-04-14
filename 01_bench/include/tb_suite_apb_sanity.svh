@@ -114,8 +114,9 @@ task automatic run_suite_AM_apb_sanity;
         apb_write(ADDR_DMA_CTRL, 32'hFFFF_FFFE);  // bit[0]=0
         apb_read(ADDR_DMA_CTRL, rd);
         // bit[0] was 0, no auto-clear needed, upper bits retained
-        if (rd == 32'hFFFF_FFFE) pass("AM16a: DMA_CTRL non-start bits retained");
-        else fail("AM16a: DMA_CTRL non-start bits", $sformatf("exp=0xFFFFFFFE got=0x%08h", rd));
+        // Bits [1:0] auto-clear (bit 0=single start, bit 1=chain start)
+        if (rd == 32'hFFFF_FFFC) pass("AM16a: DMA_CTRL auto-clear bits [1:0]");
+        else fail("AM16a: DMA_CTRL auto-clear", $sformatf("exp=0xFFFFFFFC got=0x%08h", rd));
         // Now write with bit[0]=1 → auto-clears after 1 cycle
         apb_write(ADDR_DMA_CTRL, 32'h0000_0001);
         wait_cycles(2);  // Give time for auto-clear
