@@ -927,12 +927,13 @@ module cgra_top #(
     logic [31:0] apb_prdata;
     logic        apb_pready;
     
-    // FIFO pop trigger: reading any of 0x58-0x64 pops one entry (lockstep)
-    wire result_row_read = psel && penable && !pwrite &&
-                           (paddr[7:0] == 8'h58 || paddr[7:0] == 8'h5C ||
-                            paddr[7:0] == 8'h60 || paddr[7:0] == 8'h64);
-    // Only pop once per APB transaction (on the first matching address read)
-    assign result_fifo_pop_read = result_row_read && (paddr[7:0] == 8'h58);
+    // FIFO pop trigger: WRITING to RESULT_STATUS (0x44) pops one FIFO entry.
+    // This decouples pop from read — software reads ROW0-3 (non-destructive),
+    // then writes to 0x44 to advance. This ensures all 4 rows see the same
+    // pre-fetched data before the pop advances to the next entry.
+    // (Note: writing to 0x44 also handles W1C for overflow/underflow bits.)
+    wire result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
+    assign result_fifo_pop_read = result_fifo_pop_trigger;
 
     always_comb begin
         // Data multiplexer: result FIFO + status vs CSR module
