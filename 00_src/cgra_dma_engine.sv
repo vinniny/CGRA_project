@@ -270,6 +270,7 @@ module cgra_dma_engine #(
     logic        desc_fetch_pending;    // Descriptor fetch AXI read in progress
     logic        chain_next_req;       // W_DONE requests read FSM to fetch next descriptor
     logic        chain_done_req;       // W_DONE signals chain complete
+    logic        chain_xfer_ready;    // Read FSM loaded desc, write FSM can start
 
     assign chain_active_o    = chain_mode;
     assign desc_completed_o  = desc_completed_cnt;
@@ -340,6 +341,7 @@ module cgra_dma_engine #(
             desc_completed_cnt <= '0;
             desc_word_idx <= '0;
             desc_fetch_pending <= 1'b0;
+            chain_xfer_ready <= 1'b0;
         end else if (cfg_abort) begin
             // AXI-SAFE ABORT: Do NOT drop VALID signals mid-handshake.
             // Transition to R_DRAIN to complete any in-flight AXI transaction
@@ -419,6 +421,8 @@ module cgra_dma_engine #(
                 end
                 
                 R_ADDR: begin
+                    // Auto-clear chain_xfer_ready after 1 cycle
+                    chain_xfer_ready <= 1'b0;
                     if (src_is_tile) begin
                         // Tile reads: no AXI AR needed, go directly to R_DATA
                         tile_read_phase <= 1'b0;
@@ -601,13 +605,13 @@ module cgra_dma_engine #(
                         read_addr <= desc_buf[0];
                         read_words_remaining <= desc_buf[2][31:2]; // bytes to words
                         src_is_tile <= (desc_buf[0][31:28] == 4'h1);
-                        // Write engine picks up dst from desc_buf in W_IDLE
                         read_2d_mode <= 1'b0;  // SG is always 1D
                         read_rows_remaining <= 32'd1;
                         read_cols_words <= desc_buf[2][31:2];
                         read_row_words_remaining <= desc_buf[2][31:2];
                         read_row_base_addr <= desc_buf[0];
                         desc_ptr <= desc_buf[3];  // Save next pointer
+                        chain_xfer_ready <= 1'b1; // Signal write FSM
                         r_state <= R_ADDR;
                     end
                 end
@@ -687,6 +691,8 @@ module cgra_dma_engine #(
             chain_next_req <= 1'b0;
             chain_done_req <= 1'b0;
         end else if (cfg_abort) begin
+            chain_next_req <= 1'b0;
+            chain_done_req <= 1'b0;
             // AXI-SAFE ABORT: Transition to W_DRAIN to complete any in-flight
             // AXI write transactions before returning to IDLE. Prevents AXI
             // protocol violations (VALID must not drop without READY handshake).
@@ -695,8 +701,6 @@ module cgra_dma_engine #(
             dst_is_tile <= 1'b0;
             dst_is_config <= 1'b0;
             local_write_en <= 1'b0;
-            chain_next_req <= 1'b0;
-            chain_done_req <= 1'b0;
             local_fifo_pop <= 1'b0;
             axi_fifo_pop <= 1'b0;
             case (w_state)
@@ -819,7 +823,7 @@ module cgra_dma_engine #(
                     // Auto-clear chain request flags after read FSM consumes them
                     if (chain_next_req && r_state == R_DESC_FETCH) chain_next_req <= 1'b0;
                     if (chain_done_req && r_state == R_IDLE) chain_done_req <= 1'b0;
-                    if (chain_mode && r_state == R_ADDR) begin
+                    if (chain_mode && chain_xfer_ready) begin
                         // SG mode: read engine loaded desc, start write side
                         write_addr <= {1'b0, desc_buf[1][30:0]}; // clear broadcast bit from addr
                         write_words_remaining <= desc_buf[2][31:2];
@@ -1208,6 +1212,24 @@ module cgra_dma_engine #(
                 error_flag <= 1'b1;
             end
 
+            if (chain_start_i && !status_busy) begin
+                // SG chain start
+                error_code_reg <= 2'b00;
+                error_flag <= 1'b0;
+                transfer_active <= 1'b1;
+                status_busy <= 1'b1;
+            end else if (!chain_mode && transfer_active && engine_idle) begin
+                // Legacy single-shot: transfer complete
+                transfer_active <= 1'b0;
+                status_done <= 1'b1;
+                irq_done <= 1'b1;
+            end else if (chain_mode && !chain_active_o && engine_idle) begin
+                // SG chain complete (chain_mode cleared by read FSM on chain done)
+                transfer_active <= 1'b0;
+                status_done <= 1'b1;
+                irq_done <= 1'b1;
+            end
+
             if (cfg_start && !status_busy) begin
                 // Clear error on new transfer start
                 error_code_reg <= 2'b00;
@@ -1215,10 +1237,9 @@ module cgra_dma_engine #(
                 if (cfg_transfer_words != '0) begin
                     // Start new transfer
                     transfer_active <= 1'b1;
-                    transfer_started <= 1'b0;  // Will be set next cycle
+                    transfer_started <= 1'b0;
                     status_busy <= 1'b1;
                 end else begin
-                    // FIX: Zero-length transfer → nothing to do, immediately done
                     status_done <= 1'b1;
                     irq_done    <= 1'b1;
                 end

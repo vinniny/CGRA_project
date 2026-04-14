@@ -186,6 +186,8 @@ module tb_top;
     `include "include/tb_suite_error_recovery.svh"   // Suite AT: Error Recovery Path
     `include "include/tb_suite_hwemu.svh"            // Suite HE: Hardware Emulation
     `include "include/tb_suite_tile_autoinc.svh"    // Suite TAI: Tile Auto-Increment
+    `include "include/tb_suite_result_fifo.svh"   // Suite RF: Result FIFO
+    `include "include/tb_suite_sg_dma.svh"        // Suite SG: Scatter-Gather DMA
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -644,6 +646,18 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_TAI_tile_autoinc();
+
+        // =====================================================================
+        // Suite RF: Result FIFO
+        // =====================================================================
+        reset_dut(5);
+        run_suite_RF_result_fifo();
+
+        // =====================================================================
+        // Suite SG: Scatter-Gather DMA
+        // =====================================================================
+        reset_dut(5);
+        run_suite_SG_sg_dma();
 
         // Print functional coverage before finishing
         print_functional_coverage();
