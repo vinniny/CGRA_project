@@ -222,8 +222,8 @@ module cgra_dma_engine #(
             r_ptr <= '0;
             count <= '0;
         end else begin
-            if (cfg_start && !status_busy) begin
-                // Reset FIFO on new transfer
+            if ((cfg_start || chain_start_i) && !status_busy) begin
+                // Reset FIFO on new transfer or chain start
                 w_ptr <= '0;
                 r_ptr <= '0;
                 count <= '0;
@@ -350,6 +350,9 @@ module cgra_dma_engine #(
             read_2d_mode <= 1'b0;
             read_rows_remaining <= '0;
             read_row_words_remaining <= '0;
+            chain_mode <= 1'b0;         // Clear chain on abort
+            chain_xfer_ready <= 1'b0;
+            desc_fetch_pending <= 1'b0;
             if (src_is_tile) begin
                 // Tile reads have no in-flight AXI transactions — go directly to IDLE
                 r_state <= R_IDLE;
@@ -382,6 +385,17 @@ module cgra_dma_engine #(
                     end else if (!m_axi_rready) begin
                         r_state <= R_IDLE;
                     end
+                end
+                R_DESC_FETCH: begin
+                    // Abort during descriptor fetch — AXI read may be in-flight
+                    if (m_axi_arvalid || m_axi_rready || desc_fetch_pending)
+                        r_state <= R_DRAIN;  // Drain the in-flight descriptor burst
+                    else
+                        r_state <= R_IDLE;
+                end
+                R_DESC_LOAD: begin
+                    // No AXI in-flight, safe to IDLE
+                    r_state <= R_IDLE;
                 end
                 default: begin
                     // IDLE or DONE — safe to go directly to IDLE

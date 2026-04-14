@@ -320,6 +320,186 @@ task automatic run_suite_RF_result_fifo;
         if (rd[10] == 1'b0) pass("RF09c: Underflow W1C cleared");
         else pass("RF09c: W1C check");
 
+        // ─────────────────────────────────────────────────────────────
+        // RF10: All 4 rows — verify FIFO captures all rows correctly
+        // ─────────────────────────────────────────────────────────────
+        reset_dut(5);
+        $display("[RF10] All 4 rows data integrity...");
+
+        // Load distinct data per bank: bank[r] = (r+1)*1000 + i
+        begin
+            int i;
+            for (i = 0; i < 16; i++) begin
+                dma_load_tile_bank(2'd0, i[11:0] * 4, 32'(1000 + i));
+                dma_load_tile_bank(2'd1, i[11:0] * 4, 32'(2000 + i));
+                dma_load_tile_bank(2'd2, i[11:0] * 4, 32'(3000 + i));
+                dma_load_tile_bank(2'd3, i[11:0] * 4, 32'(4000 + i));
+            end
+        end
+
+        // All 16 PEs: PASS0 SRC_W east chain
+        begin
+            int pe;
+            for (pe = 0; pe < 16; pe++)
+                config_pe_safe(pe[3:0], OP_PASS0, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST);
+        end
+
+        apb_write(ADDR_CU_CTRL, 32'd1);
+        wait_cycles(50);
+
+        // Read all 4 rows from FIFO (first pop)
+        begin
+            logic [31:0] fr0, fr1, fr2, fr3;
+            apb_read(8'h58, fr0);
+            apb_read(8'h5C, fr1);
+            apb_read(8'h60, fr2);
+            apb_read(8'h64, fr3);
+            $display("  RF10: ROW0=%0d ROW1=%0d ROW2=%0d ROW3=%0d", fr0, fr1, fr2, fr3);
+            // Each row should have data from its own bank (distinct 1000s)
+            if (fr0 >= 1000 && fr0 <= 1015 &&
+                fr1 >= 2000 && fr1 <= 2015 &&
+                fr2 >= 3000 && fr2 <= 3015 &&
+                fr3 >= 4000 && fr3 <= 4015)
+                pass("RF10: All 4 rows have distinct bank data");
+            else
+                fail("RF10: Row mismatch", $sformatf("r0=%0d r1=%0d r2=%0d r3=%0d", fr0, fr1, fr2, fr3));
+        end
+
+        // ─────────────────────────────────────────────────────────────
+        // RF11: Drain ALL entries — verify count + monotonic values
+        // ─────────────────────────────────────────────────────────────
+        reset_dut(5);
+        $display("[RF11] Drain all entries...");
+
+        begin
+            int i;
+            for (i = 0; i < 16; i++)
+                dma_load_tile_bank(2'd0, i[11:0] * 4, 32'(100 + i));
+        end
+        begin
+            int pe;
+            for (pe = 0; pe < 4; pe++)
+                config_pe_safe(pe[3:0], OP_PASS0, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST);
+        end
+        apb_write(ADDR_CU_CTRL, 32'd1);
+        wait_cycles(50);
+
+        // Read FIFO count
+        apb_read(8'h44, rd);
+        begin
+            int fifo_cnt, drained, prev_val, cur_val;
+            logic monotonic;
+            fifo_cnt = rd[8:1];
+            $display("  RF11: FIFO count = %0d", fifo_cnt);
+
+            // Drain all entries, verify values are monotonically non-decreasing
+            prev_val = 0;
+            monotonic = 1'b1;
+            for (drained = 0; drained < fifo_cnt; drained++) begin
+                apb_read(8'h58, rd);
+                cur_val = rd;
+                if (cur_val < prev_val) monotonic = 1'b0;
+                prev_val = cur_val;
+                apb_write(8'h44, 32'd1); // pop
+                wait_cycles(5);
+            end
+
+            if (fifo_cnt > 0 && monotonic)
+                pass($sformatf("RF11: Drained %0d entries, monotonic", fifo_cnt));
+            else if (fifo_cnt == 0)
+                fail("RF11: FIFO empty", "no entries to drain");
+            else
+                fail("RF11: Non-monotonic", $sformatf("drained %0d", fifo_cnt));
+        end
+
+        // Verify FIFO is now empty
+        apb_read(8'h44, rd);
+        if (rd[0] == 1'b0) pass("RF11b: FIFO empty after drain");
+        else fail("RF11b: Not empty", $sformatf("status=0x%08h", rd));
+
+        // ─────────────────────────────────────────────────────────────
+        // RF12: MAC output in FIFO — verify accumulated values
+        // ─────────────────────────────────────────────────────────────
+        reset_dut(5);
+        $display("[RF12] MAC output in FIFO...");
+
+        begin
+            int i;
+            for (i = 0; i < 16; i++)
+                dma_load_tile_bank(2'd0, i[11:0] * 4, 32'd1);  // all 1s
+        end
+
+        // PE[0,3] east edge: ACC_CLR slot 0 + MAC(SRC_IMM=1, SRC_IMM=1) slots 1-15
+        config_pe_safe(4'd3, OP_ACC_CLR, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST);
+        // Overwrite slots 1-15 with MAC
+        begin
+            int s;
+            logic [63:0] mac_cfg;
+            mac_cfg = build_pe_config(OP_MAC, SRC_IMM, SRC_IMM, 4'd0, ROUTE_EAST, 16'd1);
+            for (s = 1; s < 16; s++)
+                config_pe(4'd3, s[3:0], mac_cfg);
+        end
+
+        apb_write(ADDR_CU_CTRL, 32'd1);
+        wait_cycles(50);
+
+        apb_read(8'h58, rd);
+        $display("  RF12: First FIFO entry (MAC) = %0d", rd);
+        // MAC accumulates 1*1 per slot. With 13-cycle skip, first valid entry
+        // captures the accumulator mid-computation. Value should be > 0.
+        if (rd > 0) pass($sformatf("RF12: MAC FIFO entry = %0d (non-zero)", rd));
+        else fail("RF12: MAC FIFO", "got 0");
+
+        // ─────────────────────────────────────────────────────────────
+        // RF13: Backpressure + drain — fill FIFO, drain mid-run, resume
+        // ─────────────────────────────────────────────────────────────
+        reset_dut(5);
+        $display("[RF13] Backpressure + drain...");
+
+        begin
+            int i;
+            for (i = 0; i < 256; i++)
+                dma_load_tile_bank(2'd0, i[11:0] * 4, 32'(i));
+        end
+        begin
+            int pe;
+            for (pe = 0; pe < 4; pe++)
+                config_pe_safe(pe[3:0], OP_PASS0, SRC_WEST, SRC_WEST, 4'd0, ROUTE_EAST);
+        end
+
+        // Run 20 iterations → 20×16=320 push events, skip 13→307 entries.
+        // FIFO fills at 256. CU stalls after ~17 iterations. We drain some,
+        // then CU resumes and finishes remaining ~3 iterations.
+        apb_write(ADDR_TILE_AUTO_INC, 32'd1);
+        apb_write(ADDR_LOOP_COUNT, 32'd19); // 20 iterations
+        apb_write(ADDR_CU_CTRL, 32'd1);
+
+        // Wait for FIFO to fill (17 iters × 16 = 272 CU cycles ≈ 300)
+        wait_cycles(500);
+
+        // Check CU is stalled (busy but not done)
+        apb_read(ADDR_CU_STATUS, rd);
+        if (rd[0] == 1'b1 && rd[1] == 1'b0) begin
+            $display("  RF13: CU stalled (busy=1 done=0) — FIFO backpressure works");
+        end
+
+        // Drain 100 entries to make room
+        begin
+            int j;
+            for (j = 0; j < 100; j++) begin
+                apb_write(8'h44, 32'd1); // pop
+                wait_cycles(2);
+            end
+        end
+
+        // CU should resume and complete
+        wait_cycles(5000);
+        apb_read(ADDR_CU_STATUS, rd);
+        if (rd[1]) pass("RF13: CU completed after mid-run drain");
+        else fail("RF13: CU stuck after drain", $sformatf("CU_STATUS=%08h", rd));
+
+        apb_write(ADDR_TILE_AUTO_INC, 32'd0);
+
         $display("\n[SUITE RF COMPLETE] Result FIFO verified.\n");
     end
 endtask
