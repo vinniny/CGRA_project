@@ -275,6 +275,24 @@ module cgra_dma_engine #(
     assign chain_active_o    = chain_mode;
     assign desc_completed_o  = desc_completed_cnt;
 
+    // chain_next_req: dedicated always_ff — consumer-acknowledges pattern.
+    // Set by write FSM condition (W_DONE + more descriptors), cleared by
+    // read FSM (R_DESC_FETCH entered). Single driver avoids MULAXX.
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            chain_next_req <= 1'b0;
+        end else if (w_state == W_DONE && chain_mode && desc_ptr != 32'd0) begin
+            // Write FSM completed payload, chain continues
+            chain_next_req <= 1'b1;
+        end else if (r_state == R_DESC_FETCH) begin
+            // Read FSM began fetch — acknowledge and clear
+            chain_next_req <= 1'b0;
+        end else if (cfg_abort) begin
+            // Wipe pending request on abort
+            chain_next_req <= 1'b0;
+        end
+    end
+
     // Tile broadcast: dst_addr[31] = broadcast flag
     logic        dst_broadcast;         // Broadcast write to all 4 tile banks
     logic [1:0]  broadcast_bank_cnt;    // 0-3 bank counter during broadcast
@@ -712,10 +730,8 @@ module cgra_dma_engine #(
             m_axi_bready <= 1'b0;
             dst_broadcast <= 1'b0;
             broadcast_bank_cnt <= 2'd0;
-            chain_next_req <= 1'b0;
             chain_done_req <= 1'b0;
         end else if (cfg_abort && w_state != W_DRAIN) begin
-            chain_next_req <= 1'b0;
             chain_done_req <= 1'b0;
             // AXI-SAFE ABORT: Transition to W_DRAIN on first abort cycle.
             // Once in W_DRAIN, the normal case block handles the drain
@@ -845,8 +861,7 @@ module cgra_dma_engine #(
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
                     broadcast_bank_cnt <= 2'd0;
-                    // Auto-clear chain request flags after read FSM consumes them
-                    if (chain_next_req && r_state == R_DESC_FETCH) chain_next_req <= 1'b0;
+                    // chain_done_req: cleared when read FSM reaches IDLE
                     if (chain_done_req && r_state == R_IDLE) chain_done_req <= 1'b0;
                     if (chain_mode && chain_xfer_ready) begin
                         // SG mode: read engine loaded desc, start write side
@@ -1023,10 +1038,10 @@ module cgra_dma_engine #(
                     local_fifo_pop <= 1'b0;
                     if (chain_mode) begin
                         // SG chain: signal read FSM to fetch next or finish
+                        // chain_next_req is set by dedicated always_ff block
+                        // (consumer-acknowledges pattern — avoids cross-driver)
                         if (desc_ptr == 32'd0) begin
                             chain_done_req <= 1'b1;
-                        end else begin
-                            chain_next_req <= 1'b1;
                         end
                         w_state <= W_IDLE;
                     end else begin
