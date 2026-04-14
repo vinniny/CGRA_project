@@ -312,7 +312,7 @@ task automatic run_suite_AM_apb_sanity;
         apb_check(32'h3C, 32'h0, "AM31: Unmapped 0x3C returns 0");
 
         // AM32: 0x54 is now RESULT_SKIP (default 11 = 0x0B)
-        apb_check(32'h54, 32'h0000_000B, "AM32: RESULT_SKIP default=11");
+        apb_check(32'h54, 32'h0000_000D, "AM32: RESULT_SKIP default=13");
 
         // AM33: beyond register space
         apb_check(ADDR_UNMAPPED, 32'h0, "AM33: Unmapped returns 0");

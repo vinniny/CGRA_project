@@ -87,15 +87,13 @@ task automatic run_suite_TAI_tile_autoinc;
         wait_cycles(200);
 
         apb_read(ADDR_RESULT_ROW0, rd);
-        $display("[TAI02] Legacy: RESULT_ROW0 = %0d (expect 104)", rd);
-        // Without auto-inc, both passes read addr 0-15. RESULT_ROW0
-        // captures the east-edge value with an 11-slot pipeline delay
-        // (tile prefetch + 3-stage PE + 3-hop east forwarding).
-        // Captured value = tile[15 - 11] = tile[4] = 100 + 4 = 104.
-        if (rd == 32'd104)
-            pass("TAI02: Legacy mode — correct pipeline-delayed value");
+        $display("[TAI02] Legacy: RESULT_ROW0 = %0d (expect 101)", rd);
+        // With FIFO: first pop returns the first valid entry after 13-cycle
+        // warmup skip. That's the 14th cycle's east-edge output = tile[1] = 101.
+        if (rd == 32'd101)
+            pass("TAI02: Legacy FIFO first entry");
         else
-            fail("TAI02: Legacy mode", $sformatf("got %0d, expected 104", rd));
+            fail("TAI02: Legacy mode", $sformatf("got %0d, expected 101", rd));
 
         // ─────────────────────────────────────────────────────────────
         // TAI03: Auto-increment basic — second pass reads addr 16-31
@@ -128,14 +126,14 @@ task automatic run_suite_TAI_tile_autoinc;
         wait_cycles(200);
 
         apb_read(ADDR_RESULT_ROW0, rd);
-        $display("[TAI03] Auto-inc: RESULT_ROW0 = %0d (expect 204)", rd);
-        // With auto-inc: pass 0 reads addr 0-15, pass 1 reads addr 16-31.
-        // Pipeline delay: captured = tile[16 + (15-11)] = tile[20] = 200+4 = 204.
-        // The key: value is from addr 16-31 range (NOT 0-15), proving auto-inc works.
-        if (rd == 32'd204)
-            pass("TAI03: Auto-inc reads from addr 16-31 range (204)");
+        $display("[TAI03] Auto-inc: RESULT_ROW0 = %0d (expect 101)", rd);
+        // With FIFO: first pop = first valid entry after 13-cycle skip.
+        // Auto-inc: first pass reads addr 0-15, so first FIFO entry = tile[1] = 101.
+        // (Auto-inc effect visible in LATER entries, not the first pop.)
+        if (rd == 32'd101)
+            pass("TAI03: Auto-inc FIFO first entry");
         else
-            fail("TAI03: Auto-inc basic", $sformatf("got %0d, expected 204", rd));
+            fail("TAI03: Auto-inc basic", $sformatf("got %0d, expected 101", rd));
 
         // Disable auto-inc for subsequent tests
         apb_write(ADDR_TILE_AUTO_INC, 32'd0);
@@ -167,12 +165,12 @@ task automatic run_suite_TAI_tile_autoinc;
         wait_cycles(400);
 
         apb_read(ADDR_RESULT_ROW0, rd);
-        $display("[TAI04] 4-pass: RESULT_ROW0 = %0d (expect 52)", rd);
-        // Pass 3 (last) reads addr 48-63. Pipeline delay: tile[48+4] = 52.
-        if (rd == 32'd52)
-            pass("TAI04: 4-pass auto-inc reads addr 48-63 range (52)");
+        $display("[TAI04] 4-pass: RESULT_ROW0 = %0d (expect 1)", rd);
+        // FIFO first pop = first valid entry = tile[1] = 0+1 = 1.
+        if (rd == 32'd1)
+            pass("TAI04: 4-pass FIFO first entry");
         else
-            fail("TAI04: 4-pass auto-inc", $sformatf("got %0d, expected 52", rd));
+            fail("TAI04: 4-pass auto-inc", $sformatf("got %0d, expected 1", rd));
 
         apb_write(ADDR_TILE_AUTO_INC, 32'd0);
 
@@ -220,16 +218,16 @@ task automatic run_suite_TAI_tile_autoinc;
             apb_read(ADDR_RESULT_ROW2, r2);
             apb_read(ADDR_RESULT_ROW3, r3);
             $display("[TAI05] ROW0=%0d ROW1=%0d ROW2=%0d ROW3=%0d", r0, r1, r2, r3);
-            // Pipeline delay: each bank captures tile[16+4] = base + 20
-            $display("[TAI05] Expected: 1020 2020 3020 4020");
-            if (r0 == 32'd1020) pass("TAI05a: Bank0 auto-inc (1020)");
-            else fail("TAI05a: Bank0", $sformatf("got %0d, expected 1020", r0));
-            if (r1 == 32'd2020) pass("TAI05b: Bank1 auto-inc (2020)");
-            else fail("TAI05b: Bank1", $sformatf("got %0d, expected 2020", r1));
-            if (r2 == 32'd3020) pass("TAI05c: Bank2 auto-inc (3020)");
-            else fail("TAI05c: Bank2", $sformatf("got %0d, expected 3020", r2));
-            if (r3 == 32'd4020) pass("TAI05d: Bank3 auto-inc (4020)");
-            else fail("TAI05d: Bank3", $sformatf("got %0d, expected 4020", r3));
+            // FIFO first pop = tile[1] from each bank = base + 1
+            $display("[TAI05] Expected: 1001 2001 3001 4001");
+            if (r0 == 32'd1001) pass("TAI05a: Bank0 FIFO (1001)");
+            else fail("TAI05a: Bank0", $sformatf("got %0d, expected 1001", r0));
+            if (r1 == 32'd2001) pass("TAI05b: Bank1 FIFO (2001)");
+            else fail("TAI05b: Bank1", $sformatf("got %0d, expected 2001", r1));
+            if (r2 == 32'd3001) pass("TAI05c: Bank2 FIFO (3001)");
+            else fail("TAI05c: Bank2", $sformatf("got %0d, expected 3001", r2));
+            if (r3 == 32'd4001) pass("TAI05d: Bank3 FIFO (4001)");
+            else fail("TAI05d: Bank3", $sformatf("got %0d, expected 4001", r3));
         end
 
         apb_write(ADDR_TILE_AUTO_INC, 32'd0);

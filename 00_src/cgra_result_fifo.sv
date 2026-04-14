@@ -150,6 +150,8 @@ module cgra_result_fifo #(
             pop_data[r] = prefetch_reg[r];
     end
 
+    // (debug probes removed after warmup skip calibration)
+
     // =========================================================================
     // Pointer + Count Management
     // =========================================================================

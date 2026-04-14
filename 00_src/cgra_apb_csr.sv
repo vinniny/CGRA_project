@@ -268,7 +268,7 @@ module cgra_apb_csr #(
             reg_loop2_count <= 32'd0;
             reg_tile_bank_sel <= 32'd0;
             reg_tile_auto_inc <= 32'd0;
-            reg_result_skip <= 32'd11;     // default skip = 11 (pipeline warmup)
+            reg_result_skip <= 32'd13;     // default skip = 13 (pipeline warmup: 3-stage PE × 3 hops + router delays)
             result_overflow_sticky <= 1'b0;
             result_underflow_sticky <= 1'b0;
         end else begin
