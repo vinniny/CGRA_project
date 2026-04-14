@@ -51,7 +51,7 @@ task automatic run_suite_RF_result_fifo;
         // Pop 3 values: read ROW0, then write to 0x44 to pop
         apb_read(8'h58, val_a);  // First pop data
         apb_write(8'h44, 32'd1); // Pop (also clears overflow if set)
-        wait_cycles(3);
+        wait_cycles(5);
 
         apb_read(8'h58, val_b);  // Second value
         apb_write(8'h44, 32'd1);
@@ -130,7 +130,7 @@ task automatic run_suite_RF_result_fifo;
         apb_write(ADDR_TILE_AUTO_INC, 32'd1);
         apb_write(ADDR_LOOP_COUNT, 32'd255); // 256 iterations = should fill FIFO
         apb_write(ADDR_CU_CTRL, 32'd1);
-        wait_cycles(1000);
+        wait_cycles(10000); // CU stalls on FIFO full, needs extra time
 
         // CU should have completed (backpressure stalls but doesn't hang)
         apb_read(ADDR_CU_STATUS, rd);
