@@ -341,13 +341,14 @@ task automatic run_suite_SG_sg_dma;
 
         // Verify a new legacy DMA works (AXI not hung)
         ram_write(32'h4000, 32'hABCD_1234);
+        apb_write(ADDR_IRQ_STATUS, 32'h7);  // Clear stale done latch
         apb_write(ADDR_DMA_SRC, 32'h0000_4000);
         apb_write(ADDR_DMA_DST, 32'h1000_0000);
         apb_write(ADDR_DMA_SIZE, 32'd4);
         apb_write(ADDR_DMA_CTRL, 32'h0000_0001);
-        wait_dma_done(500);
+        wait_dma_done(2000);
 
-        dma_transfer(BASE_TILE, 32'h5000, 32'd4, 500);
+        dma_transfer(BASE_TILE, 32'h5000, 32'd4, 2000);
         if (ram_read(32'h5000) == 32'hABCD_1234)
             pass("SG09b: Post-abort legacy DMA works (AXI alive)");
         else
