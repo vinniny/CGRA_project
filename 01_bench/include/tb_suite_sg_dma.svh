@@ -49,7 +49,8 @@ task automatic run_suite_SG_sg_dma;
             fail("SG01: Data mismatch", $sformatf("got %08h %08h",
                  ram_read(32'h3000), ram_read(32'h3004)));
 
-        // Check completed count
+        // Check completed count (wait for chain cleanup)
+        wait_cycles(10);
         apb_read(ADDR_DMA_DESC_STATUS, rd);
         $display("  SG01: DESC_STATUS = 0x%08h (completed=%0d)", rd, rd[15:8]);
         if (rd[15:8] >= 8'd1) pass("SG01b: desc_completed >= 1");
@@ -107,6 +108,7 @@ task automatic run_suite_SG_sg_dma;
             fail("SG02: Data mismatch", $sformatf("b0=%08h b1=%08h b2=%08h",
                  ram_read(32'h3000), ram_read(32'h3100), ram_read(32'h3200)));
 
+        wait_cycles(10);
         apb_read(ADDR_DMA_DESC_STATUS, rd);
         if (rd[15:8] >= 8'd3) pass("SG02b: desc_completed >= 3");
         else fail("SG02b: desc_completed", $sformatf("got %0d", rd[15:8]));

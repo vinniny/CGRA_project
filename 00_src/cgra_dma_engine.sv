@@ -199,7 +199,7 @@ module cgra_dma_engine #(
     // During R_DRAIN, rready is held high to accept residual beats from the slave,
     // but we discard the data (don't push into FIFO) to avoid stale data buildup.
     // FIFO push: AXI read path OR tile read-back path (mutually exclusive per transfer)
-    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
+    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && r_state != R_DESC_FETCH && !src_is_tile;
     wire fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
     wire fifo_push      = fifo_push_axi || fifo_push_tile;
     
@@ -396,7 +396,15 @@ module cgra_dma_engine #(
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     tile_read_phase <= 1'b0;
-                    if (chain_start_i && !status_busy) begin
+                    // SG chain continuation: W_DONE set chain_next_req
+                    if (chain_mode && chain_next_req) begin
+                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
+                        desc_fetch_pending <= 1'b0;
+                        r_state <= R_DESC_FETCH;
+                    end else if (chain_mode && chain_done_req) begin
+                        chain_mode <= 1'b0;
+                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
+                    end else if (chain_start_i && !status_busy) begin
                         // SG chain mode: fetch first descriptor from DDR
                         chain_mode <= 1'b1;
                         desc_ptr <= desc_head_i;
@@ -1371,5 +1379,17 @@ module cgra_dma_engine #(
     assign dbg_fifo_full             = fifo_full;
     assign dbg_fifo_empty            = fifo_empty;
     assign dbg_write_words_remaining = write_words_remaining;
+
+    // synthesis translate_off
+    always @(posedge clk) begin
+        if (chain_mode || chain_start_i) begin
+            $display("[SG %0t] r=%0d w=%0d cm=%0b xr=%0b ta=%0b busy=%0b done=%0b fifo=%0d rw_rem=%0d ww_rem=%0d arv=%0b ardy=%0b rv=%0b rlast=%0b desc_ptr=%08h",
+                     $time, r_state, w_state, chain_mode, chain_xfer_ready,
+                     transfer_active, status_busy, status_done,
+                     count, read_words_remaining, write_words_remaining,
+                     m_axi_arvalid, m_axi_arready, m_axi_rvalid, m_axi_rlast, desc_ptr);
+        end
+    end
+    // synthesis translate_on
 
 endmodule
