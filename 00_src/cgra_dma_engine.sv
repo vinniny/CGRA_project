@@ -407,6 +407,7 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
+            // Clear-before-case lets R_DESC_LOAD re-assert in the same cycle if needed.
             // Hold ready until the write FSM explicitly acknowledges consumption.
             if (chain_xfer_ack)
                 chain_xfer_ready <= 1'b0;

@@ -222,7 +222,7 @@ module cgra_apb_csr #(
             if (dma_done_i)
                 dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
             if (dma_start || dma_chain_start || dma_start_cmd || reg_cu_ctrl[1])
-                dma_done_latch <= 1'b0;          // start pulse/chain_start pulse/start APB write/soft_reset clears
+                dma_done_latch <= 1'b0;          // clear on immediate start write, derived start pulses, or soft_reset
 
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
