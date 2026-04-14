@@ -148,8 +148,8 @@ module cgra_apb_csr #(
     // Scatter-Gather DMA
     localparam ADDR_DMA_DESC_HEAD   = 8'h7C; // RW: descriptor chain head pointer (DDR addr)
     localparam ADDR_DMA_DESC_STATUS = 8'h80; // RO: [0] chain_active, [15:8] desc_completed
-    localparam DMA_CTRL_START_BIT = 0;
-    localparam DMA_CTRL_CHAIN_START_BIT = 1;
+    localparam DMA_CTRL_START_BIT = 0;       // DMA_CTRL[0]: legacy single-shot start
+    localparam DMA_CTRL_CHAIN_START_BIT = 1; // DMA_CTRL[1]: SG chain start
 
     // =========================================================================
     // Internal Registers
@@ -222,7 +222,7 @@ module cgra_apb_csr #(
             if (dma_done_i)
                 dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
             if (dma_start || dma_chain_start || dma_start_cmd || reg_cu_ctrl[1])
-                dma_done_latch <= 1'b0;          // start write/pulse/chain_start/soft_reset clears
+                dma_done_latch <= 1'b0;          // start pulse/chain_start pulse/start APB write/soft_reset clears
 
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
