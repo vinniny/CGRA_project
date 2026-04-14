@@ -311,11 +311,11 @@ task automatic run_suite_AM_apb_sanity;
         // AM31: 0x3C (gap)
         apb_check(32'h3C, 32'h0, "AM31: Unmapped 0x3C returns 0");
 
-        // AM32: 0x54 (gap between LOOP_COUNT and RESULT_ROW0)
-        apb_check(32'h54, 32'h0, "AM32: Unmapped 0x54 returns 0");
+        // AM32: 0x54 is now RESULT_SKIP (default 11 = 0x0B)
+        apb_check(32'h54, 32'h0000_000B, "AM32: RESULT_SKIP default=11");
 
-        // AM33: 0x80 (beyond register space)
-        apb_check(ADDR_UNMAPPED, 32'h0, "AM33: Unmapped 0x80 returns 0");
+        // AM33: beyond register space
+        apb_check(ADDR_UNMAPPED, 32'h0, "AM33: Unmapped returns 0");
 
         // =================================================================
         // PROTECTED REGISTER REJECTION (AM34–AM39)

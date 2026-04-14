@@ -92,16 +92,27 @@ module cgra_result_fifo #(
 
     // BRAM read data (1-cycle latency)
     logic [DATA_WIDTH-1:0] bram_rd [0:ROWS-1];
-    logic                  bram_rd_pending;   // a BRAM read was issued last cycle
+    logic                  bram_rd_pending;    // a BRAM read was issued last cycle
+    logic                  first_push_bypass;  // bypass BRAM for first-push-into-empty
 
-    // Issue BRAM read on: (1) pop_read (fetch next), (2) first entry arrival
-    wire issue_bram_read = do_pop || (do_push && empty && !bram_rd_pending);
+    // Issue BRAM read on:
+    //  (1) pop with more entries remaining (prefetch next after pop)
+    //  (2) one cycle after first push into empty (BRAM write committed)
+    wire issue_bram_read = (do_pop && (fifo_count > 1)) || first_push_bypass;
+
+    // BRAM read address:
+    //  - On pop: read rd_ptr+1 (next entry to prefetch)
+    //  - On first-push bypass: read rd_ptr (= 0, the entry just written)
+    wire [ADDR_BITS-1:0] bram_rd_addr = first_push_bypass ? rd_ptr
+                                                           : (rd_ptr + 1'b1);
 
     always_ff @(posedge clk) begin
         if (!rst_n || fifo_clear) begin
-            bram_rd_pending <= 1'b0;
+            bram_rd_pending   <= 1'b0;
+            first_push_bypass <= 1'b0;
         end else begin
-            bram_rd_pending <= issue_bram_read;
+            bram_rd_pending   <= issue_bram_read;
+            first_push_bypass <= do_push && empty && !do_pop;
         end
     end
 
@@ -109,23 +120,25 @@ module cgra_result_fifo #(
     always_ff @(posedge clk) begin
         if (issue_bram_read) begin
             for (int r = 0; r < ROWS; r++)
-                bram_rd[r] <= mem[r][do_pop ? (rd_ptr + 1'b1) : rd_ptr];
+                bram_rd[r] <= mem[r][bram_rd_addr];
         end
     end
 
-    // Pre-fetch register update
+    // Pre-fetch register update (single driver)
+    // Two sources:
+    //   1. BRAM read completed — either after first push (bypass delay) or
+    //      after pop (prefetch next entry)
+    //   2. Pop of last entry — invalidate prefetch
     always_ff @(posedge clk) begin
         if (!rst_n || fifo_clear) begin
             for (int r = 0; r < ROWS; r++)
                 prefetch_reg[r] <= '0;
             prefetch_valid <= 1'b0;
         end else if (bram_rd_pending) begin
-            // BRAM data arrived — load into prefetch register
             for (int r = 0; r < ROWS; r++)
                 prefetch_reg[r] <= bram_rd[r];
             prefetch_valid <= 1'b1;
         end else if (do_pop && (fifo_count == 1)) begin
-            // Popping the last entry — nothing left to prefetch
             prefetch_valid <= 1'b0;
         end
     end
