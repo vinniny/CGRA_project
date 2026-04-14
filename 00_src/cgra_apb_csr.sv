@@ -210,14 +210,16 @@ module cgra_apb_csr #(
             dma_error_valid_prev <= 1'b0;
         end else begin
             dma_error_valid_prev <= dma_error_valid_i;  // Edge detect register
-            // DMA done latch: done-set wins over W1C-clear to prevent lost events
-            // Priority: start-clear > done-set > W1C-clear  (last assignment wins)
-            if (irq_w1c && pwdata[0])
-                dma_done_latch <= 1'b0;          // W1C clears
-            if (dma_done_i)
-                dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
-            if (dma_start || dma_chain_start || reg_cu_ctrl[1])
-                dma_done_latch <= 1'b0;          // start/chain_start/soft_reset clears
+            // DMA done latch — strict priority:
+            //   1. cfg_start / chain_start: unconditionally clear on ANY new transfer
+            //   2. status_done pulse: set when hardware finishes
+            //   3. Software W1C via IRQ_STATUS[0]
+            if (dma_start || dma_chain_start)
+                dma_done_latch <= 1'b0;
+            else if (dma_done_i)
+                dma_done_latch <= 1'b1;
+            else if (irq_w1c && pwdata[0])
+                dma_done_latch <= 1'b0;
 
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
