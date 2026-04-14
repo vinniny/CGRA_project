@@ -180,8 +180,17 @@ module cgra_top #(
     logic        array_branch_taken;
     logic        array_branch_taken_r;  // Registered: breaks LUTLP-1 comb loop
     
-    // East-edge result registers (4 rows for LPR 4×4 output capture)
-    logic [DATA_WIDTH-1:0] result_row [0:3];
+    // East-edge result FIFO (replaces single-latch result_row)
+    logic [DATA_WIDTH-1:0] result_fifo_pop_data [0:3];
+    logic                  result_fifo_pop_valid;
+    logic                  result_fifo_pop_read;
+    logic                  result_fifo_full;
+    logic                  result_fifo_empty;
+    logic [8:0]            result_fifo_count;
+    logic                  result_fifo_overflow;
+    logic                  result_fifo_underflow;
+    logic                  result_fifo_clear;
+    logic [3:0]            result_skip_count;
     
     // =========================================================================
     // Internal Wires: Control Unit → Array
@@ -426,7 +435,12 @@ module cgra_top #(
         .loop2_end_pc(cu_loop2_end_pc),
         .loop2_count(cu_loop2_count),
         .tile_bank_sel(tile_bank_sel_csr),
-        .tile_auto_inc_en(tile_auto_inc_en)
+        .tile_auto_inc_en(tile_auto_inc_en),
+        .result_skip_count(result_skip_count),
+        .result_overflow_i(result_fifo_overflow),
+        .result_underflow_i(result_fifo_underflow),
+        .result_fifo_count_i(result_fifo_count),
+        .result_fifo_pop_valid_i(result_fifo_pop_valid)
     );
     
     // =========================================================================
@@ -540,7 +554,7 @@ module cgra_top #(
         .context_pc_o(context_pc),
         .next_context_pc_o(next_context_pc),
         .global_stall_o(global_stall),
-        .dma_busy_i(dma_busy),
+        .dma_busy_i(dma_busy || result_fifo_full),  // FIFO full also stalls CU
         
         // Configuration
         .max_cycles_i(cu_max_cycles),  // Programmable timeout from CSR @ 0x2C
@@ -847,23 +861,45 @@ module cgra_top #(
     assign global_result = global_result_reg;
     
     // =========================================================================
-    // LPR: Capture ALL 4 East-Edge Results (one per row)
+    // Result FIFO: Captures ALL east-edge outputs every valid cycle
     // =========================================================================
-    // For 4×4 matrix operations, each row produces an independent result.
-    // Capture on cu_done so PS can read all 4 via APB (0x58-0x64).
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            result_row[0] <= '0;
-            result_row[1] <= '0;
-            result_row[2] <= '0;
-            result_row[3] <= '0;
-        end else if (cu_done && !cu_soft_reset) begin
-            result_row[0] <= edge_e0;  // PE(0,3) output
-            result_row[1] <= edge_e1;  // PE(1,3) output
-            result_row[2] <= edge_e2;  // PE(2,3) output
-            result_row[3] <= edge_e3;  // PE(3,3) output
-        end
-    end
+    // Replaces the old cu_done-only latch. Pushes 4 × 32-bit per cycle
+    // during CU execution. ARM pops via APB reads at 0x58-0x64.
+
+    // Push valid: PE output is valid when CU is running and not stalled
+    wire result_push_valid = pe_enable && !global_stall && !cu_soft_reset
+                           && cu_busy;  // cu_busy is high during STATE_RUN
+
+    // FIFO clear: on CU start or soft-reset
+    assign result_fifo_clear = cu_start || cu_soft_reset;
+
+    // East-edge data as push inputs
+    wire [DATA_WIDTH-1:0] result_push_data [0:3];
+    assign result_push_data[0] = edge_e0;
+    assign result_push_data[1] = edge_e1;
+    assign result_push_data[2] = edge_e2;
+    assign result_push_data[3] = edge_e3;
+
+    cgra_result_fifo #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .DEPTH(256),
+        .ROWS(4)
+    ) u_result_fifo (
+        .clk(clk),
+        .rst_n(rst_n),
+        .push_data(result_push_data),
+        .push_valid(result_push_valid),
+        .fifo_full(result_fifo_full),
+        .pop_data(result_fifo_pop_data),
+        .pop_valid(result_fifo_pop_valid),
+        .pop_read(result_fifo_pop_read),
+        .fifo_clear(result_fifo_clear),
+        .skip_count(result_skip_count),
+        .count(result_fifo_count),
+        .empty(result_fifo_empty),
+        .overflow_pulse(result_fifo_overflow),
+        .underflow_pulse(result_fifo_underflow)
+    );
     
     // Result valid: latched on cu_done, cleared by soft_reset
     // CRITICAL: cu_done is a 1-cycle pulse that APB polling would miss.
@@ -891,16 +927,25 @@ module cgra_top #(
     logic [31:0] apb_prdata;
     logic        apb_pready;
     
+    // FIFO pop trigger: reading any of 0x58-0x64 pops one entry (lockstep)
+    wire result_row_read = psel && penable && !pwrite &&
+                           (paddr[7:0] == 8'h58 || paddr[7:0] == 8'h5C ||
+                            paddr[7:0] == 8'h60 || paddr[7:0] == 8'h64);
+    // Only pop once per APB transaction (on the first matching address read)
+    assign result_fifo_pop_read = result_row_read && (paddr[7:0] == 8'h58);
+
     always_comb begin
-        // Data multiplexer: result registers vs CSR module
+        // Data multiplexer: result FIFO + status vs CSR module
         case (paddr[7:0])
-            8'h40: apb_prdata = global_result;              // RESULT_DATA (combinational)
-            8'h44: apb_prdata = {31'b0, result_valid};      // RESULT_STATUS (combinational)
-            8'h58: apb_prdata = result_row[0];              // LPR: Row 0 east-edge result
-            8'h5C: apb_prdata = result_row[1];              // LPR: Row 1 east-edge result
-            8'h60: apb_prdata = result_row[2];              // LPR: Row 2 east-edge result
-            8'h64: apb_prdata = result_row[3];              // LPR: Row 3 east-edge result
-            default: apb_prdata = csr_prdata;                // All other addresses from CSR
+            8'h40: apb_prdata = global_result;
+            8'h44: apb_prdata = {21'b0, result_fifo_underflow, result_fifo_overflow,
+                                 result_fifo_count[7:0], result_fifo_pop_valid};
+            8'h54: apb_prdata = {28'b0, result_skip_count};
+            8'h58: apb_prdata = result_fifo_pop_data[0];
+            8'h5C: apb_prdata = result_fifo_pop_data[1];
+            8'h60: apb_prdata = result_fifo_pop_data[2];
+            8'h64: apb_prdata = result_fifo_pop_data[3];
+            default: apb_prdata = csr_prdata;
         endcase
         
         // Ready signal multiplexer: result registers always ready, CSR module for others

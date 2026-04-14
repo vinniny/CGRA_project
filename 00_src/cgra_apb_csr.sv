@@ -86,7 +86,14 @@ module cgra_apb_csr #(
     output logic                  tile_bank_sel,
 
     // Tile Auto-Increment
-    output logic                  tile_auto_inc_en
+    output logic                  tile_auto_inc_en,
+
+    // Result FIFO
+    output logic [3:0]            result_skip_count,    // warmup skip (default 11)
+    input  logic                  result_overflow_i,    // pulse from FIFO
+    input  logic                  result_underflow_i,   // pulse from FIFO
+    input  logic [8:0]            result_fifo_count_i,
+    input  logic                  result_fifo_pop_valid_i
 );
 
     // =========================================================================
@@ -126,6 +133,9 @@ module cgra_apb_csr #(
     // Double-Buffering — C2
     localparam ADDR_TILE_BANK_SEL = 8'h74; // RW: PE buffer selector (bit[0])
 
+    // Result FIFO
+    localparam ADDR_RESULT_SKIP   = 8'h54; // RW: [3:0] warmup skip count (default 11)
+
     // Tile Auto-Increment
     localparam ADDR_TILE_AUTO_INC = 8'h78; // RW: bit[0] = enable tile addr auto-inc on loop wrap
 
@@ -156,6 +166,9 @@ module cgra_apb_csr #(
     logic [31:0] reg_loop2_count;
     logic [31:0] reg_tile_bank_sel;   // C2: double-buffer selector
     logic [31:0] reg_tile_auto_inc;  // Tile address auto-increment enable
+    logic [31:0] reg_result_skip;   // Result FIFO warmup skip count
+    logic        result_overflow_sticky;   // W1C via RESULT_STATUS[9]
+    logic        result_underflow_sticky;  // W1C via RESULT_STATUS[10]
 
     // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
@@ -255,6 +268,9 @@ module cgra_apb_csr #(
             reg_loop2_count <= 32'd0;
             reg_tile_bank_sel <= 32'd0;
             reg_tile_auto_inc <= 32'd0;
+            reg_result_skip <= 32'd11;     // default skip = 11 (pipeline warmup)
+            result_overflow_sticky <= 1'b0;
+            result_underflow_sticky <= 1'b0;
         end else begin
             // APB Write Phase
             // FIX: Reject writes to DMA config regs while DMA is busy, and
@@ -279,6 +295,12 @@ module cgra_apb_csr #(
                     ADDR_LOOP2_COUNT:    if (!cu_busy_i) reg_loop2_count    <= pwdata;
                     ADDR_TILE_BANK_SEL:  if (!dma_busy_i && !cu_busy_i) reg_tile_bank_sel <= pwdata;
                     ADDR_TILE_AUTO_INC:  if (!cu_busy_i) reg_tile_auto_inc <= pwdata;
+                    ADDR_RESULT_SKIP:    if (!cu_busy_i) reg_result_skip <= pwdata;
+                    // RESULT_STATUS W1C: writing 1 to bits [10:9] clears sticky flags
+                    8'h44: begin
+                        if (pwdata[9])  result_overflow_sticky  <= 1'b0;
+                        if (pwdata[10]) result_underflow_sticky <= 1'b0;
+                    end
                     // Read-only registers: ignore writes
                     default: ;
                 endcase
@@ -290,6 +312,11 @@ module cgra_apb_csr #(
                 reg_dma_ctrl[0] <= 1'b0;
             if (reg_cu_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_CU_CTRL))
                 reg_cu_ctrl[0] <= 1'b0;
+
+            // Result FIFO overflow/underflow sticky latch
+            // Set on pulse from FIFO, cleared by W1C on RESULT_STATUS or reset
+            if (result_overflow_i)  result_overflow_sticky  <= 1'b1;
+            if (result_underflow_i) result_underflow_sticky <= 1'b1;
         end
     end
     
@@ -319,6 +346,7 @@ module cgra_apb_csr #(
             ADDR_LOOP2_START: prdata = reg_loop2_start;
             ADDR_LOOP2_END:   prdata = reg_loop2_end;
             ADDR_LOOP2_COUNT:    prdata = reg_loop2_count;
+            ADDR_RESULT_SKIP:     prdata = reg_result_skip;
             ADDR_TILE_BANK_SEL:  prdata = reg_tile_bank_sel;
             ADDR_TILE_AUTO_INC:  prdata = reg_tile_auto_inc;
             default:         prdata = 32'h0;           // Undefined address → zero
@@ -351,6 +379,7 @@ module cgra_apb_csr #(
     assign loop2_count    = reg_loop2_count[15:0];
     assign tile_bank_sel  = reg_tile_bank_sel[0];
     assign tile_auto_inc_en = reg_tile_auto_inc[0];
+    assign result_skip_count = reg_result_skip[3:0];
     
     // =========================================================================
     // IRQ Generation
