@@ -418,8 +418,8 @@ module cgra_dma_engine #(
                     end else if (chain_mode && chain_done_req) begin
                         chain_mode <= 1'b0;
                         desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                    end else if (chain_start_i && !status_busy) begin
-                        // SG chain mode: fetch first descriptor from DDR
+                    end else if (chain_start_i && !status_busy && desc_head_i != 32'd0) begin
+                        // SG chain mode: fetch first descriptor from DDR (ignore null head)
                         chain_mode <= 1'b1;
                         desc_ptr <= desc_head_i;
                         desc_completed_cnt <= 16'd0;
@@ -1234,8 +1234,8 @@ module cgra_dma_engine #(
                 error_flag <= 1'b1;
             end
 
-            if (chain_start_i && !status_busy) begin
-                // SG chain start
+            if (chain_start_i && !status_busy && desc_head_i != 32'd0) begin
+                // SG chain start (ignore if desc_head is null)
                 error_code_reg <= 2'b00;
                 error_flag <= 1'b0;
                 transfer_active <= 1'b1;
@@ -1396,12 +1396,20 @@ module cgra_dma_engine #(
 
     // synthesis translate_off
     always @(posedge clk) begin
-        if (chain_mode || chain_start_i) begin
-            $display("[SG %0t] r=%0d w=%0d cm=%0b xr=%0b ta=%0b busy=%0b done=%0b fifo=%0d rw_rem=%0d ww_rem=%0d arv=%0b ardy=%0b rv=%0b rlast=%0b desc_ptr=%08h",
+        if (chain_start_i)
+            $display("[SG-START %0t] chain_start pulse! r=%0d busy=%0b desc_head=%08h",
+                     $time, r_state, status_busy, desc_head_i);
+        if (status_done)
+            $display("[SG-DONE %0t] status_done! r=%0d w=%0d cm=%0b ta=%0b busy=%0b idle=%0b dc=%0d",
+                     $time, r_state, w_state, chain_mode, transfer_active, status_busy, engine_idle, desc_completed_cnt);
+        if (chain_mode || chain_start_i || (cfg_abort && status_busy)) begin
+            $display("[SG %0t] r=%0d w=%0d cm=%0b xr=%0b cnr=%0b cdr=%0b ta=%0b busy=%0b done=%0b fifo=%0d rw=%0d ww=%0d arv=%0b rv=%0b abt=%0b idle=%0b dp=%08h dc=%0d",
                      $time, r_state, w_state, chain_mode, chain_xfer_ready,
+                     chain_next_req, chain_done_req,
                      transfer_active, status_busy, status_done,
                      count, read_words_remaining, write_words_remaining,
-                     m_axi_arvalid, m_axi_arready, m_axi_rvalid, m_axi_rlast, desc_ptr);
+                     m_axi_arvalid, m_axi_rvalid, cfg_abort, engine_idle,
+                     desc_ptr, desc_completed_cnt);
         end
     end
     // synthesis translate_on
