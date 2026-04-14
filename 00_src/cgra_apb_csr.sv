@@ -199,7 +199,10 @@ module cgra_apb_csr #(
     // =========================================================================
     // W1C wire: APB write to IRQ_STATUS clears individual done latches
     logic irq_w1c;
+    logic dma_start_cmd;
     assign irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
+    assign dma_start_cmd = psel && penable && pwrite && (paddr[7:0] == ADDR_DMA_CTRL) &&
+                           (pwdata[0] || pwdata[1]);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -216,8 +219,8 @@ module cgra_apb_csr #(
                 dma_done_latch <= 1'b0;          // W1C clears
             if (dma_done_i)
                 dma_done_latch <= 1'b1;          // FIX: done-set AFTER W1C so same-cycle done is not lost
-            if (dma_start || dma_chain_start || reg_cu_ctrl[1])
-                dma_done_latch <= 1'b0;          // start/chain_start/soft_reset clears
+            if (dma_start || dma_chain_start || dma_start_cmd || reg_cu_ctrl[1])
+                dma_done_latch <= 1'b0;          // start write/pulse/chain_start/soft_reset clears
 
             // CU done latch: done-set wins over W1C-clear
             if (irq_w1c && pwdata[1])
