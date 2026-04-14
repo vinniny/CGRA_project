@@ -370,20 +370,20 @@ module cgra_dma_engine #(
                 end
                 R_DRAIN: begin
                     // Already draining — continue drain even while cfg_abort is held.
-                    // cfg_abort may be a level signal held for multiple cycles; we must
-                    // process AXI beats during this time, not just idle.
+                    // CRITICAL: assert rready when rvalid is high to prevent AXI hang.
                     if (m_axi_arvalid) begin
                         if (m_axi_arready) begin
                             m_axi_arvalid <= 1'b0;
                             m_axi_rready <= 1'b1;
                         end
-                    end else if (m_axi_rvalid && m_axi_rready) begin
-                        if (m_axi_rlast) begin
+                    end else if (m_axi_rvalid) begin
+                        m_axi_rready <= 1'b1;  // Accept pending beats
+                        if (m_axi_rready && m_axi_rlast) begin
                             m_axi_rready <= 1'b0;
                             r_state <= R_IDLE;
                         end
                     end else if (!m_axi_rready) begin
-                        r_state <= R_IDLE;
+                        r_state <= R_IDLE;  // No pending beats, safe to idle
                     end
                 end
                 R_DESC_FETCH: begin
@@ -559,27 +559,26 @@ module cgra_dma_engine #(
                 
                 R_DRAIN: begin
                     // AXI-SAFE ABORT DRAIN STATE
-                    // Complete any in-flight AXI read transaction before going IDLE.
-                    // Phase 1: If ARVALID is asserted, hold until ARREADY completes handshake.
-                    // Phase 2: Accept all data beats with RREADY=1 until RLAST.
+                    // CRITICAL: Never drop RREADY while beats are pending.
+                    // Phase 1: If ARVALID still asserted, complete the handshake.
+                    // Phase 2: Assert RREADY, accept all beats until RLAST.
+                    // Phase 3: Only go IDLE when no beats pending.
                     if (m_axi_arvalid) begin
-                        // Waiting for AR handshake to complete
                         if (m_axi_arready) begin
                             m_axi_arvalid <= 1'b0;
-                            m_axi_rready <= 1'b1;  // Now drain the data beats
+                            m_axi_rready <= 1'b1;
                         end
-                        // else: hold ARVALID — AXI spec requires it stays asserted
-                    end else if (m_axi_rvalid && m_axi_rready) begin
-                        // Draining data beats — discard data, wait for RLAST
-                        if (m_axi_rlast) begin
+                    end else if (m_axi_rvalid) begin
+                        // Beats available — must accept them
+                        m_axi_rready <= 1'b1;
+                        if (m_axi_rready && m_axi_rlast) begin
                             m_axi_rready <= 1'b0;
                             r_state <= R_IDLE;
                         end
                     end else if (!m_axi_rready) begin
-                        // No in-flight transaction — can go directly to IDLE
+                        // No ARVALID, no RVALID, no RREADY — safe to IDLE
                         r_state <= R_IDLE;
                     end
-                    // else: RREADY is high but slave hasn't sent data yet — wait
                 end
                 
                 // =============================================================
@@ -1262,6 +1261,7 @@ module cgra_dma_engine #(
                     transfer_started <= 1'b0;
                     status_busy <= 1'b1;
                 end else begin
+                    // FIX: Zero-length transfer → nothing to do, immediately done
                     status_done <= 1'b1;
                     irq_done    <= 1'b1;
                 end
@@ -1399,6 +1399,11 @@ module cgra_dma_engine #(
         if (chain_start_i)
             $display("[SG-START %0t] chain_start pulse! r=%0d busy=%0b desc_head=%08h",
                      $time, r_state, status_busy, desc_head_i);
+        // Post-abort state trace: when busy but not abort
+        if (status_busy && !cfg_abort && !transfer_active && !chain_mode)
+            $display("[SG-STUCK %0t] r=%0d w=%0d fifo=%0d idle=%0b arv=%0b ardy=%0b awv=%0b bv=%0b rv=%0b",
+                     $time, r_state, w_state, count, engine_idle,
+                     m_axi_arvalid, m_axi_arready, m_axi_awvalid, m_axi_bvalid, m_axi_rvalid);
         if (status_done)
             $display("[SG-DONE %0t] status_done! r=%0d w=%0d cm=%0b ta=%0b busy=%0b idle=%0b dc=%0d",
                      $time, r_state, w_state, chain_mode, transfer_active, status_busy, engine_idle, desc_completed_cnt);
