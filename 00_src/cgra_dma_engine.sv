@@ -407,6 +407,7 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
+            // Hold ready until the write FSM explicitly acknowledges consumption.
             if (chain_xfer_ack)
                 chain_xfer_ready <= 1'b0;
             case (r_state)

@@ -148,6 +148,8 @@ module cgra_apb_csr #(
     // Scatter-Gather DMA
     localparam ADDR_DMA_DESC_HEAD   = 8'h7C; // RW: descriptor chain head pointer (DDR addr)
     localparam ADDR_DMA_DESC_STATUS = 8'h80; // RO: [0] chain_active, [15:8] desc_completed
+    localparam DMA_CTRL_START_BIT = 0;
+    localparam DMA_CTRL_CHAIN_START_BIT = 1;
 
     // =========================================================================
     // Internal Registers
@@ -202,7 +204,7 @@ module cgra_apb_csr #(
     logic dma_start_cmd;
     assign irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
     assign dma_start_cmd = psel && penable && pwrite && (paddr[7:0] == ADDR_DMA_CTRL) &&
-                           (pwdata[0] || pwdata[1]);
+                           (pwdata[DMA_CTRL_START_BIT] || pwdata[DMA_CTRL_CHAIN_START_BIT]);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
