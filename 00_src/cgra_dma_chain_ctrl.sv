@@ -2,7 +2,7 @@
 // Fetches {src, dst, size, next_ptr} descriptors from DDR via its own AXI
 // AR/R port and issues one-shot commands to the DMA data-mover.
 //
-// FSM: IDLE -> FETCH -> LOAD -> XFER -> WAIT -> NEXT -> (loop) / DRAIN on abort.
+// FSM: IDLE -> FETCH -> ISSUE -> WAIT -> (loop) / DRAIN on abort.
 
 module cgra_dma_chain_ctrl #(
     parameter ADDR_WIDTH = 32,
@@ -46,11 +46,9 @@ module cgra_dma_chain_ctrl #(
     typedef enum logic [2:0] {
         C_IDLE  = 3'd0,
         C_FETCH = 3'd1,
-        C_LOAD  = 3'd2,
-        C_XFER  = 3'd3,
-        C_WAIT  = 3'd4,
-        C_NEXT  = 3'd5,
-        C_DRAIN = 3'd6
+        C_ISSUE = 3'd2,
+        C_WAIT  = 3'd3,
+        C_DRAIN = 3'd4
     } chain_state_t;
 
     chain_state_t state;
@@ -115,32 +113,24 @@ module cgra_dma_chain_ctrl #(
                         if (m_axi_rlast) begin
                             m_axi_rready <= 1'b0;
                             ar_issued    <= 1'b0;
-                            state        <= C_LOAD;
+                            state        <= C_ISSUE;
                         end
                     end
                 end
 
-                C_LOAD: begin
+                C_ISSUE: begin
                     if (abort_i) begin
                         state <= C_IDLE;
-                    end else begin
-                        cmd_src_o  <= desc_buf[0];
-                        cmd_dst_o  <= desc_buf[1];
-                        cmd_size_o <= desc_buf[2];
-                        desc_ptr   <= desc_buf[3];
-                        if (desc_buf[2] == '0) begin
-                            desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                            state <= (desc_buf[3] == '0) ? C_IDLE : C_FETCH;
-                        end else begin
-                            state <= C_XFER;
-                        end
-                    end
-                end
-
-                C_XFER: begin
-                    if (abort_i) begin
-                        state <= C_IDLE;
+                    end else if (desc_buf[2] == '0) begin
+                        // Zero-size descriptor: count and skip
+                        desc_ptr <= desc_buf[3];
+                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
+                        state <= (desc_buf[3] == '0) ? C_IDLE : C_FETCH;
                     end else if (!cmd_busy_i) begin
+                        cmd_src_o   <= desc_buf[0];
+                        cmd_dst_o   <= desc_buf[1];
+                        cmd_size_o  <= desc_buf[2];
+                        desc_ptr    <= desc_buf[3];
                         cmd_start_o <= 1'b1;
                         state       <= C_WAIT;
                     end
@@ -151,15 +141,8 @@ module cgra_dma_chain_ctrl #(
                         state <= C_IDLE;
                     end else if (cmd_done_i) begin
                         desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                        state              <= C_NEXT;
+                        state <= (desc_ptr == '0) ? C_IDLE : C_FETCH;
                     end
-                end
-
-                C_NEXT: begin
-                    if (abort_i || desc_ptr == '0)
-                        state <= C_IDLE;
-                    else
-                        state <= C_FETCH;
                 end
 
                 C_DRAIN: begin
