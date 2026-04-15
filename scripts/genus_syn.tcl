@@ -47,7 +47,6 @@ read_hdl -sv -define XCELIUM \
     ../00_src/bsg_mem/bsg_mem_1r1w_sync.sv \
     ../00_src/bsg_mem/cgra_config_mem_bsg.sv \
     ../00_src/cgra_pe.sv \
-    ../00_src/cgra_router.sv \
     ../00_src/cgra_tile.sv \
     ../00_src/cgra_array.sv \
     ../00_src/cgra_tile_memory.sv \

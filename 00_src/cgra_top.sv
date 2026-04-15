@@ -44,7 +44,6 @@
 module cgra_top #(
     parameter DATA_WIDTH = 32,
     parameter COORD_WIDTH = 4,
-    parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH = 32,
     parameter AXI_ID_WIDTH = 4,
     parameter SPM_DEPTH = 256,
@@ -772,7 +771,6 @@ module cgra_top #(
         .COLS(COLS),
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
-        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
         .ADDR_WIDTH(4),
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
