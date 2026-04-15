@@ -46,11 +46,6 @@ module cgra_dma_engine #(
     output logic                  status_done,
     output logic                  irq_done,
 
-    // Scatter-Gather Descriptor Chain
-    input  logic [31:0]           desc_head_i,      // DDR address of first descriptor
-    input  logic                  chain_start_i,     // pulse: start chain execution
-    output logic                  chain_active_o,    // chain in progress
-    output logic [15:0]           desc_completed_o,  // descriptors completed in current chain
     
     // =========================================================================
     // AXI4 Master Interface (Full AXI4 with Burst Support)
@@ -166,13 +161,11 @@ module cgra_dma_engine #(
     // FSM types/states are declared here so FIFO logic can safely reference
     // r_state/w_state and drain-state enum values.
     typedef enum logic [2:0] {
-        R_IDLE       = 3'd0,
-        R_ADDR       = 3'd1,
-        R_DATA       = 3'd2,
-        R_DONE       = 3'd3,
-        R_DRAIN      = 3'd4,  // AXI-safe abort: drain in-flight read burst
-        R_DESC_FETCH = 3'd5,  // SG: fetch 4-word descriptor from DDR
-        R_DESC_LOAD  = 3'd6   // SG: parse descriptor into cfg_src/dst/size
+        R_IDLE  = 3'd0,
+        R_ADDR  = 3'd1,
+        R_DATA  = 3'd2,
+        R_DONE  = 3'd3,
+        R_DRAIN = 3'd4   // AXI-safe abort: drain in-flight read burst
     } read_state_t;
 
     typedef enum logic [2:0] {
@@ -199,7 +192,7 @@ module cgra_dma_engine #(
     // During R_DRAIN, rready is held high to accept residual beats from the slave,
     // but we discard the data (don't push into FIFO) to avoid stale data buildup.
     // FIFO push: AXI read path OR tile read-back path (mutually exclusive per transfer)
-    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && r_state != R_DESC_FETCH && !src_is_tile;
+    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
     wire fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
     wire fifo_push      = fifo_push_axi || fifo_push_tile;
     
@@ -222,8 +215,8 @@ module cgra_dma_engine #(
             r_ptr <= '0;
             count <= '0;
         end else begin
-            if ((cfg_start || chain_start_i) && !status_busy) begin
-                // Reset FIFO on new transfer or chain start
+            if (cfg_start && !status_busy) begin
+                // Reset FIFO on new transfer
                 w_ptr <= '0;
                 r_ptr <= '0;
                 count <= '0;
@@ -261,39 +254,6 @@ module cgra_dma_engine #(
     logic [31:0] read_cols_words;
     logic [31:0] read_row_words_remaining;
     
-    // Scatter-Gather descriptor chain registers
-    logic        chain_mode;            // SG mode active (vs legacy single-shot)
-    logic [31:0] desc_ptr;              // Current descriptor DDR address
-    logic [31:0] desc_buf [0:3];        // 4-word descriptor buffer
-    logic [1:0]  desc_word_idx;         // Word counter during fetch (0-3)
-    logic [15:0] desc_completed_cnt;    // Chain progress counter
-    logic        desc_fetch_pending;    // Descriptor fetch AXI read in progress
-    logic        chain_next_req;       // W_DONE requests read FSM to fetch next descriptor
-    logic        chain_done_req;       // W_DONE signals chain complete
-    logic        chain_xfer_ready;    // Read FSM: descriptor loaded, write FSM can start
-    logic        chain_xfer_ack;      // Write FSM: acknowledged, read FSM can clear
-
-    assign chain_active_o    = chain_mode;
-    assign desc_completed_o  = desc_completed_cnt;
-
-    // chain_next_req: dedicated always_ff — consumer-acknowledges pattern.
-    // Set by write FSM condition (W_DONE + more descriptors), cleared by
-    // read FSM (R_DESC_FETCH entered). Single driver avoids MULAXX.
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            chain_next_req <= 1'b0;
-        end else if (w_state == W_DONE && chain_mode && desc_ptr != 32'd0) begin
-            // Write FSM completed payload, chain continues
-            chain_next_req <= 1'b1;
-        end else if (r_state == R_DESC_FETCH) begin
-            // Read FSM began fetch — acknowledge and clear
-            chain_next_req <= 1'b0;
-        end else if (cfg_abort) begin
-            // Wipe pending request on abort
-            chain_next_req <= 1'b0;
-        end
-    end
-
     // Tile broadcast: dst_addr[31] = broadcast flag
     logic        dst_broadcast;         // Broadcast write to all 4 tile banks
     logic [1:0]  broadcast_bank_cnt;    // 0-3 bank counter during broadcast
@@ -355,12 +315,6 @@ module cgra_dma_engine #(
             m_axi_rready <= 1'b0;
             src_is_tile <= 1'b0;
             tile_read_phase <= 1'b0;
-            chain_mode <= 1'b0;
-            desc_ptr <= '0;
-            desc_completed_cnt <= '0;
-            desc_word_idx <= '0;
-            desc_fetch_pending <= 1'b0;
-            chain_xfer_ready <= 1'b0;
         end else if (cfg_abort && r_state != R_DRAIN) begin
             // AXI-SAFE ABORT: Transition to R_DRAIN on first abort cycle.
             // Once in R_DRAIN, the normal case block handles beat draining
@@ -370,9 +324,6 @@ module cgra_dma_engine #(
             read_2d_mode <= 1'b0;
             read_rows_remaining <= '0;
             read_row_words_remaining <= '0;
-            chain_mode <= 1'b0;         // Clear chain on abort
-            chain_xfer_ready <= 1'b0;
-            desc_fetch_pending <= 1'b0;
             if (src_is_tile) begin
                 // Tile reads have no in-flight AXI transactions — go directly to IDLE
                 r_state <= R_IDLE;
@@ -406,17 +357,6 @@ module cgra_dma_engine #(
                         r_state <= R_IDLE;  // No pending beats, safe to idle
                     end
                 end
-                R_DESC_FETCH: begin
-                    // Abort during descriptor fetch — AXI read may be in-flight
-                    if (m_axi_arvalid || m_axi_rready || desc_fetch_pending)
-                        r_state <= R_DRAIN;  // Drain the in-flight descriptor burst
-                    else
-                        r_state <= R_IDLE;
-                end
-                R_DESC_LOAD: begin
-                    // No AXI in-flight, safe to IDLE
-                    r_state <= R_IDLE;
-                end
                 default: begin
                     // IDLE or DONE — safe to go directly to IDLE
                     r_state <= R_IDLE;
@@ -430,26 +370,7 @@ module cgra_dma_engine #(
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
                     tile_read_phase <= 1'b0;
-                    chain_xfer_ready <= 1'b0;  // Clear before potential re-set in R_DESC_LOAD
-                    // SG chain continuation: W_DONE set chain_next_req
-                    if (chain_mode && chain_next_req) begin
-                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                        desc_fetch_pending <= 1'b0;
-                        r_state <= R_DESC_FETCH;
-                    end else if (chain_mode && chain_done_req) begin
-                        chain_mode <= 1'b0;
-                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                    end else if (chain_start_i && !status_busy && desc_head_i != 32'd0) begin
-                        // SG chain mode: fetch first descriptor from DDR (ignore null head)
-                        chain_mode <= 1'b1;
-                        desc_ptr <= desc_head_i;
-                        desc_completed_cnt <= 16'd0;
-                        desc_word_idx <= 2'd0;
-                        desc_fetch_pending <= 1'b0;
-                        r_state <= R_DESC_FETCH;
-                    end else if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
-                        // Legacy single-shot mode
-                        chain_mode <= 1'b0;
+                    if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
                         read_2d_mode <= cfg_2d_mode;
                         read_row_base_addr <= cfg_src;
                         read_row_stride <= cfg_src_stride;
@@ -464,8 +385,6 @@ module cgra_dma_engine #(
                 end
                 
                 R_ADDR: begin
-                    // chain_xfer_ready stays high until W_IDLE consumes it.
-                    // Do NOT clear here — the write FSM needs to see it.
                     if (src_is_tile) begin
                         // Tile reads: no AXI AR needed, go directly to R_DATA
                         tile_read_phase <= 1'b0;
@@ -561,21 +480,7 @@ module cgra_dma_engine #(
                 R_DONE: begin
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
-                    if (chain_next_req) begin
-                        // Write engine finished a descriptor, fetch next
-                        // (chain_next_req is cleared by write FSM)
-                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                        desc_fetch_pending <= 1'b0;
-                        r_state <= R_DESC_FETCH;
-                    end else if (chain_done_req) begin
-                        // Chain complete
-                        // (chain_done_req is cleared by write FSM)
-                        chain_mode <= 1'b0;
-                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                        r_state <= R_IDLE;
-                    end else begin
-                        r_state <= R_IDLE;
-                    end
+                    r_state <= R_IDLE;
                 end
                 
                 R_DRAIN: begin
@@ -607,59 +512,6 @@ module cgra_dma_engine #(
                 // =============================================================
                 // SG: Descriptor Fetch — read 4-word descriptor from DDR
                 // =============================================================
-                R_DESC_FETCH: begin
-                    if (!desc_fetch_pending && !m_axi_arvalid) begin
-                        // Issue AXI AR for 4-word (16-byte) descriptor read
-                        m_axi_araddr <= desc_ptr;
-                        m_axi_arlen <= 8'd3;           // 4-word burst (ARLEN=3)
-                        current_burst_len <= 8'd3;
-                        m_axi_arvalid <= 1'b1;
-                        desc_word_idx <= 2'd0;
-                    end else if (m_axi_arvalid && m_axi_arready) begin
-                        m_axi_arvalid <= 1'b0;
-                        m_axi_rready <= 1'b1;
-                        desc_fetch_pending <= 1'b1;
-                    end else if (desc_fetch_pending && m_axi_rvalid && m_axi_rready) begin
-                        // Capture descriptor words
-                        desc_buf[desc_word_idx] <= m_axi_rdata;
-                        desc_word_idx <= desc_word_idx + 2'd1;
-                        if (m_axi_rlast) begin
-                            m_axi_rready <= 1'b0;
-                            desc_fetch_pending <= 1'b0;
-                            r_state <= R_DESC_LOAD;
-                        end
-                    end
-                end
-
-                // =============================================================
-                // SG: Descriptor Load — parse fields, start transfer
-                // =============================================================
-                R_DESC_LOAD: begin
-                    // desc_buf[0]=src, desc_buf[1]=dst, desc_buf[2]=size, desc_buf[3]=next
-                    if (desc_buf[2] == 32'd0) begin
-                        // Size=0: skip this descriptor, follow next
-                        desc_ptr <= desc_buf[3];
-                        desc_completed_cnt <= desc_completed_cnt + 16'd1;
-                        if (desc_buf[3] == 32'd0)
-                            r_state <= R_DONE;  // End of chain
-                        else
-                            r_state <= R_DESC_FETCH;
-                    end else begin
-                        // Load transfer parameters from descriptor
-                        read_addr <= desc_buf[0];
-                        read_words_remaining <= desc_buf[2][31:2]; // bytes to words
-                        src_is_tile <= (desc_buf[0][31:28] == 4'h1);
-                        read_2d_mode <= 1'b0;  // SG is always 1D
-                        read_rows_remaining <= 32'd1;
-                        read_cols_words <= desc_buf[2][31:2];
-                        read_row_words_remaining <= desc_buf[2][31:2];
-                        read_row_base_addr <= desc_buf[0];
-                        desc_ptr <= desc_buf[3];  // Save next pointer
-                        chain_xfer_ready <= 1'b1; // Signal write FSM
-                        r_state <= R_ADDR;
-                    end
-                end
-
                 default: r_state <= R_IDLE;
             endcase
         end
@@ -732,11 +584,7 @@ module cgra_dma_engine #(
             m_axi_bready <= 1'b0;
             dst_broadcast <= 1'b0;
             broadcast_bank_cnt <= 2'd0;
-            chain_done_req <= 1'b0;
-            chain_xfer_ack <= 1'b0;
         end else if (cfg_abort && w_state != W_DRAIN) begin
-            chain_done_req <= 1'b0;
-            chain_xfer_ack <= 1'b0;
             // AXI-SAFE ABORT: Transition to W_DRAIN on first abort cycle.
             // Once in W_DRAIN, the normal case block handles the drain
             // (cfg_abort level signal — must not re-enter while draining).
@@ -855,10 +703,6 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
-            // Clear-before-case defaults: these are overridden by specific states.
-            // chain_xfer_ack must be a 1-cycle pulse — clear every cycle by default.
-            chain_xfer_ack <= 1'b0;
-
             case (w_state)
                 W_IDLE: begin
                     local_write_en <= 1'b0;
@@ -869,29 +713,14 @@ module cgra_dma_engine #(
                     m_axi_wvalid <= 1'b0;
                     m_axi_bready <= 1'b0;
                     broadcast_bank_cnt <= 2'd0;
-                    // chain_done_req: cleared when read FSM reaches IDLE
-                    if (chain_done_req && r_state == R_IDLE) chain_done_req <= 1'b0;
-                    if (chain_mode && chain_xfer_ready) begin
-                        // SG mode: read engine loaded desc, start write side
-                            write_addr <= {1'b0, desc_buf[1][30:0]}; // clear broadcast bit from addr
-                        write_words_remaining <= desc_buf[2][31:2];
-                        dst_is_axi    <= (desc_buf[1][31:28] == 4'h0) && !desc_buf[1][31];
-                        dst_is_tile   <= (desc_buf[1][31:28] == 4'h1) || desc_buf[1][31];
-                        dst_is_config <= (desc_buf[1][31:28] == 4'h2);
-                        dst_broadcast <= desc_buf[1][31];
-                        w_state <= W_WAIT;
-                    end else if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
-                        // Legacy single-shot mode
-                        write_addr <= cfg_dst;
+                    if (cfg_start && cfg_transfer_words != '0 && !status_busy) begin
+                        // cfg_dst[31] = broadcast bit (SG chain sets this for multi-bank writes)
+                        write_addr <= {1'b0, cfg_dst[30:0]};
                         write_words_remaining <= cfg_transfer_words;
-                        dst_is_axi    <= (cfg_dst[31:28] == 4'h0);
-                        dst_is_tile   <= (cfg_dst[31:28] == 4'h1);
+                        dst_is_axi    <= (cfg_dst[31:28] == 4'h0) && !cfg_dst[31];
+                        dst_is_tile   <= (cfg_dst[31:28] == 4'h1) || cfg_dst[31];
                         dst_is_config <= (cfg_dst[31:28] == 4'h2);
-                        dst_broadcast <= 1'b0;
-                        // synthesis translate_off
-                        if (cfg_dst[31:28] != 4'h0 && cfg_dst[31:28] != 4'h1 && cfg_dst[31:28] != 4'h2)
-                            $warning("[DMA] Unrecognized destination prefix 0x%01h", cfg_dst[31:28]);
-                        // synthesis translate_on
+                        dst_broadcast <= cfg_dst[31];
                         w_state <= W_WAIT;
                     end
                 end
@@ -1044,17 +873,7 @@ module cgra_dma_engine #(
                     m_axi_bready <= 1'b0;
                     local_write_en <= 1'b0;
                     local_fifo_pop <= 1'b0;
-                    if (chain_mode) begin
-                        // SG chain: signal read FSM to fetch next or finish
-                        // chain_next_req is set by dedicated always_ff block
-                        // (consumer-acknowledges pattern — avoids cross-driver)
-                        if (desc_ptr == 32'd0) begin
-                            chain_done_req <= 1'b1;
-                        end
-                        w_state <= W_IDLE;
-                    end else begin
-                        w_state <= W_IDLE;
-                    end
+                    w_state <= W_IDLE;
                 end
                 
                 W_DRAIN: begin
@@ -1260,24 +1079,6 @@ module cgra_dma_engine #(
                 error_flag <= 1'b1;
             end
 
-            if (chain_start_i && !status_busy && desc_head_i != 32'd0) begin
-                // SG chain start (ignore if desc_head is null)
-                error_code_reg <= 2'b00;
-                error_flag <= 1'b0;
-                transfer_active <= 1'b1;
-                status_busy <= 1'b1;
-            end else if (!chain_mode && transfer_active && engine_idle) begin
-                // Legacy single-shot: transfer complete
-                transfer_active <= 1'b0;
-                status_done <= 1'b1;
-                irq_done <= 1'b1;
-            end else if (chain_mode && !chain_active_o && engine_idle) begin
-                // SG chain complete (chain_mode cleared by read FSM on chain done)
-                transfer_active <= 1'b0;
-                status_done <= 1'b1;
-                irq_done <= 1'b1;
-            end
-
             if (cfg_start && !status_busy) begin
                 // Clear error on new transfer start
                 error_code_reg <= 2'b00;
@@ -1420,30 +1221,5 @@ module cgra_dma_engine #(
     assign dbg_fifo_full             = fifo_full;
     assign dbg_fifo_empty            = fifo_empty;
     assign dbg_write_words_remaining = write_words_remaining;
-
-    // synthesis translate_off
-    always @(posedge clk) begin
-        if (chain_start_i)
-            $display("[SG-START %0t] chain_start pulse! r=%0d busy=%0b desc_head=%08h",
-                     $time, r_state, status_busy, desc_head_i);
-        // Post-abort state trace: when busy but not abort
-        if (status_busy && !cfg_abort && !transfer_active && !chain_mode)
-            $display("[SG-STUCK %0t] r=%0d w=%0d fifo=%0d idle=%0b arv=%0b ardy=%0b awv=%0b bv=%0b rv=%0b",
-                     $time, r_state, w_state, count, engine_idle,
-                     m_axi_arvalid, m_axi_arready, m_axi_awvalid, m_axi_bvalid, m_axi_rvalid);
-        if (status_done)
-            $display("[SG-DONE %0t] status_done! r=%0d w=%0d cm=%0b ta=%0b busy=%0b idle=%0b dc=%0d",
-                     $time, r_state, w_state, chain_mode, transfer_active, status_busy, engine_idle, desc_completed_cnt);
-        if (chain_mode || chain_start_i || (cfg_abort && status_busy)) begin
-            $display("[SG %0t] r=%0d w=%0d cm=%0b xr=%0b cnr=%0b cdr=%0b ta=%0b busy=%0b done=%0b fifo=%0d rw=%0d ww=%0d arv=%0b rv=%0b abt=%0b idle=%0b dp=%08h dc=%0d",
-                     $time, r_state, w_state, chain_mode, chain_xfer_ready,
-                     chain_next_req, chain_done_req,
-                     transfer_active, status_busy, status_done,
-                     count, read_words_remaining, write_words_remaining,
-                     m_axi_arvalid, m_axi_rvalid, cfg_abort, engine_idle,
-                     desc_ptr, desc_completed_cnt);
-        end
-    end
-    // synthesis translate_on
 
 endmodule
