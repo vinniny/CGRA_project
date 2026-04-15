@@ -34,7 +34,6 @@ module cgra_dma_subsystem #(
     // Status to CSR
     output logic                    status_busy,
     output logic                    status_done,
-    output logic                    irq_done,
     output logic                    chain_active,
     output logic [15:0]             desc_completed,
     output logic [1:0]              error_code,
@@ -159,7 +158,6 @@ module cgra_dma_subsystem #(
         .cfg_abort(cfg_abort),
         .status_busy(engine_busy),
         .status_done(engine_done),
-        .irq_done(irq_done),
 
         .m_axi_awid(m_axi_awid),
         .m_axi_awaddr(m_axi_awaddr),

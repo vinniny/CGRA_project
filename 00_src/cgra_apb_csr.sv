@@ -189,7 +189,7 @@ module cgra_apb_csr #(
     logic        cu_done_latch;
     logic        dma_error_latch;
     logic [1:0]  dma_error_code_latch;
-    logic        dma_error_valid_prev;
+    logic        dma_error_valid_prev;  // dma_error_valid_i is a level; edge-detect to allow W1C
 
     assign pready  = 1'b1;
     assign pslverr = 1'b0;

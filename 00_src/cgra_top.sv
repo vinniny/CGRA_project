@@ -477,9 +477,6 @@ module cgra_top #(
 
         .status_busy(dma_busy),
         .status_done(dma_done),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .irq_done(),
-        /* verilator lint_on PINCONNECTEMPTY */
         .chain_active(dma_chain_active),
         .desc_completed(dma_desc_completed),
         .error_code(dma_error_code),

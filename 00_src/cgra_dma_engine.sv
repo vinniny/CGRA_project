@@ -22,7 +22,6 @@ module cgra_dma_engine #(
     input  logic                  cfg_abort,
     output logic                  status_busy,
     output logic                  status_done,
-    output logic                  irq_done,
 
     // AXI4 master
     output logic [AXI_ID_WIDTH-1:0] m_axi_awid,
@@ -732,12 +731,10 @@ module cgra_dma_engine #(
             busy           <= 1'b0;
             aborted        <= 1'b0;
             status_done    <= 1'b0;
-            irq_done       <= 1'b0;
             error_code_reg <= 2'b00;
             error_flag     <= 1'b0;
         end else begin
             status_done <= 1'b0;
-            irq_done    <= 1'b0;
 
             if (bresp_error || rresp_error) begin
                 error_code_reg <= bresp_error ? m_axi_bresp : m_axi_rresp;
@@ -751,18 +748,13 @@ module cgra_dma_engine #(
                 error_code_reg <= 2'b00;
                 error_flag     <= 1'b0;
                 aborted        <= 1'b0;
-                if (cfg_transfer_words != '0) begin
+                if (cfg_transfer_words != '0)
                     busy <= 1'b1;
-                end else begin
-                    status_done <= 1'b1;
-                    irq_done    <= 1'b1;
-                end
+                else
+                    status_done <= 1'b1;  // zero-length: immediate done
             end else if (busy && engine_idle) begin
-                busy <= 1'b0;
-                if (!aborted) begin
-                    status_done <= 1'b1;
-                    irq_done    <= 1'b1;
-                end
+                busy        <= 1'b0;
+                status_done <= !aborted;
             end
         end
     end
