@@ -17,8 +17,7 @@ task automatic run_suite_fabric_stress;
     test_pipeline_integrity();
     test_parallel_stress();
     test_routing_sweep();
-    test_multicast_partial_grant();
-    
+
     $display("\n[SUITE FABRIC STRESS COMPLETE]\n");
 endtask
 
@@ -227,116 +226,4 @@ endtask
 
 // ============================================================================
 // TEST: Multicast Partial Grant (Duplicate Spike Proof)
-// ============================================================================
-// Proves that the served-bit mechanism prevents duplicate delivery when a
-// multicast packet is partially blocked. Targets tile_00's router directly
-// via hierarchical force/release, bypassing the PE broadcast layer.
-//
-// Scenario: Multicast packet from North → East + South.
-//   Phase 1: Block South ready, verify East delivers and buffer stalls.
-//   Phase 2: Clock → served[East]=1, verify East does NOT fire again.
-//   Phase 3: Unblock South, verify South delivers and stall clears.
-// ============================================================================
-task automatic test_multicast_partial_grant;
-    integer fail_count;
-
-    // Target: tile_00 router (X=0, Y=0) via XMR paths:
-    //   tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router
-
-    // Multicast packet: bit[31]=1, mask[30:26]={L=0,W=0,S=1,E=1,N=0}, payload
-    localparam [31:0] MCAST_PKT = {1'b1, 5'b00110, 26'h2ADBEE};
-
-    $display("[MCAST_PARTIAL] Testing multicast partial grant (duplicate spike proof)...");
-    fail_count = 0;
-
-    // Full reset — all router buffers empty, served=0, all ready_out=1
-    reset_dut(5);
-
-    // === PHASE 1: Inject multicast packet with South blocked ===
-    // Block tile_10's north ready (which feeds tile_00's ready_in_s)
-    force tb_top.u_dut.u_array.row[0].col[0].u_tile.ready_in_s = 1'b0;
-
-    // Inject packet directly into router's north buffer (bypass tile boundary issues)
-    // Force the skid buffer to hold the multicast packet
-    force tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.b_val_n = 1'b1;
-    force tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.b_data_n = MCAST_PKT;
-    force tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.served_n = 5'b00000;
-
-    // Let combinational logic propagate
-    #1;
-
-    // After force: b_val_n=1, b_data_n=MCAST_PKT, served_n=0
-    // Combinational: req_n=00110 (E+S), grants issued for both
-    // valid_out_e=1, valid_out_s=1 (granted but South blocked by ready)
-    // stall_n=1 (South request blocked → buffer holds)
-
-    // CHECK 1: East should have a grant
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.valid_out_e !== 1'b1) begin
-        $error("[MCAST_PARTIAL] FAIL: East not granted after injection");
-        fail_count++;
-    end
-
-    // CHECK 2: Buffer must stall (South is blocked)
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.stall_n !== 1'b1) begin
-        $error("[MCAST_PARTIAL] FAIL: Buffer did not stall for blocked South");
-        fail_count++;
-    end
-
-    // === PHASE 2: Clock in served update, verify no duplicate ===
-    // Release served_n so the FF can latch from combinational logic.
-    // On posedge: served_n[East]=1 (granted + ready_in_e=1),
-    //             served_n[South]=0 (granted but ready_in_s=0).
-    release tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.served_n;
-    @(posedge clk); #1;
-
-    // After this posedge: served_n[1]=1 → req_n = raw_req & ~served = 00100
-    // Only South still requesting → grant_e has no request from North
-    // valid_out_e MUST be 0 (no duplicate spike!)
-
-    // CHECK 3 (CRITICAL): East must NOT fire again
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.valid_out_e !== 1'b0) begin
-        $error("[MCAST_PARTIAL] FATAL: Duplicate spike on East! served-bit mechanism broken");
-        fail_count++;
-    end
-
-    // CHECK 4: South should still be requested (stalled but granted)
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.valid_out_s !== 1'b1) begin
-        $error("[MCAST_PARTIAL] FAIL: South grant lost while waiting for ready");
-        fail_count++;
-    end
-
-    // CHECK 5: Buffer must still be stalled
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.stall_n !== 1'b1) begin
-        $error("[MCAST_PARTIAL] FAIL: Stall dropped before South was served");
-        fail_count++;
-    end
-
-    // === PHASE 3: Unblock South, verify delivery and stall release ===
-    force tb_top.u_dut.u_array.row[0].col[0].u_tile.ready_in_s = 1'b1;
-    #1; // Let combinational logic settle
-
-    // CHECK 6: Stall should clear now (South can be delivered)
-    if (tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.stall_n !== 1'b0) begin
-        $error("[MCAST_PARTIAL] FAIL: Stall did not clear after South unblocked");
-        fail_count++;
-    end
-
-    // Clock once more to let the buffer release and served_n reset
-    @(posedge clk); #1;
-
-    // === Cleanup: Release all forces ===
-    release tb_top.u_dut.u_array.row[0].col[0].u_tile.ready_in_s;
-    release tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.b_val_n;
-    release tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.b_data_n;
-    release tb_top.u_dut.u_array.row[0].col[0].u_tile.u_router.served_n;
-
-    // Full reset to leave DUT in clean state for subsequent tests
-    reset_dut(5);
-
-    if (fail_count == 0)
-        pass("MCAST_PARTIAL: Multicast partial grant — no duplicate spike");
-    else
-        fail("MCAST_PARTIAL", $sformatf("%0d assertion failures", fail_count));
-endtask
-
 `endif

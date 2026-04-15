@@ -18,7 +18,6 @@ module cgra_array #(
     parameter COLS          = 4,
     parameter DATA_WIDTH    = 32,
     parameter COORD_WIDTH   = 4,
-    parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH    = 4,
     parameter SPM_DEPTH     = 256,
     parameter RF_DEPTH      = 16,
@@ -154,7 +153,6 @@ module cgra_array #(
                 cgra_tile #(
                     .DATA_WIDTH    (DATA_WIDTH),
                     .COORD_WIDTH   (COORD_WIDTH),
-                    .PAYLOAD_WIDTH (PAYLOAD_WIDTH),
                     .ADDR_WIDTH    (ADDR_WIDTH > 4 ? ADDR_WIDTH : 8),
                     .SPM_DEPTH     (SPM_DEPTH),
                     .RF_DEPTH      (RF_DEPTH),

@@ -71,7 +71,6 @@ BSG_SRCS := \
 RTL_SRCS := \
 	$(SRC_DIR)/axi_ram.sv \
 	$(SRC_DIR)/cgra_pe.sv \
-	$(SRC_DIR)/cgra_router.sv \
 	$(SRC_DIR)/cgra_tile.sv \
 	$(SRC_DIR)/cgra_array.sv \
 	$(SRC_DIR)/cgra_tile_memory.sv \

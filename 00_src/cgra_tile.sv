@@ -1,24 +1,15 @@
-// ==============================================================================
-// CGRA Tile (Router + PE with Mesh Broadcast)
-// ==============================================================================
-// Wraps a router and a PE. PE results broadcast to all 4 neighbors.
+// cgra_tile.sv — one PE with mesh broadcast.
 //
-// DATA FLOW:
-//   - Tile receives data_in_n/e/s/w from neighbors
-//   - PE computes alu_result from west input (or other source)
-//   - PE result broadcasts to ALL data_out_n/e/s/w ports
-//   - Router handles read-only signals (outputs unused, PE overrides)
+// PE computes from its 4 neighbor inputs; result broadcasts to all 4 outputs,
+// with per-direction valid gated by the PE's configured route_mask.
 //
-// MESH BROADCAST (Fix #4):
-//   assign data_out_n = pe_result;  // Same result to all 4 directions
-//   assign data_out_e = pe_result;
-//   assign data_out_s = pe_result;
-//   assign data_out_w = pe_result;
-// ==============================================================================
+// Handshake `ready_in_*` / `ready_out_*` ports are kept for interface
+// compatibility with earlier router-mode designs — always asserted high
+// (no backpressure in broadcast mode).
+
 module cgra_tile #(
     parameter DATA_WIDTH   = 32,
     parameter COORD_WIDTH  = 4,
-    parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH   = 8,
     parameter SPM_DEPTH    = 256,
     parameter RF_DEPTH     = 16,
@@ -32,24 +23,29 @@ module cgra_tile #(
     input  logic [63:0]            config_frame,
     input  logic                   config_valid,
 
-    // Multi-context interface
     input  logic [PC_WIDTH-1:0]    context_pc,
     input  logic                   global_stall,
-    
-    // Config write interface (from DMA/TB)
+
     input  logic [PC_WIDTH-1:0]    cfg_wr_addr,
     input  logic [63:0]            cfg_wr_data,
     input  logic                   cfg_wr_en,
 
-    // Network Ports (N/S/E/W)
+    // Mesh ports (N/E/S/W). valid_in_* and ready_in_* are interface-compat
+    // no-ops in broadcast mode.
     input  logic [DATA_WIDTH-1:0]  data_in_n,
     input  logic [DATA_WIDTH-1:0]  data_in_e,
     input  logic [DATA_WIDTH-1:0]  data_in_s,
     input  logic [DATA_WIDTH-1:0]  data_in_w,
+    /* verilator lint_off UNUSEDSIGNAL */
     input  logic                   valid_in_n,
     input  logic                   valid_in_e,
     input  logic                   valid_in_s,
     input  logic                   valid_in_w,
+    input  logic                   ready_in_n,
+    input  logic                   ready_in_e,
+    input  logic                   ready_in_s,
+    input  logic                   ready_in_w,
+    /* verilator lint_on UNUSEDSIGNAL */
     output logic                   ready_out_n,
     output logic                   ready_out_e,
     output logic                   ready_out_s,
@@ -63,90 +59,14 @@ module cgra_tile #(
     output logic                   valid_out_e,
     output logic                   valid_out_s,
     output logic                   valid_out_w,
-    input  logic                   ready_in_n,
-    input  logic                   ready_in_e,
-    input  logic                   ready_in_s,
-    input  logic                   ready_in_w,
 
-    // B4: Branch output (from PE to CU)
     output logic [PC_WIDTH-1:0]    branch_target_o,
     output logic                   branch_taken_o
 );
 
-    // Internal PE <-> Router links
-    logic [DATA_WIDTH-1:0] pe_to_router_data;
-    logic                  pe_to_router_valid;
-    logic                  router_to_pe_ready;
-
-    logic [DATA_WIDTH-1:0] router_to_pe_data;
-    logic                  router_to_pe_valid;
-    logic                  pe_to_router_ready;
-
-    // -------------------------------------------------------------------------
-    // Router Instance
-    // -------------------------------------------------------------------------
-    // Router outputs are not used - PE broadcast overrides tile outputs (ASSIGN-6)
-    // These signals exist because the router module requires them connected
-    logic [DATA_WIDTH-1:0] router_out_n_unused, router_out_e_unused;
-    logic [DATA_WIDTH-1:0] router_out_s_unused, router_out_w_unused;
-    logic router_valid_n_unused, router_valid_e_unused;
-    logic router_valid_s_unused, router_valid_w_unused;
-    
-    cgra_router #(
-        .DATA_WIDTH(DATA_WIDTH),
-        .COORD_WIDTH(COORD_WIDTH),
-        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
-        .X_COORD(X_COORD),
-        .Y_COORD(Y_COORD)
-    ) u_router (
-        .clk(clk),
-        .rst_n(rst_n),
-
-        .data_in_n(data_in_n),
-        .valid_in_n(valid_in_n),
-        .ready_out_n(ready_out_n),
-        .data_out_n(router_out_n_unused),     // Unused: PE broadcast overrides
-        .valid_out_n(router_valid_n_unused),   // Unused: PE broadcast overrides
-        .ready_in_n(ready_in_n),
-
-        .data_in_e(data_in_e),
-        .valid_in_e(valid_in_e),
-        .ready_out_e(ready_out_e),
-        .data_out_e(router_out_e_unused),     // Unused: PE broadcast overrides
-        .valid_out_e(router_valid_e_unused),   // Unused: PE broadcast overrides
-        .ready_in_e(ready_in_e),
-
-        .data_in_s(data_in_s),
-        .valid_in_s(valid_in_s),
-        .ready_out_s(ready_out_s),
-        .data_out_s(router_out_s_unused),     // Unused: PE broadcast overrides
-        .valid_out_s(router_valid_s_unused),   // Unused: PE broadcast overrides
-        .ready_in_s(ready_in_s),
-
-        .data_in_w(data_in_w),
-        .valid_in_w(valid_in_w),
-        .ready_out_w(ready_out_w),
-        .data_out_w(router_out_w_unused),     // Unused: PE broadcast overrides
-        .valid_out_w(router_valid_w_unused),   // Unused: PE broadcast overrides
-        .ready_in_w(ready_in_w),
-
-        .data_in_local(pe_to_router_data),
-        .valid_in_local(pe_to_router_valid),
-        .ready_out_local(router_to_pe_ready),
-        .data_out_local(router_to_pe_data),
-        .valid_out_local(router_to_pe_valid),
-        .ready_in_local(pe_to_router_ready)
-    );
-
-    // PE Instance
-    // -------------------------------------------------------------------------
-    
-    // FIX #4: Capture PE result for mesh broadcast
     logic [DATA_WIDTH-1:0] pe_result;
-    logic                  pe_result_valid;
-    // FIX: Capture all 4 PE valid outputs to support any route direction
     logic                  pe_valid_n, pe_valid_e, pe_valid_s, pe_valid_w;
-    
+
     cgra_pe #(
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
@@ -173,7 +93,6 @@ module cgra_tile #(
         .data_in_s(data_in_s),
         .data_in_w(data_in_w),
 
-        // PE broadcasts same data on all 4 directional outputs; capture one.
         .data_out_n(pe_result),
         /* verilator lint_off PINCONNECTEMPTY */
         .data_out_e(),
@@ -185,38 +104,31 @@ module cgra_tile #(
         .valid_out_s(pe_valid_s),
         .valid_out_w(pe_valid_w),
 
-        .data_out_local(pe_to_router_data),
-        .valid_out_local(pe_to_router_valid),
-        .ready_in(router_to_pe_ready),
-        .ready_out(pe_to_router_ready),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .data_out_local(),
+        .valid_out_local(),
+        /* verilator lint_on PINCONNECTEMPTY */
+        .ready_in(1'b1),
+        /* verilator lint_off PINCONNECTEMPTY */
+        .ready_out(),
+        /* verilator lint_on PINCONNECTEMPTY */
         .branch_target_o(branch_target_o),
         .branch_taken_o(branch_taken_o)
     );
-    
-    // =========================================================================
-    // FIX #4: BROADCAST PE RESULT TO ALL NEIGHBORS
-    // =========================================================================
-    // FIX: Forward per-direction valid from PE route_mask to preserve directional
-    // routing control. Previously all 4 valid signals were OR-reduced into one,
-    // defeating the PE's 4-bit route_mask configuration entirely.
-    // NOTE: pe_result_valid is intentionally unused — kept as a convenience
-    // for debug or future OR-reduced "any output active" monitoring.
-    /* verilator lint_off UNUSEDSIGNAL */
-    assign pe_result_valid = pe_valid_n | pe_valid_e | pe_valid_s | pe_valid_w;
-    /* verilator lint_on UNUSEDSIGNAL */
-    
-    // Override router outputs - PE result goes directly to all neighbors
+
     assign data_out_n = pe_result;
     assign data_out_e = pe_result;
     assign data_out_s = pe_result;
     assign data_out_w = pe_result;
-    
-    // FIX: Use per-direction valid from PE instead of unified broadcast.
-    // This allows config route_mask bits (N/E/S/W) to selectively enable
-    // data flow to specific neighbors, enabling directed data-flow graphs.
+
     assign valid_out_n = pe_valid_n;
     assign valid_out_e = pe_valid_e;
     assign valid_out_s = pe_valid_s;
     assign valid_out_w = pe_valid_w;
+
+    assign ready_out_n = 1'b1;
+    assign ready_out_e = 1'b1;
+    assign ready_out_s = 1'b1;
+    assign ready_out_w = 1'b1;
 
 endmodule
