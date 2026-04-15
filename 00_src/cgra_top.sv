@@ -751,10 +751,10 @@ module cgra_top #(
     logic [DATA_WIDTH-1:0] edge_out_e [0:ROWS-1];
     logic [DATA_WIDTH-1:0] edge_out_w [0:ROWS-1];
     /* verilator lint_off UNUSEDSIGNAL */
-    logic                  edge_valid_out_n_unused [0:COLS-1];
-    logic                  edge_valid_out_s_unused [0:COLS-1];
-    logic                  edge_valid_out_e_unused [0:ROWS-1];
-    logic                  edge_valid_out_w_unused [0:ROWS-1];
+    logic                  edge_valid_out_n [0:COLS-1];
+    logic                  edge_valid_out_s [0:COLS-1];
+    logic                  edge_valid_out_e [0:ROWS-1];
+    logic                  edge_valid_out_w [0:ROWS-1];
     /* verilator lint_on UNUSEDSIGNAL */
 
     // Tie-off arrays for unused edge inputs
@@ -763,7 +763,7 @@ module cgra_top #(
     assign edge_zero_data  = '{default: '0};
     assign edge_zero_valid = '{default: 1'b0};
 
-    // Config frame array (all zeros — PEs use internal BRAM)
+    // PEs use BRAM for programming; static config_frame tied to zeros.
     logic [63:0] config_frame_zeros [0:ROWS*COLS-1];
     assign config_frame_zeros = '{default: 64'd0};
 
@@ -808,59 +808,33 @@ module cgra_top #(
 
         // Edge outputs
         .edge_data_out_n(edge_out_n),
-        .edge_valid_out_n(edge_valid_out_n_unused),
+        .edge_valid_out_n(edge_valid_out_n),
         .edge_data_out_s(edge_out_s),
-        .edge_valid_out_s(edge_valid_out_s_unused),
+        .edge_valid_out_s(edge_valid_out_s),
         .edge_data_out_e(edge_out_e),
-        .edge_valid_out_e(edge_valid_out_e_unused),
+        .edge_valid_out_e(edge_valid_out_e),
         .edge_data_out_w(edge_out_w),
-        .edge_valid_out_w(edge_valid_out_w_unused),
+        .edge_valid_out_w(edge_valid_out_w),
 
         // B4: Branch from PE[0][0]
         .branch_target_o(array_branch_target),
         .branch_taken_o(array_branch_taken)
     );
 
-    // Backward-compatible aliases for synthesis_keep and result capture
-    wire [DATA_WIDTH-1:0] edge_e0 = edge_out_e[0];
-    wire [DATA_WIDTH-1:0] edge_e1 = edge_out_e[1];
-    wire [DATA_WIDTH-1:0] edge_e2 = edge_out_e[2];
-    wire [DATA_WIDTH-1:0] edge_e3 = edge_out_e[3];
-    wire [DATA_WIDTH-1:0] edge_n0 = edge_out_n[0];
-    wire [DATA_WIDTH-1:0] edge_n1 = edge_out_n[1];
-    wire [DATA_WIDTH-1:0] edge_n2 = edge_out_n[2];
-    wire [DATA_WIDTH-1:0] edge_n3 = edge_out_n[3];
-    wire [DATA_WIDTH-1:0] edge_s0 = edge_out_s[0];
-    wire [DATA_WIDTH-1:0] edge_s1 = edge_out_s[1];
-    wire [DATA_WIDTH-1:0] edge_s2 = edge_out_s[2];
-    wire [DATA_WIDTH-1:0] edge_s3 = edge_out_s[3];
-    wire [DATA_WIDTH-1:0] edge_w0 = edge_out_w[0];
-    wire [DATA_WIDTH-1:0] edge_w1 = edge_out_w[1];
-    wire [DATA_WIDTH-1:0] edge_w2 = edge_out_w[2];
-    wire [DATA_WIDTH-1:0] edge_w3 = edge_out_w[3];
+    // Synthesis keeper: prevents synth from optimizing the mesh away when the
+    // edge outputs aren't pad-connected. OR-reduce across all 16 edge words.
+    assign synthesis_keep = (|edge_out_n[0]) | (|edge_out_n[1]) | (|edge_out_n[2]) | (|edge_out_n[3]) |
+                            (|edge_out_s[0]) | (|edge_out_s[1]) | (|edge_out_s[2]) | (|edge_out_s[3]) |
+                            (|edge_out_e[0]) | (|edge_out_e[1]) | (|edge_out_e[2]) | (|edge_out_e[3]) |
+                            (|edge_out_w[0]) | (|edge_out_w[1]) | (|edge_out_w[2]) | (|edge_out_w[3]);
     
-    // =========================================================================
-    // Synthesis Keeper: OR-reduce all edge outputs to single bit
-    // =========================================================================
-    // This prevents the synthesizer from optimizing away the array due to
-    // unconnected outputs. Route this pin to a test pad or leave floating.
-    assign synthesis_keep = (|edge_n0) | (|edge_n1) | (|edge_n2) | (|edge_n3) |
-                            (|edge_s0) | (|edge_s1) | (|edge_s2) | (|edge_s3) |
-                            (|edge_e0) | (|edge_e1) | (|edge_e2) | (|edge_e3) |
-                            (|edge_w0) | (|edge_w1) | (|edge_w2) | (|edge_w3);
-    
-    // =========================================================================
-    // Hybrid I/O: Capture Result from Last PE (PE 3,3)
-    // =========================================================================
-    // Register the result on cu_done pulse so the APB read returns a stable
-    // value. Without this, edge_e3 is a live combinational wire that could
-    // change during the 1-2 pipeline-drain cycles after auto-stop fires.
+    // Capture PE[3][3] east-edge output on cu_done so APB returns stable value.
     logic [DATA_WIDTH-1:0] global_result_reg;
     always_ff @(posedge clk) begin
         if (!rst_n)
             global_result_reg <= '0;
         else if (cu_done && !cu_soft_reset)
-            global_result_reg <= edge_e3;  // FIX: Don't capture on soft-reset abort
+            global_result_reg <= edge_out_e[3];
     end
     assign global_result = global_result_reg;
     
@@ -877,12 +851,8 @@ module cgra_top #(
     // FIFO clear: on CU start or soft-reset
     assign result_fifo_clear = cu_start || cu_soft_reset;
 
-    // East-edge data as push inputs
     wire [DATA_WIDTH-1:0] result_push_data [0:3];
-    assign result_push_data[0] = edge_e0;
-    assign result_push_data[1] = edge_e1;
-    assign result_push_data[2] = edge_e2;
-    assign result_push_data[3] = edge_e3;
+    assign result_push_data = edge_out_e;
 
     cgra_result_fifo #(
         .DATA_WIDTH(DATA_WIDTH),
