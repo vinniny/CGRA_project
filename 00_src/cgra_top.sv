@@ -270,68 +270,27 @@ module cgra_top #(
     logic        csr_pready;  // CSR module ready signal
     logic        csr_pslverr; // CSR module slave error
     
-    // =========================================================================
-    // Config Path: DMA → PE-Internal BRAM (A2 timing optimization)
-    // =========================================================================
-    // PEs use their internal BSG config RAM (cgra_config_mem_bsg) for config
-    // storage. DMA config writes reach PEs via the cfg_wr_* bus. During
-    // execution, config_valid=0 so PEs read from their internal BRAM (1-cycle
-    // read latency, equivalent to the old config_frame_reg pipeline stage).
-    //
-    // Slot-0 Broadcast FSM: When DMA writes to slot 0, the broadcast FSM
-    // replays the write to slots 1-15 over 15 additional cycles. DMA is idle
-    // during config loading, so the extra cycles don't impact throughput.
-    // =========================================================================
-
-    // Broadcast FSM state
-    logic        bcast_active;
-    logic [3:0]  bcast_slot_counter;   // Current slot being written (1-15)
-    logic [3:0]  bcast_pe_sel;         // Target PE for broadcast
-    logic [63:0] bcast_data;           // Latched config data for broadcast
-
-    // Muxed config write signals (normal DMA write OR broadcast replay)
+    // Config path: DMA → cgra_config_broadcaster → PE-internal BRAM.
+    // PEs read their config from internal BSG SRAM during execution; the
+    // broadcaster replays slot-0 writes to slots 1-15 so single-kernel
+    // programs only need to write one slot.
     logic [3:0]  cfg_wr_addr_mux;
     logic [63:0] cfg_wr_data_mux;
     logic [3:0]  cfg_wr_pe_sel_mux;
     logic        cfg_wr_en_mux;
 
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            bcast_active       <= 1'b0;
-            bcast_slot_counter <= 4'd0;
-            bcast_pe_sel       <= 4'd0;
-            bcast_data         <= 64'd0;
-        end else if (config_commit_en && dma_cfg_addr[6:3] == 4'd0 && !bcast_active) begin
-            // Slot-0 write detected: latch data and start broadcast to slots 1-15
-            bcast_active       <= 1'b1;
-            bcast_slot_counter <= 4'd1;
-            bcast_pe_sel       <= dma_cfg_pe_sel;
-            bcast_data         <= config_full_word;
-        end else if (bcast_active) begin
-            if (bcast_slot_counter == 4'd15) begin
-                bcast_active <= 1'b0;  // Done broadcasting
-            end else begin
-                bcast_slot_counter <= bcast_slot_counter + 4'd1;
-            end
-        end
-    end
-
-    // Mux: broadcast replay takes priority over normal DMA writes
-    // (DMA cannot issue new config writes while broadcast is active because
-    //  the DMA write path is sequential — next double-pump hasn't started yet)
-    always_comb begin
-        if (bcast_active) begin
-            cfg_wr_addr_mux   = bcast_slot_counter;
-            cfg_wr_data_mux   = bcast_data;
-            cfg_wr_pe_sel_mux = bcast_pe_sel;
-            cfg_wr_en_mux     = 1'b1;
-        end else begin
-            cfg_wr_addr_mux   = dma_cfg_addr[6:3];
-            cfg_wr_data_mux   = config_full_word;
-            cfg_wr_pe_sel_mux = dma_cfg_pe_sel;
-            cfg_wr_en_mux     = config_commit_en;
-        end
-    end
+    cgra_config_broadcaster u_bcast (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .in_addr    (dma_cfg_addr[6:3]),
+        .in_data    (config_full_word),
+        .in_pe_sel  (dma_cfg_pe_sel),
+        .in_we      (config_commit_en),
+        .out_addr   (cfg_wr_addr_mux),
+        .out_data   (cfg_wr_data_mux),
+        .out_pe_sel (cfg_wr_pe_sel_mux),
+        .out_we     (cfg_wr_en_mux)
+    );
 
     // Tile data alignment: Both tile SRAM and PE config BRAM have 1-cycle
     // read latency. Tile prefetch uses next_context_pc to compensate.
