@@ -93,25 +93,12 @@ module cgra_tile #(
         .data_in_s(data_in_s),
         .data_in_w(data_in_w),
 
-        .data_out_n(pe_result),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .data_out_e(),
-        .data_out_s(),
-        .data_out_w(),
-        /* verilator lint_on PINCONNECTEMPTY */
+        .data_out(pe_result),
         .valid_out_n(pe_valid_n),
         .valid_out_e(pe_valid_e),
         .valid_out_s(pe_valid_s),
         .valid_out_w(pe_valid_w),
 
-        /* verilator lint_off PINCONNECTEMPTY */
-        .data_out_local(),
-        .valid_out_local(),
-        /* verilator lint_on PINCONNECTEMPTY */
-        .ready_in(1'b1),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .ready_out(),
-        /* verilator lint_on PINCONNECTEMPTY */
         .branch_target_o(branch_target_o),
         .branch_taken_o(branch_taken_o)
     );
