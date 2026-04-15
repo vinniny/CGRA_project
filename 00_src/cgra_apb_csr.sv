@@ -178,174 +178,143 @@ module cgra_apb_csr #(
     logic [31:0] reg_loop2_start;
     logic [31:0] reg_loop2_end;
     logic [31:0] reg_loop2_count;
-    logic [31:0] reg_tile_bank_sel;   // C2: double-buffer selector
-    logic [31:0] reg_tile_auto_inc;  // Tile address auto-increment enable
-    logic [31:0] reg_result_skip;   // Result FIFO warmup skip count
-    logic [31:0] reg_dma_desc_head; // SG DMA descriptor chain head pointer
-    logic        result_overflow_sticky;   // W1C via RESULT_STATUS[9]
-    logic        result_underflow_sticky;  // W1C via RESULT_STATUS[10]
+    logic [31:0] reg_tile_bank_sel;
+    logic [31:0] reg_tile_auto_inc;
+    logic [31:0] reg_result_skip;
+    logic [31:0] reg_dma_desc_head;
+    logic        result_overflow_sticky;
+    logic        result_underflow_sticky;
 
-    // Status registers - latched (done bits are sticky)
     logic        dma_done_latch;
     logic        cu_done_latch;
-    logic        dma_error_latch;       // Sticky DMA error flag
-    logic [1:0]  dma_error_code_latch;  // Captured BRESP/RRESP error code
-    logic        dma_error_valid_prev;  // Edge detect for error_valid (level signal from DMA)
-    
-    // =========================================================================
-    // APB Interface - Zero Wait States
-    // =========================================================================
-    assign pready = 1'b1;
-    assign pslverr = 1'b0;
-    
-    // =========================================================================
-    // Done Bit Latching - Sticky until next start
-    // =========================================================================
-    // W1C wire: APB write to IRQ_STATUS clears individual done latches
-    logic irq_w1c;
-    assign irq_w1c = psel && penable && pwrite && (paddr[7:0] == ADDR_IRQ_STATUS);
+    logic        dma_error_latch;
+    logic [1:0]  dma_error_code_latch;
+    logic        dma_error_valid_prev;
 
+    assign pready  = 1'b1;
+    assign pslverr = 1'b0;
+
+    // APB write decode helpers
+    wire apb_write = psel && penable && pwrite;
+    wire apb_w_irq_status = apb_write && (paddr[7:0] == ADDR_IRQ_STATUS);
+    wire apb_w_dma_ctrl   = apb_write && (paddr[7:0] == ADDR_DMA_CTRL);
+    wire apb_w_cu_ctrl    = apb_write && (paddr[7:0] == ADDR_CU_CTRL);
+
+    // Sticky done/error latches. Start-write clears done; engine pulse sets it;
+    // software W1C via IRQ_STATUS clears. Engine sets win over W1C clears.
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            dma_done_latch <= 1'b0;
-            cu_done_latch <= 1'b0;
-            dma_error_latch <= 1'b0;
+            dma_done_latch       <= 1'b0;
+            cu_done_latch        <= 1'b0;
+            dma_error_latch      <= 1'b0;
             dma_error_code_latch <= 2'b00;
             dma_error_valid_prev <= 1'b0;
         end else begin
-            dma_error_valid_prev <= dma_error_valid_i;  // Edge detect register
+            dma_error_valid_prev <= dma_error_valid_i;
 
-            // Immediate APB start-command detect — catches the write to DMA_CTRL
-            // in the SAME cycle, before reg_dma_ctrl propagates next cycle.
-            // This ensures dma_done_latch clears before wait_dma_done can read it.
-            begin
-                logic dma_start_cmd;
-                dma_start_cmd = psel && penable && pwrite && (paddr[7:0] == ADDR_DMA_CTRL)
-                              && (pwdata[DMA_CTRL_START] || pwdata[DMA_CTRL_CHAIN_START]);
+            // DMA done: immediate start-write (same cycle as DMA_CTRL[0/1]) clears
+            // the latch before wait_dma_done can read it.
+            if ((apb_w_dma_ctrl && (pwdata[DMA_CTRL_START] || pwdata[DMA_CTRL_CHAIN_START]))
+                || dma_start || dma_chain_start || reg_cu_ctrl[1])
+                dma_done_latch <= 1'b0;
+            else if (dma_done_i)
+                dma_done_latch <= 1'b1;
+            else if (apb_w_irq_status && pwdata[0])
+                dma_done_latch <= 1'b0;
 
-                // DMA done latch — strict priority:
-                //   1. Immediate APB write / derived start / soft_reset: clear
-                //   2. status_done pulse from hardware: set
-                //   3. Software W1C via IRQ_STATUS[0]: clear
-                if (dma_start_cmd || dma_start || dma_chain_start || reg_cu_ctrl[1])
-                    dma_done_latch <= 1'b0;
-                else if (dma_done_i)
-                    dma_done_latch <= 1'b1;
-                else if (irq_w1c && pwdata[0])
-                    dma_done_latch <= 1'b0;
-            end // dma_start_cmd scope
+            // CU done: done-set wins over W1C-clear
+            if (apb_w_irq_status && pwdata[1]) cu_done_latch <= 1'b0;
+            if (cu_done_i)                     cu_done_latch <= 1'b1;
+            if (cu_start)                      cu_done_latch <= 1'b0;
 
-            // CU done latch: done-set wins over W1C-clear
-            if (irq_w1c && pwdata[1])
-                cu_done_latch <= 1'b0;
-            if (cu_done_i)
-                cu_done_latch <= 1'b1;           // FIX: done-set AFTER W1C
-            if (cu_start)
-                cu_done_latch <= 1'b0;
-
-            // DMA error latch: same W1C pattern as done bits
-            // Use rising-edge detection: DMA's error_valid is a LEVEL (sticky until
-            // next cfg_start), so we only latch on the 0→1 transition to allow W1C.
-            if (irq_w1c && pwdata[2])
-                dma_error_latch <= 1'b0;
+            // DMA error: rising-edge latch (error_valid is level-sticky)
+            if (apb_w_irq_status && pwdata[2]) dma_error_latch <= 1'b0;
             if (dma_error_valid_i && !dma_error_valid_prev) begin
-                dma_error_latch <= 1'b1;
+                dma_error_latch      <= 1'b1;
                 dma_error_code_latch <= dma_error_code_i;
             end
             if (dma_start) begin
-                dma_error_latch <= 1'b0;
+                dma_error_latch      <= 1'b0;
                 dma_error_code_latch <= 2'b00;
             end
         end
     end
     
-    // =========================================================================
-    // Status Register Construction
-    // =========================================================================
     logic [31:0] reg_dma_status;
     logic [31:0] reg_cu_status;
     logic [31:0] reg_irq_status;
-    
-    always_comb begin
-        reg_dma_status = {30'd0, dma_done_latch, dma_busy_i};
-        reg_cu_status  = {30'd0, cu_done_latch, cu_busy_i};
-        reg_irq_status = {29'd0, dma_error_latch, cu_done_latch, dma_done_latch};
-    end
-    
-    // =========================================================================
-    // Write Logic - Register Updates
-    // =========================================================================
+
+    assign reg_dma_status = {30'd0, dma_done_latch, dma_busy_i};
+    assign reg_cu_status  = {30'd0, cu_done_latch, cu_busy_i};
+    assign reg_irq_status = {29'd0, dma_error_latch, cu_done_latch, dma_done_latch};
+
+    // Config writes are rejected while the relevant engine is busy to prevent
+    // mid-transaction corruption.
+    wire dma_wr_ok  = !dma_busy_i;
+    wire cu_wr_ok   = !cu_busy_i;
+    wire tile_wr_ok = !dma_busy_i && !cu_busy_i;
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            reg_dma_ctrl <= 32'd0;
-            reg_dma_src  <= 32'd0;
-            reg_dma_dst  <= 32'd0;
-            reg_dma_size <= 32'd0;
+            reg_dma_ctrl       <= 32'd0;
+            reg_dma_src        <= 32'd0;
+            reg_dma_dst        <= 32'd0;
+            reg_dma_size       <= 32'd0;
             reg_dma_src_stride <= 32'd0;
             reg_dma_rows       <= 32'd0;
             reg_dma_cols       <= 32'd0;
-            reg_cu_ctrl  <= 32'd0;
-            reg_cu_timeout <= 32'd0;  // Default: no timeout
-            reg_irq_mask <= 32'd0;
-            reg_loop_start <= 32'd0;       // Default: PC 0
-            reg_loop_end   <= 32'd15;      // Default: PC 15 (full range)
-            reg_loop_count <= 32'd0;       // Default: no looping
-            reg_loop2_start <= 32'd0;
-            reg_loop2_end   <= 32'd15;
-            reg_loop2_count <= 32'd0;
-            reg_tile_bank_sel <= 32'd0;
-            reg_tile_auto_inc <= 32'd0;
-            reg_result_skip <= 32'd13;     // default skip = 13 (pipeline warmup: 3-stage PE × 3 hops + router delays)
-            result_overflow_sticky <= 1'b0;
+            reg_cu_ctrl        <= 32'd0;
+            reg_cu_timeout     <= 32'd0;
+            reg_irq_mask       <= 32'd0;
+            reg_loop_start     <= 32'd0;
+            reg_loop_end       <= 32'd15;
+            reg_loop_count     <= 32'd0;
+            reg_loop2_start    <= 32'd0;
+            reg_loop2_end      <= 32'd15;
+            reg_loop2_count    <= 32'd0;
+            reg_tile_bank_sel  <= 32'd0;
+            reg_tile_auto_inc  <= 32'd0;
+            reg_result_skip    <= 32'd13;  // 3-stage PE x 3 hops + router pipeline warmup
+            result_overflow_sticky  <= 1'b0;
             result_underflow_sticky <= 1'b0;
-            reg_dma_desc_head <= 32'd0;
+            reg_dma_desc_head  <= 32'd0;
         end else begin
-            // APB Write Phase
-            // FIX: Reject writes to DMA config regs while DMA is busy, and
-            //      CU config regs while CU is busy, to prevent mid-operation corruption.
-            if (psel && penable && pwrite) begin
+            if (apb_write) begin
                 case (paddr[7:0])
-                    ADDR_DMA_CTRL:   reg_dma_ctrl <= pwdata;
-                    ADDR_DMA_SRC:    if (!dma_busy_i) reg_dma_src  <= pwdata;
-                    ADDR_DMA_DST:    if (!dma_busy_i) reg_dma_dst  <= pwdata;
-                    ADDR_DMA_SIZE:       if (!dma_busy_i) reg_dma_size       <= pwdata;
-                    ADDR_DMA_SRC_STRIDE: if (!dma_busy_i) reg_dma_src_stride <= pwdata;
-                    ADDR_DMA_ROWS:       if (!dma_busy_i) reg_dma_rows       <= pwdata;
-                    ADDR_DMA_COLS:       if (!dma_busy_i) reg_dma_cols       <= pwdata;
-                    ADDR_CU_CTRL:    reg_cu_ctrl  <= pwdata;
-                    ADDR_CU_TIMEOUT: if (!cu_busy_i) reg_cu_timeout <= pwdata;
-                    ADDR_IRQ_MASK:   reg_irq_mask <= pwdata;
-                    ADDR_LOOP_START: if (!cu_busy_i) reg_loop_start <= pwdata;
-                    ADDR_LOOP_END:   if (!cu_busy_i) reg_loop_end   <= pwdata;
-                    ADDR_LOOP_COUNT:  if (!cu_busy_i) reg_loop_count  <= pwdata;
-                    ADDR_LOOP2_START: if (!cu_busy_i) reg_loop2_start <= pwdata;
-                    ADDR_LOOP2_END:   if (!cu_busy_i) reg_loop2_end   <= pwdata;
-                    ADDR_LOOP2_COUNT:    if (!cu_busy_i) reg_loop2_count    <= pwdata;
-                    ADDR_TILE_BANK_SEL:  if (!dma_busy_i && !cu_busy_i) reg_tile_bank_sel <= pwdata;
-                    ADDR_TILE_AUTO_INC:  if (!cu_busy_i) reg_tile_auto_inc <= pwdata;
-                    ADDR_RESULT_SKIP:    if (!cu_busy_i) reg_result_skip <= pwdata;
-                    ADDR_DMA_DESC_HEAD:  if (!dma_busy_i) reg_dma_desc_head <= pwdata;
-                    // RESULT_STATUS W1C: writing 1 to bits [10:9] clears sticky flags
+                    ADDR_DMA_CTRL:       reg_dma_ctrl       <= pwdata;
+                    ADDR_DMA_SRC:        if (dma_wr_ok)  reg_dma_src        <= pwdata;
+                    ADDR_DMA_DST:        if (dma_wr_ok)  reg_dma_dst        <= pwdata;
+                    ADDR_DMA_SIZE:       if (dma_wr_ok)  reg_dma_size       <= pwdata;
+                    ADDR_DMA_SRC_STRIDE: if (dma_wr_ok)  reg_dma_src_stride <= pwdata;
+                    ADDR_DMA_ROWS:       if (dma_wr_ok)  reg_dma_rows       <= pwdata;
+                    ADDR_DMA_COLS:       if (dma_wr_ok)  reg_dma_cols       <= pwdata;
+                    ADDR_CU_CTRL:        reg_cu_ctrl        <= pwdata;
+                    ADDR_CU_TIMEOUT:     if (cu_wr_ok)   reg_cu_timeout     <= pwdata;
+                    ADDR_IRQ_MASK:       reg_irq_mask       <= pwdata;
+                    ADDR_LOOP_START:     if (cu_wr_ok)   reg_loop_start     <= pwdata;
+                    ADDR_LOOP_END:       if (cu_wr_ok)   reg_loop_end       <= pwdata;
+                    ADDR_LOOP_COUNT:     if (cu_wr_ok)   reg_loop_count     <= pwdata;
+                    ADDR_LOOP2_START:    if (cu_wr_ok)   reg_loop2_start    <= pwdata;
+                    ADDR_LOOP2_END:      if (cu_wr_ok)   reg_loop2_end      <= pwdata;
+                    ADDR_LOOP2_COUNT:    if (cu_wr_ok)   reg_loop2_count    <= pwdata;
+                    ADDR_TILE_BANK_SEL:  if (tile_wr_ok) reg_tile_bank_sel  <= pwdata;
+                    ADDR_TILE_AUTO_INC:  if (cu_wr_ok)   reg_tile_auto_inc  <= pwdata;
+                    ADDR_RESULT_SKIP:    if (cu_wr_ok)   reg_result_skip    <= pwdata;
+                    ADDR_DMA_DESC_HEAD:  if (dma_wr_ok)  reg_dma_desc_head  <= pwdata;
+                    // RESULT_STATUS W1C: bits [10:9] clear sticky FIFO flags
                     8'h44: begin
                         if (pwdata[9])  result_overflow_sticky  <= 1'b0;
                         if (pwdata[10]) result_underflow_sticky <= 1'b0;
                     end
-                    // Read-only registers: ignore writes
                     default: ;
                 endcase
             end
-            
-            // FIX: Auto-clear start bits unconditionally (moved out of else branch)
-            // Prevents multi-cycle pulse during back-to-back APB writes to other regs
-            if (reg_dma_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_DMA_CTRL))
-                reg_dma_ctrl[0] <= 1'b0;
-            if (reg_dma_ctrl[1] && !(psel && penable && pwrite && paddr[7:0] == ADDR_DMA_CTRL))
-                reg_dma_ctrl[1] <= 1'b0;  // chain_start auto-clear
-            if (reg_cu_ctrl[0] && !(psel && penable && pwrite && paddr[7:0] == ADDR_CU_CTRL))
-                reg_cu_ctrl[0] <= 1'b0;
 
-            // Result FIFO overflow/underflow sticky latch
-            // Set on pulse from FIFO, cleared by W1C on RESULT_STATUS or reset
+            // Auto-clear start-pulse bits one cycle after assertion
+            if (reg_dma_ctrl[0] && !apb_w_dma_ctrl) reg_dma_ctrl[0] <= 1'b0;
+            if (reg_dma_ctrl[1] && !apb_w_dma_ctrl) reg_dma_ctrl[1] <= 1'b0;
+            if (reg_cu_ctrl[0]  && !apb_w_cu_ctrl)  reg_cu_ctrl[0]  <= 1'b0;
+
             if (result_overflow_i)  result_overflow_sticky  <= 1'b1;
             if (result_underflow_i) result_underflow_sticky <= 1'b1;
         end
@@ -398,60 +367,25 @@ module cgra_apb_csr #(
     assign dma_cols       = reg_dma_cols;
     assign dma_start = reg_dma_ctrl[0];
     
-    assign cu_start = reg_cu_ctrl[0];
-    assign cu_soft_reset = reg_cu_ctrl[1];
-    assign cu_max_cycles = reg_cu_timeout;  // Programmable timeout
-    
-    // Hardware Loop outputs
-    assign loop_start_pc = reg_loop_start[15:0];
-    assign loop_end_pc   = reg_loop_end[15:0];
-    assign loop_count    = reg_loop_count[15:0];
+    assign cu_start         = reg_cu_ctrl[0];
+    assign cu_soft_reset    = reg_cu_ctrl[1];
+    assign cu_max_cycles    = reg_cu_timeout;
 
-    // Nested Loop (Level 2) outputs
-    assign loop2_start_pc = reg_loop2_start[15:0];
-    assign loop2_end_pc   = reg_loop2_end[15:0];
-    assign loop2_count    = reg_loop2_count[15:0];
-    assign tile_bank_sel  = reg_tile_bank_sel[0];
+    assign loop_start_pc    = reg_loop_start[15:0];
+    assign loop_end_pc      = reg_loop_end[15:0];
+    assign loop_count       = reg_loop_count[15:0];
+    assign loop2_start_pc   = reg_loop2_start[15:0];
+    assign loop2_end_pc     = reg_loop2_end[15:0];
+    assign loop2_count      = reg_loop2_count[15:0];
+    assign tile_bank_sel    = reg_tile_bank_sel[0];
     assign tile_auto_inc_en = reg_tile_auto_inc[0];
     assign result_skip_count = reg_result_skip[3:0];
-    assign dma_desc_head = reg_dma_desc_head;
-    assign dma_chain_start = reg_dma_ctrl[1];  // DMA_CTRL[1] = chain start (auto-clears)
-    
-    // =========================================================================
-    // IRQ Generation
-    // =========================================================================
-    always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            irq <= 1'b0;
-        end else begin
-            // IRQ = (Status & Mask) != 0
-            irq <= |(reg_irq_status & reg_irq_mask);
-        end
-    end
+    assign dma_desc_head    = reg_dma_desc_head;
+    assign dma_chain_start  = reg_dma_ctrl[1];
 
-    // =========================================================================
-    // Simulation-Only Assertions
-    // =========================================================================
-    // synthesis translate_off
     always_ff @(posedge clk) begin
-        if (rst_n && psel && penable && pwrite) begin
-            // Warn on rejected writes to busy-protected registers
-            if (dma_busy_i) begin
-                case (paddr[7:0])
-                    ADDR_DMA_SRC, ADDR_DMA_DST, ADDR_DMA_SIZE:
-                        $warning("[CSR] Write to DMA config reg 0x%02h rejected — DMA busy", paddr[7:0]);
-                    default: ;
-                endcase
-            end
-            if (cu_busy_i) begin
-                case (paddr[7:0])
-                    ADDR_CU_TIMEOUT, ADDR_LOOP_START, ADDR_LOOP_END, ADDR_LOOP_COUNT:
-                        $warning("[CSR] Write to CU config reg 0x%02h rejected — CU busy", paddr[7:0]);
-                    default: ;
-                endcase
-            end
-        end
+        if (!rst_n) irq <= 1'b0;
+        else        irq <= |(reg_irq_status & reg_irq_mask);
     end
-    // synthesis translate_on
 
 endmodule
