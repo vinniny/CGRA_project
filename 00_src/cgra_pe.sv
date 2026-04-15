@@ -36,25 +36,15 @@ module cgra_pe #(
     input  logic [DATA_WIDTH-1:0] data_in_w,
 
 
-    // Routing outputs (to N/E/S/W neighbors)
-    output logic [DATA_WIDTH-1:0] data_out_n,
-    output logic [DATA_WIDTH-1:0] data_out_e,
-    output logic [DATA_WIDTH-1:0] data_out_s,
-    output logic [DATA_WIDTH-1:0] data_out_w,
+    // PE broadcasts the same payload to all 4 directions; valid_out_*
+    // are gated per-direction by the configured route_mask.
+    output logic [DATA_WIDTH-1:0] data_out,
     output logic                  valid_out_n,
     output logic                  valid_out_e,
     output logic                  valid_out_s,
     output logic                  valid_out_w,
-    
-    // Local data output
-    output logic [DATA_WIDTH-1:0] data_out_local,
-    output logic                  valid_out_local,
 
-    // Backpressure (from/to router local port)
-    input  logic                  ready_in,
-    output logic                  ready_out,
-
-    // B4: Dynamic branch output (from PE to CU via top level)
+    // Dynamic branch output (from PE predicate to CU)
     output logic [PC_WIDTH-1:0]   branch_target_o,
     output logic                  branch_taken_o
 );
@@ -119,8 +109,7 @@ module cgra_pe #(
     // =========================================================================
     // Stall when router cannot accept output OR global stall is asserted
     logic stall;
-    assign stall = !ready_in || global_stall;
-    assign ready_out = ready_in && !global_stall;
+    assign stall = global_stall;
     
     // =========================================================================
     // Configuration frame decoding (decodes active_config)
@@ -649,30 +638,14 @@ module cgra_pe #(
         rf_raddr1 = src1_sel;
     end
 
-    // =========================================================================
-    // Bypass Network / Routing (uses _r2 control signals)
-    // =========================================================================
-    logic [DATA_WIDTH-1:0] output_data;
-    logic                  output_valid;
+    // Output broadcast: single data bus, per-direction valid via route_mask
+    // (bit[3]=N, bit[2]=E, bit[1]=S, bit[0]=W).
+    wire output_valid = config_active_r2 && execute_enable_r2 && !stall;
 
-    always_comb begin
-        output_data = alu_result;
-        output_valid = config_active_r2 && execute_enable_r2 && !stall;
-    end
-
-    // Route mask: [4] = local, [3] = N, [2] = E, [1] = S, [0] = W
-    always_comb begin
-        data_out_n = output_data;
-        data_out_e = output_data;
-        data_out_s = output_data;
-        data_out_w = output_data;
-        data_out_local = output_data;
-
-        valid_out_n = output_valid && route_mask_r2[3];
-        valid_out_e = output_valid && route_mask_r2[2];
-        valid_out_s = output_valid && route_mask_r2[1];
-        valid_out_w = output_valid && route_mask_r2[0];
-        valid_out_local = output_valid && route_mask_r2[4];
-    end
+    assign data_out     = alu_result;
+    assign valid_out_n  = output_valid && route_mask_r2[3];
+    assign valid_out_e  = output_valid && route_mask_r2[2];
+    assign valid_out_s  = output_valid && route_mask_r2[1];
+    assign valid_out_w  = output_valid && route_mask_r2[0];
 
 endmodule
