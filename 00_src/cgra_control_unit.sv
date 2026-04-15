@@ -92,26 +92,21 @@ module cgra_control_unit #(
     // Internal Registers
     // =========================================================================
     logic [31:0] cycle_counter;
-    logic [32:0] wall_counter;   // 33-bit: prevents wrap-around at 2^32 cycles (~85s @ 50MHz)
+    logic [32:0] wall_counter;   // 33-bit: no wrap at 2^32 cycles (~85s @ 50 MHz)
     logic        timeout_reached;
-    logic [31:0] max_cycles_reg;  // FIX: Latched timeout threshold (prevents mid-run corruption)
-    logic [7:0]  tile_base_offset; // Auto-incrementing tile address offset
-    
-    // Hardware Loop Registers
-    logic [15:0] loop_count_reg;  // Remaining loop iterations (internal counter)
-    logic [PC_WIDTH-1:0] loop_start_reg;  // FIX: Latched loop start PC (prevents mid-run corruption)
-    logic [PC_WIDTH-1:0] loop_end_reg;    // FIX: Latched loop end PC
+    logic [31:0] max_cycles_reg;
+    logic [7:0]  tile_base_offset;
 
-    // Nested Loop (Level 2) Registers — B3
-    logic [15:0] loop2_count_reg;
-    logic [PC_WIDTH-1:0] loop2_start_reg;
-    logic [PC_WIDTH-1:0] loop2_end_reg;
-    logic [15:0] loop1_count_reload;       // Saved initial loop1 count for reload
+    // L1 + L2 hardware-loop state (all latched on RUN entry to survive
+    // mid-run APB writes to the loop config registers).
+    logic [15:0]          loop_count_reg;
+    logic [PC_WIDTH-1:0]  loop_start_reg;
+    logic [PC_WIDTH-1:0]  loop_end_reg;
+    logic [15:0]          loop2_count_reg;
+    logic [PC_WIDTH-1:0]  loop2_start_reg;
+    logic [PC_WIDTH-1:0]  loop2_end_reg;
+    logic [15:0]          loop1_count_reload;  // L1 count saved for reload per L2 iteration
 
-    // =========================================================================
-    // Timeout Detection — uses wall_counter for DMA-hang protection
-    // =========================================================================
-    // FIX: Compare against latched max_cycles_reg instead of live max_cycles_i
     assign timeout_reached = (max_cycles_reg != 32'd0) && (wall_counter >= max_cycles_reg);
     
     // =========================================================================
@@ -155,16 +150,10 @@ module cgra_control_unit #(
         endcase
     end
     
-    // =========================================================================
-    // Context PC Counter (Multi-context scheduling with Hardware Loops)
-    // =========================================================================
-    // CRITICAL: Declare pc_counter here, before Cycle Counter block references it
     logic [PC_WIDTH-1:0] pc_counter;
-    
-    // =========================================================================
-    // Cycle Counter + Loop Counter Management
-    // =========================================================================
-    // CRITICAL: Consolidate all loop_count_reg updates here to avoid multiple drivers
+
+    // Cycle counter + unified loop-counter management (single driver for
+    // loop_count_reg across inner/outer loop paths).
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             cycle_counter <= 32'd0;
@@ -180,10 +169,10 @@ module cgra_control_unit #(
             tile_base_offset <= 8'd0;
         end else begin
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
-                // FIX: Match FSM guard - reload only when actually transitioning to RUN
+                // RUN entry: latch all loop/timeout parameters so mid-run APB
+                // writes can't corrupt the current execution.
                 cycle_counter <= 32'd0;
                 wall_counter  <= 33'd0;
-                // FIX: Latch all parameters on RUN entry to prevent mid-run corruption
                 max_cycles_reg <= max_cycles_i;
                 loop_start_reg <= loop_start_pc_i[PC_WIDTH-1:0];
                 loop_end_reg   <= loop_end_pc_i[PC_WIDTH-1:0];
@@ -207,18 +196,12 @@ module cgra_control_unit #(
                 // Reset tile offset on every new CU run
                 tile_base_offset <= 8'd0;
             end else if (state == STATE_RUN) begin
-                // Wall counter: increments every cycle (including stalls) for DMA-hang timeout
-                wall_counter <= wall_counter + 33'd1;
-                // FIX: Only count cycles when PEs actually execute (not stalled by DMA)
+                wall_counter <= wall_counter + 33'd1;  // ticks during DMA stalls too
                 if (!global_stall_o)
                     cycle_counter <= cycle_counter + 32'd1;
-                
-                // CRITICAL: Loop counter management (inner + outer)
-                // When inner loop (level 1) reaches loop_end:
-                //   - If loop_count_reg > 0: decrement inner count (normal loop)
-                //   - If loop_count_reg == 0 AND loop2_count_reg > 0:
-                //     inner loop exhausted, outer loop iteration:
-                //     reload inner count, decrement outer count
+
+                // Loop-counter sequencing: inner L1 decrements per iteration;
+                // when L1 exhausts and L2 still has work, reload L1 and tick L2.
                 if ((pc_counter == loop_end_reg) && (pe_enable && !global_stall_o)) begin
                     if (loop_count_reg > 16'd0) begin
                         loop_count_reg <= loop_count_reg - 16'd1;
@@ -256,12 +239,9 @@ module cgra_control_unit #(
         end else if (soft_reset_i) begin
             pc_counter <= '0;
         end else if (state == STATE_IDLE && start_i) begin
-            // FIX: Removed redundant !soft_reset_i — prior else-if already consumed that case
             pc_counter <= '0;
         end else if (pe_enable && !global_stall_o) begin
-            // Increment PC only when running and not stalled
-            
-            // Priority: loop jump > branch > normal increment
+            // Priority: loop jump > branch > natural wrap > increment.
             if ((pc_counter == loop_end_reg) &&
                 (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0)) begin
                 // Loop takes highest priority
@@ -380,27 +360,21 @@ module cgra_control_unit #(
             prev_loop_count <= 16'd0;
         end else begin
             prev_loop_count <= loop_count_reg;
-            
-            // FIX: Detect loop_count_reg underflow (wrap from 0 to 65535).
-            // The "loop_count_reg > 16'd0" guard in the decrement logic prevents this,
-            // but this assertion catches regressions if the guard is accidentally removed.
-            if (state == STATE_RUN) begin
-                if (prev_loop_count == 16'd0 && loop_count_reg == 16'hFFFF)
-                    $error("[CU] loop_count_reg underflow detected! Wrapped from 0 to 65535 @ %0t", $time);
-            end
-            
-            // FIX: Detect loop PC values exceeding CONTEXT_DEPTH (upper bits silently truncated)
+
+            if (state == STATE_RUN &&
+                prev_loop_count == 16'd0 && loop_count_reg == 16'hFFFF)
+                $error("[CU] loop_count_reg underflow: 0 -> 65535 @ %0t", $time);
+
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
                 if (loop_start_pc_i[15:PC_WIDTH] != '0)
-                    $warning("[CU] loop_start_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d — upper bits truncated!",
+                    $warning("[CU] loop_start_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d",
                              loop_start_pc_i, CONTEXT_DEPTH);
                 if (loop_end_pc_i[15:PC_WIDTH] != '0)
-                    $warning("[CU] loop_end_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d — upper bits truncated!",
+                    $warning("[CU] loop_end_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d",
                              loop_end_pc_i, CONTEXT_DEPTH);
-                // FIX: Detect invalid loop bounds (start > end causes infinite loop)
                 if (loop_count_i > 16'd0 &&
                     loop_start_pc_i[PC_WIDTH-1:0] > loop_end_pc_i[PC_WIDTH-1:0])
-                    $warning("[CU] Invalid loop bounds: start_pc(%0d) > end_pc(%0d) — loop will never terminate!",
+                    $warning("[CU] Invalid loop bounds: start(%0d) > end(%0d) — infinite loop",
                              loop_start_pc_i[PC_WIDTH-1:0], loop_end_pc_i[PC_WIDTH-1:0]);
             end
         end

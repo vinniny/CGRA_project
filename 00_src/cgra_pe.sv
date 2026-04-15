@@ -1,56 +1,8 @@
-// ==============================================================================
-// CGRA Processing Element (PE) - v2.4
-// ==============================================================================
-// A configurable processing element supporting 21 ALU operations, 16-entry
-// register file, 256×32-bit scratchpad, and 16-context configuration RAM.
-//
-// CHANGELOG (v2.4 - January 2026):
-//   - Fixed immediate sign-extension logic (opcode 2/11 bugs)
-//   - Fixed routing mask width mismatches (lint clean)
-//   - Validated against 6000-vector constrained random regression (AD suite)
-//
-//
-// ARCHITECTURE:
-//   - ALU/MAC with 40-bit saturating accumulator
-//   - 16×32-bit Register File (flip-flop)
-//   - 256×32-bit Scratchpad Memory (SRAM)
-//   - 16×64-bit Configuration RAM (BSG SRAM wrapper)
-//   - 4-direction mesh broadcast (32-bit full precision)
-//   - LIF neuron for neuromorphic computing (spiking)
-//
-// ISA (21 Operations, opcodes 0-20, including LPR/ANN extensions):
-//   Op | Name       | Operation              | Latency
-//   ---|------------|------------------------|--------
-//   0  | NOP        | No operation           | 1 cycle
-//   1  | ADD        | A + B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
-//   2  | SUB        | A - B (sat), Acc=ext   | 1 cycle  (also updates accumulator)
-//   3  | MUL        | A × B (64-bit)         | 1 cycle
-//   4  | MAC        | Acc += A × B           | 1 cycle
-//   5  | AND        | A & B                  | 1 cycle
-//   6  | OR         | A | B                  | 1 cycle
-//   7  | XOR        | A ^ B                  | 1 cycle
-//   8  | SHL        | A << B[4:0]            | 1 cycle
-//   9  | SHR        | A >>> B[4:0] (arith)   | 1 cycle
-//  10  | CMP_GT     | (A > B) ? 1 : 0        | 1 cycle
-//  11  | CMP_LT     | (A < B) ? 1 : 0        | 1 cycle
-//  12  | CMP_EQ     | (A == B) ? 1 : 0       | 1 cycle
-//  13  | LOAD_SPM   | Load from scratchpad   | 1 cycle
-//  14  | STORE_SPM  | Store to scratchpad    | 1 cycle
-//  15  | ACC_CLR    | Clear accumulator      | 1 cycle
-//  16  | PASS0      | Pass operand A         | 1 cycle
-//  17  | PASS1      | Pass operand B         | 1 cycle
-//  18  | LIF        | Leaky Integrate-Fire   | 1 cycle
-//  19  | RELU       | max(0, A)              | 1 cycle
-//  20  | MAX        | max(A, B) signed       | 1 cycle
-//
-// OPERAND SOURCES (src0_sel, src1_sel):
-//   0 = Register File    4 = West neighbor (Tile Memory)
-//   1 = North neighbor   5 = Scratchpad Memory
-//   2 = East neighbor    6 = 16-bit Immediate
-//   3 = South neighbor
-//
-// VERIFICATION: 141/141 tests passed (base ISA) + LPR extensions pending
-// ==============================================================================
+// cgra_pe.sv — Processing Element.
+// 21-op ALU/MAC (40-bit saturating accumulator) + 16-entry RF +
+// 256×32-bit scratchpad + 16-slot config BRAM.
+// Operand sources (src*_sel): 0=RF  1=N  2=E  3=S  4=W  5=SPM  6=imm16.
+// Directional outputs (data_out_n/e/s/w + valid_out_*) feed mesh broadcast.
 
 module cgra_pe #(
     parameter DATA_WIDTH  = 32,
@@ -128,16 +80,10 @@ module cgra_pe #(
     // B1: Mixed-precision mode
     logic [1:0]            data_mode;  // 00=INT32, 01=INT16x2, 10=INT8x4
 
-    // =========================================================================
-    // Config RAM (The "Recipe Book" - 16 config slots using BSG Memory)
-    // =========================================================================
-    // Uses cgra_config_mem_bsg wrapper around bsg_mem_1r1w_sync for ASIC synthesis
-    // Note: BSG memory has 1-cycle read latency, rd_valid indicates data ready
-    // FIX: read_write_same_addr_p=1 prevents X on simultaneous read/write
-    
+    // Config RAM: 16 slots × 64b via BSG SRAM wrapper (1-cycle read latency).
     logic [63:0] config_ram_data;
     logic [63:0] active_config;
-    logic        config_ram_valid;  // Used in config_active OR gate below
+    logic        config_ram_valid;
     
     cgra_config_mem_bsg #(
         .DATA_WIDTH(64),
@@ -164,10 +110,7 @@ module cgra_pe #(
     // - config_valid=0 (idle): Use config_ram_data from BSG SRAM.
     assign active_config = config_valid ? config_frame : config_ram_data;
 
-    // FIX: config_active is true whenever PE has valid configuration
-    // In single-config mode: config_valid=1 from parent
-    // In multi-context mode: config_ram_valid=1 after 1-cycle BSG read latency
-    // This replaces the incorrect use of config_valid alone which broke multi-context
+    // Active whenever a valid config is present (parent-driven or BSG-read).
     logic config_active;
     assign config_active = config_valid || config_ram_valid;
 
@@ -187,7 +130,7 @@ module cgra_pe #(
         src0_sel   = active_config[9:6];
         src1_sel   = active_config[13:10];
         dst_sel    = active_config[17:14];
-        route_mask = {1'b0, active_config[21:18]};  // FIX: Zero-extend 4-bit to 5-bit
+        route_mask = {1'b0, active_config[21:18]};
         pred_en    = active_config[22];
         pred_inv   = active_config[23];
         immediate  = active_config[39:24];
@@ -202,9 +145,7 @@ module cgra_pe #(
         data_mode = extended[10:9];
     end
     
-    // =========================================================================
-    // Scratchpad Memory (SPM)
-    // =========================================================================
+    // Scratchpad memory (256×32b)
     logic [DATA_WIDTH-1:0] spm_mem [0:SPM_DEPTH-1];
     logic [$clog2(SPM_DEPTH)-1:0] spm_addr;
     logic [DATA_WIDTH-1:0] spm_rdata;
@@ -224,9 +165,7 @@ module cgra_pe #(
         end
     end
     
-    // =========================================================================
-    // Register File (RF)
-    // =========================================================================
+    // Register file (16×32b flip-flops)
     logic [DATA_WIDTH-1:0] rf_mem [0:RF_DEPTH-1];
     logic [3:0]            rf_raddr0;
     logic [3:0]            rf_raddr1;

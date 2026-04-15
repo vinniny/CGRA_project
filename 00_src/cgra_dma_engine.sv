@@ -84,7 +84,7 @@ module cgra_dma_engine #(
     localparam BYTES_PER_WORD = DATA_WIDTH / 8;
     localparam FIFO_ADDR_BITS = $clog2(FIFO_DEPTH);
 
-    // FIX: FIFO pointer wrap relies on power-of-2 depth. Enforce at elaboration.
+    // FIFO pointer wrap relies on power-of-2 depth. Enforced here at elaboration.
     initial begin
         if ((FIFO_DEPTH & (FIFO_DEPTH - 1)) != 0)
             $fatal(1, "[DMA] FIFO_DEPTH=%0d is not a power of 2 — pointer wrap broken", FIFO_DEPTH);

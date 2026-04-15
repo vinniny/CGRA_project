@@ -230,45 +230,31 @@ module cgra_top #(
     logic [31:0] dma_cfg_wdata;
     logic [3:0]  dma_cfg_pe_sel;  // Which PE to configure (0-15)
     
-    // =========================================================================
-    // FIX 2: Double-Pump Config Loader (32-bit DMA → 64-bit Config)
-    // =========================================================================
-    // Protocol: Write High Word (addr[2]=0) → Write Low Word (addr[2]=1) commits 64-bit
-    // Polarity: bit[2]=0 latches HI (first in sequential DMA), bit[2]=1 commits LO.
-    // This enables bulk DMA: sequential writes to CONFIG_BASE+0,+4,+8,...
-    // naturally pair as [HI latch, LO commit] per 8-byte config entry.
-    logic [31:0] config_high_reg;     // Holding register for upper 32 bits
-    logic [63:0] config_full_word;    // Combined 64-bit config
-    logic        config_commit_en;    // Triggers when low word written
-    logic        config_high_loaded;  // FIX: Guard — high word must be written before commit
+    // Double-pump 64-bit config loader: DMA writes HI (addr[2]=0) then LO
+    // (addr[2]=1). The LO write commits the full 64-bit word to the config
+    // bus. config_high_loaded guards against a stray LO write before HI.
+    logic [31:0] config_high_reg;
+    logic [63:0] config_full_word;
+    logic        config_commit_en;
+    logic        config_high_loaded;
 
     always_ff @(posedge clk) begin
         if (!rst_n || cu_soft_reset) begin
-            config_high_reg    <= 32'd0;  // FIX: Clear on soft reset to prevent stale pairing
+            config_high_reg    <= 32'd0;
             config_high_loaded <= 1'b0;
         end else if (dma_cfg_we && !dma_cfg_addr[2]) begin
-            // Writing to high word address (addr[2]=0, first in sequential order)
             config_high_reg    <= dma_cfg_wdata;
             config_high_loaded <= 1'b1;
         end else if (config_commit_en) begin
-            config_high_loaded <= 1'b0;   // Clear after commit
+            config_high_loaded <= 1'b0;
         end
     end
 
-    // Commit trigger: DMA writes to low word address (addr[2]=1) AND high word was loaded
-    // FIX: Without config_high_loaded guard, a stray low-word write could commit
-    //      a stale or zeroed high_reg, silently corrupting the PE config frame.
     assign config_commit_en = dma_cfg_we && dma_cfg_addr[2] && config_high_loaded;
-
-    // Combined 64-bit config: {high_reg, current_low_word}
     assign config_full_word = {config_high_reg, dma_cfg_wdata};
-    
-    // =========================================================================
-    // Internal Wires: APB Handshake Signals (for multiplexing)
-    // =========================================================================
-    // csr_prdata already declared at line 122
-    logic        csr_pready;  // CSR module ready signal
-    logic        csr_pslverr; // CSR module slave error
+
+    logic csr_pready;
+    logic csr_pslverr;
     
     // Config path: DMA → cgra_config_broadcaster → PE-internal BRAM.
     // PEs read their config from internal BSG SRAM during execution; the
@@ -536,21 +522,9 @@ module cgra_top #(
         .next_tile_base_offset_o(cu_next_tile_offset) // combinational for prefetch
     );
     
-    // =========================================================================
-    // 4. Tile Memory (The "Fridge" - Data Banks for PE Array)
-    // =========================================================================
-    // 4 banks × 1024 words = 16KB total
-    // DMA writes to ext_* port, Array reads from bank*_rdata
-    //
-    // FIX: Tile read pre-fetch to compensate for 1-cycle sync read latency.
-    // The sync read registers the address at posedge, outputting data 1 cycle
-    // later.  Without pre-fetch, the PE at context_pc=N reads tile[N-1].
-    // Solution: feed `tile_prefetch_pc` (= next context_pc) to the tile
-    // address, so the registered read delivers tile[N] when PE executes at N.
-    // When stalled: holds current pc (pre-loads data for first execution).
-    // When executing: advances to pc+1 (pre-loads next context's data).
-    // Use CU's next_context_pc directly — it correctly handles hardware loop
-    // backward jumps (loop_end → loop_start) that the old context_pc+1 logic missed.
+    // Tile memory: 4 banks × 4096 words, DMA writes ext_*, array reads bank*_rdata.
+    // Pre-fetch with next_context_pc so the sync-read registered data arrives
+    // aligned with the PE executing at that PC (also handles loop back-jumps).
     logic [3:0] tile_prefetch_pc;
     assign tile_prefetch_pc = next_context_pc;
 
@@ -563,15 +537,12 @@ module cgra_top #(
         .clk(clk),
         .rst_n(rst_n),
         // When tile auto-increment is active, offset[7] drives bank_sel_i
-        // to access the upper half of tile SRAM. Otherwise legacy double-buffer.
+        // Auto-inc mode steers offset[7] to bank_sel_i (upper/lower half),
+        // with offset[6:0] forming the high bits of the per-bank address.
         .bank_sel_i(tile_auto_inc_en ? cu_next_tile_offset[7] : tile_bank_sel_csr),
 
-        // FIX 3: Dynamic Memory Addressing (Streaming Mode)
-        // Each bank address = context_pc, enabling 16-word streaming per run
-        
-        // Bank 0 (Row 0) - Read port to array
-        // Tile auto-inc: addr = {offset[6:0], pc[3:0]}; offset[7] is routed via bank_sel_i above.
-        // Legacy: addr = {0000_0000, pc[3:0]} (only 16 words accessed).
+        // Bank addresses: auto-inc concatenates {offset[6:0], pc[3:0]};
+        // legacy mode uses only the low 4 bits (16-word stream).
         .bank0_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
                                      : {8'd0, tile_prefetch_pc}),
         .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
@@ -618,25 +589,16 @@ module cgra_top #(
     );
 
     // synopsys translate_off
-    // FIX: Assert DMA tile address is word-aligned (lower 2 bits silently discarded)
     always @(posedge clk) begin
         if (rst_n && dma_tile_we && (dma_tile_addr[1:0] != 2'b00))
-            $error("[CGRA_TOP] DMA tile WRITE address 0x%08h is not word-aligned!", dma_tile_addr);
+            $error("[CGRA_TOP] DMA tile WRITE address 0x%08h is not word-aligned", dma_tile_addr);
         if (rst_n && dma_tile_re && (dma_tile_addr[1:0] != 2'b00))
-            $error("[CGRA_TOP] DMA tile READ address 0x%08h is not word-aligned!", dma_tile_addr);
+            $error("[CGRA_TOP] DMA tile READ address 0x%08h is not word-aligned", dma_tile_addr);
     end
     // synopsys translate_on
 
-    // =========================================================================
-    // 5. CGRA Array (4x4 PE Mesh)
-    // =========================================================================
-    
-    // =========================================================================
-    // AUTO-STOP FEATURE: Loop-Aware Program Completion
-    // =========================================================================
-    // Asserts array_done when the PE program has completed:
-    //   - context_pc reaches CONTEXT_DEPTH-1 (last slot)
-    //   - All hardware loop iterations are exhausted (cu_loops_done)
+    // Auto-stop: asserts array_done once the PE program has walked past the
+    // final slot with all nested loop counters exhausted.
     //
     // With loops active, the CU's PC jumps back on loop boundaries, so
     // context_pc only reaches slot 15 after all loops finish. This is
@@ -832,9 +794,7 @@ module cgra_top #(
         .underflow_pulse(result_fifo_underflow)
     );
     
-    // Result valid: latched on cu_done, cleared by soft_reset
-    // CRITICAL: cu_done is a 1-cycle pulse that APB polling would miss.
-    // Latch it so result_valid stays high until the next soft_reset.
+    // Latch cu_done (1-cycle pulse) so result_valid survives until soft-reset.
     logic result_valid_latch;
     always_ff @(posedge clk) begin
         if (!rst_n || cu_soft_reset)
@@ -844,17 +804,8 @@ module cgra_top #(
     end
     assign result_valid = result_valid_latch;
     
-    // =========================================================================
-    // Hybrid I/O: APB Multiplexers (Result Data + Handshake Signals)
-    // =========================================================================
-    // Extended APB address map:
-    //   0x40  RESULT_DATA   - Computation result from last PE (RO)
-    //   0x44  RESULT_STATUS - {31'b0, result_valid} (RO)
-    //
-    // Multiplexes between CSR module output and result registers
-    // CRITICAL: Must drive pready for all addresses (APB protocol requirement)
-    
-    // Internal wires to avoid multiple drivers on output ports
+    // APB read path mux: 0x40/0x44/0x58-0x64 go to Result FIFO / status;
+    // every other address falls through to the CSR module.
     logic [31:0] apb_prdata;
     logic        apb_pready;
     
