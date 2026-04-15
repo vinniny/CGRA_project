@@ -176,44 +176,11 @@ module cgra_top #(
     logic        tile_bank_sel_csr;
     logic        tile_auto_inc_en;
     logic [7:0]  cu_next_tile_offset;
-    // Scatter-Gather DMA (chain controller)
+    // DMA subsystem CSR/status signals
     logic [31:0] dma_desc_head;
     logic        dma_chain_start;
     logic        dma_chain_active;
     logic [15:0] dma_desc_completed;
-
-    // Chain controller → DMA engine command interface
-    logic [31:0] chain_cmd_src;
-    logic [31:0] chain_cmd_dst;
-    logic [31:0] chain_cmd_size;
-    logic        chain_cmd_start;
-    logic        chain_fetch_active;
-
-    // Chain controller AXI AR/R (dedicated wires, muxed with DMA engine)
-    logic [31:0] chain_araddr;
-    logic [7:0]  chain_arlen;
-    logic [2:0]  chain_arsize;
-    logic [1:0]  chain_arburst;
-    logic        chain_arvalid;
-    logic        chain_rready;
-
-    // DMA engine AXI AR/R (renamed — muxed before reaching top-level m_axi)
-    logic [AXI_ID_WIDTH-1:0] dma_arid;
-    logic [31:0]             dma_araddr;
-    logic [7:0]              dma_arlen;
-    logic [2:0]              dma_arsize;
-    logic [1:0]              dma_arburst;
-    logic                    dma_arvalid;
-    logic                    dma_rready;
-
-    // Muxed DMA command inputs (chain ctrl during chain mode, CSR otherwise)
-    logic [31:0] dma_eng_src;
-    logic [31:0] dma_eng_dst;
-    logic [31:0] dma_eng_size;
-    logic        dma_eng_start;
-
-    // Registered select: 1 = chain ctrl owns AXI AR/R channel
-    logic axi_ar_sel_chain_r;
     logic [3:0]  array_branch_target;
     logic        array_branch_taken;
     logic        array_branch_taken_r;  // Registered: breaks LUTLP-1 comb loop
@@ -449,7 +416,7 @@ module cgra_top #(
         .dma_rows(dma_rows),
         .dma_cols(dma_cols),
         .dma_start(dma_start),
-        .dma_busy_i(dma_busy || dma_chain_active),
+        .dma_busy_i(dma_busy),
         .dma_done_i(dma_done),
         .dma_error_code_i(dma_error_code),
         .dma_error_valid_i(dma_error_valid),
@@ -486,9 +453,9 @@ module cgra_top #(
     );
     
     // =========================================================================
-    // 2. Pipelined DMA Engine
+    // 2. DMA Subsystem (engine + SG chain controller + muxes)
     // =========================================================================
-    cgra_dma_engine #(
+    cgra_dma_subsystem #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(ADDR_WIDTH),
         .AXI_ID_WIDTH(AXI_ID_WIDTH),
@@ -496,24 +463,28 @@ module cgra_top #(
     ) u_dma (
         .clk(clk),
         .rst_n(rst_n),
-        
-        // Muxed CSR/chain controller command
-        .cfg_src(dma_eng_src),
-        .cfg_dst(dma_eng_dst),
-        .cfg_size(dma_eng_size),
+
+        .cfg_src(dma_src),
+        .cfg_dst(dma_dst),
+        .cfg_size(dma_size),
         .cfg_src_stride(dma_src_stride),
         .cfg_rows(dma_rows),
         .cfg_cols(dma_cols),
-        .cfg_start(dma_eng_start),
+        .cfg_start(dma_start),
         .cfg_abort(cu_soft_reset),
+        .cfg_desc_head(dma_desc_head),
+        .cfg_chain_start(dma_chain_start),
+
         .status_busy(dma_busy),
         .status_done(dma_done),
         /* verilator lint_off PINCONNECTEMPTY */
         .irq_done(),
         /* verilator lint_on PINCONNECTEMPTY */
+        .chain_active(dma_chain_active),
+        .desc_completed(dma_desc_completed),
+        .error_code(dma_error_code),
+        .error_valid(dma_error_valid),
 
-
-        // AXI4 Master (with Burst Support)
         .m_axi_awid(m_axi_awid),
         .m_axi_awaddr(m_axi_awaddr),
         .m_axi_awlen(m_axi_awlen),
@@ -530,25 +501,20 @@ module cgra_top #(
         .m_axi_bresp(m_axi_bresp),
         .m_axi_bvalid(m_axi_bvalid),
         .m_axi_bready(m_axi_bready),
-        .m_axi_arid(dma_arid),
-        .m_axi_araddr(dma_araddr),
-        .m_axi_arlen(dma_arlen),
-        .m_axi_arsize(dma_arsize),
-        .m_axi_arburst(dma_arburst),
-        .m_axi_arvalid(dma_arvalid),
-        .m_axi_arready(m_axi_arready && !axi_ar_sel_chain_r),
+        .m_axi_arid(m_axi_arid),
+        .m_axi_araddr(m_axi_araddr),
+        .m_axi_arlen(m_axi_arlen),
+        .m_axi_arsize(m_axi_arsize),
+        .m_axi_arburst(m_axi_arburst),
+        .m_axi_arvalid(m_axi_arvalid),
+        .m_axi_arready(m_axi_arready),
         .m_axi_rdata(m_axi_rdata),
         .m_axi_rlast(m_axi_rlast),
-        .m_axi_rvalid(m_axi_rvalid && !axi_ar_sel_chain_r),
+        .m_axi_rvalid(m_axi_rvalid),
         .m_axi_rid(m_axi_rid),
         .m_axi_rresp(m_axi_rresp),
-        .m_axi_rready(dma_rready),
+        .m_axi_rready(m_axi_rready),
 
-        // Error status (wired to CSR for software visibility)
-        .error_code(dma_error_code),
-        .error_valid(dma_error_valid),
-
-        // Local Memory Interface (To Tile Memory)
         .tile_addr_o(dma_tile_addr),
         .tile_bank_sel_o(dma_tile_bank_sel),
         .tile_we_o(dma_tile_we),
@@ -556,13 +522,11 @@ module cgra_top #(
         .tile_re_o(dma_tile_re),
         .tile_rdata_i(dma_tile_rdata),
         .tile_rvalid_i(dma_tile_valid),
-        
-        // Config Interface (To PE Array)
+
         .config_addr_o(dma_cfg_addr),
         .config_we_o(dma_cfg_we),
         .config_wdata_o(dma_cfg_wdata),
-        
-        // Debug Ports (For ILA)
+
         .dbg_status_busy(dbg_dma_busy),
         .dbg_read_fsm_state(dbg_dma_read_state),
         .dbg_write_fsm_state(dbg_dma_write_state),
@@ -570,68 +534,6 @@ module cgra_top #(
         .dbg_fifo_empty(dbg_dma_fifo_empty),
         .dbg_write_words_remaining(dbg_dma_write_words_remaining)
     );
-
-    // =========================================================================
-    // 2b. SG Chain Controller (owns descriptor chain lifecycle)
-    // =========================================================================
-    cgra_dma_chain_ctrl #(
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(32)
-    ) u_chain_ctrl (
-        .clk(clk),
-        .rst_n(rst_n),
-
-        .desc_head_i(dma_desc_head),
-        .chain_start_i(dma_chain_start),
-        .abort_i(cu_soft_reset),
-        .chain_active_o(dma_chain_active),
-        .desc_completed_o(dma_desc_completed),
-
-        .cmd_src_o(chain_cmd_src),
-        .cmd_dst_o(chain_cmd_dst),
-        .cmd_size_o(chain_cmd_size),
-        .cmd_start_o(chain_cmd_start),
-        .cmd_done_i(dma_done),
-        .cmd_busy_i(dma_busy),
-
-        .m_axi_araddr(chain_araddr),
-        .m_axi_arlen(chain_arlen),
-        .m_axi_arsize(chain_arsize),
-        .m_axi_arburst(chain_arburst),
-        .m_axi_arvalid(chain_arvalid),
-        .m_axi_arready(m_axi_arready && axi_ar_sel_chain_r),
-        .m_axi_rdata(m_axi_rdata),
-        .m_axi_rresp(m_axi_rresp),
-        .m_axi_rvalid(m_axi_rvalid && axi_ar_sel_chain_r),
-        .m_axi_rlast(m_axi_rlast),
-        .m_axi_rready(chain_rready),
-
-        .fetch_active_o(chain_fetch_active)
-    );
-
-    // Command mux: chain ctrl drives DMA engine when chain_active, else CSR
-    assign dma_eng_src   = dma_chain_active ? chain_cmd_src   : dma_src;
-    assign dma_eng_dst   = dma_chain_active ? chain_cmd_dst   : dma_dst;
-    assign dma_eng_size  = dma_chain_active ? chain_cmd_size  : dma_size;
-    assign dma_eng_start = dma_chain_active ? chain_cmd_start : dma_start;
-
-    // AXI AR channel mux with registered select (prevents glitches)
-    always_ff @(posedge clk) begin
-        if (!rst_n)
-            axi_ar_sel_chain_r <= 1'b0;
-        else if (chain_fetch_active)
-            axi_ar_sel_chain_r <= 1'b1;
-        else
-            axi_ar_sel_chain_r <= 1'b0;
-    end
-
-    assign m_axi_arid    = axi_ar_sel_chain_r ? {AXI_ID_WIDTH{1'b0}} : dma_arid;
-    assign m_axi_araddr  = axi_ar_sel_chain_r ? chain_araddr  : dma_araddr;
-    assign m_axi_arlen   = axi_ar_sel_chain_r ? chain_arlen   : dma_arlen;
-    assign m_axi_arsize  = axi_ar_sel_chain_r ? chain_arsize  : dma_arsize;
-    assign m_axi_arburst = axi_ar_sel_chain_r ? chain_arburst : dma_arburst;
-    assign m_axi_arvalid = axi_ar_sel_chain_r ? chain_arvalid : dma_arvalid;
-    assign m_axi_rready  = axi_ar_sel_chain_r ? chain_rready  : dma_rready;
 
     // =========================================================================
     // 3. Control Unit

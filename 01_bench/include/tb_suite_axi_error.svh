@@ -35,7 +35,7 @@ task automatic run_suite_AH_axi_error;
         // =================================================================
         $display("[AH02] Error flag clear after normal transfer...");
         // Read the error status from the DMA engine via whitebox
-        rd = tb_top.u_dut.u_dma.error_flag;
+        rd = tb_top.u_dut.u_dma.u_engine.error_flag;
         if (rd == 1'b0) pass("AH02: error_flag clear after OK transfer");
         else fail("AH02: error_flag unexpectedly set", "should be 0 after OKAY");
 
@@ -43,7 +43,7 @@ task automatic run_suite_AH_axi_error;
         // AH03: Verify error_code register is zero
         // =================================================================
         $display("[AH03] Error code zero after normal transfer...");
-        rd = {30'd0, tb_top.u_dut.u_dma.error_code_reg};
+        rd = {30'd0, tb_top.u_dut.u_dma.u_engine.error_code_reg};
         if (rd == 32'd0) pass("AH03: error_code=0 after OK transfer");
         else fail("AH03: error_code non-zero", $sformatf("got 0x%08h", rd));
 
@@ -53,15 +53,15 @@ task automatic run_suite_AH_axi_error;
         $display("[AH04] SLVERR injection test...");
         // Force the bresp_error combinational signal high for 1 cycle
         // This simulates an AXI slave returning SLVERR
-        force tb_top.u_dut.u_dma.bresp_error = 1'b1;
-        force tb_top.u_dut.u_dma.m_axi_bresp = 2'b10;  // SLVERR
+        force tb_top.u_dut.u_dma.u_engine.bresp_error = 1'b1;
+        force tb_top.u_dut.u_dma.u_engine.m_axi_bresp = 2'b10;  // SLVERR
         @(posedge clk);
         @(posedge clk);
-        release tb_top.u_dut.u_dma.bresp_error;
-        release tb_top.u_dut.u_dma.m_axi_bresp;
+        release tb_top.u_dut.u_dma.u_engine.bresp_error;
+        release tb_top.u_dut.u_dma.u_engine.m_axi_bresp;
         @(posedge clk);
 
-        rd = {30'd0, tb_top.u_dut.u_dma.error_code_reg};
+        rd = {30'd0, tb_top.u_dut.u_dma.u_engine.error_code_reg};
         if (rd == 32'd2) pass("AH04: SLVERR captured in error_code_reg");
         else fail("AH04: error_code_reg wrong", $sformatf("expected 2, got %0d", rd));
 
@@ -70,7 +70,7 @@ task automatic run_suite_AH_axi_error;
         // =================================================================
         $display("[AH05] Error flag sticky...");
         @(posedge clk); @(posedge clk); @(posedge clk);
-        rd = tb_top.u_dut.u_dma.error_flag;
+        rd = tb_top.u_dut.u_dma.u_engine.error_flag;
         if (rd == 1'b1) pass("AH05: error_flag sticky after injection");
         else fail("AH05: error_flag not sticky", "should persist");
 
@@ -80,7 +80,7 @@ task automatic run_suite_AH_axi_error;
         $display("[AH06] Error cleared on new DMA start...");
         ram_write(32'h2000, 32'h1234_5678);
         dma_transfer(32'h2000, 32'h10000000, 4, 100);
-        rd = tb_top.u_dut.u_dma.error_flag;
+        rd = tb_top.u_dut.u_dma.u_engine.error_flag;
         if (rd == 1'b0) pass("AH06: error_flag cleared after new transfer");
         else fail("AH06: error_flag not cleared", "cfg_start should clear error");
 
@@ -98,15 +98,15 @@ task automatic run_suite_AH_axi_error;
         // AH08: DECERR injection
         // =================================================================
         $display("[AH08] DECERR injection test...");
-        force tb_top.u_dut.u_dma.bresp_error = 1'b1;
-        force tb_top.u_dut.u_dma.m_axi_bresp = 2'b11;  // DECERR
+        force tb_top.u_dut.u_dma.u_engine.bresp_error = 1'b1;
+        force tb_top.u_dut.u_dma.u_engine.m_axi_bresp = 2'b11;  // DECERR
         @(posedge clk);
         @(posedge clk);
-        release tb_top.u_dut.u_dma.bresp_error;
-        release tb_top.u_dut.u_dma.m_axi_bresp;
+        release tb_top.u_dut.u_dma.u_engine.bresp_error;
+        release tb_top.u_dut.u_dma.u_engine.m_axi_bresp;
         @(posedge clk);
 
-        rd = {30'd0, tb_top.u_dut.u_dma.error_code_reg};
+        rd = {30'd0, tb_top.u_dut.u_dma.u_engine.error_code_reg};
         if (rd == 32'd3) pass("AH08: DECERR captured (code=3)");
         else fail("AH08: error_code_reg wrong", $sformatf("expected 3, got %0d", rd));
 
