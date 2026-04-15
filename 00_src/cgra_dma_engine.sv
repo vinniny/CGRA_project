@@ -687,7 +687,7 @@ module cgra_dma_engine #(
                         local_write_en        <= 1'b1;
                         write_addr            <= write_addr + BYTES_PER_WORD;
                         write_words_remaining <= write_words_remaining - 1'b1;
-                        w_state <= (write_words_remaining == 32'd1) ? W_DONE : W_WAIT;
+                        w_state <= W_WAIT;
                     end
                 end
 

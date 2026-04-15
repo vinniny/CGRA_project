@@ -563,11 +563,11 @@ task automatic test_D05_pipeline_overlap;
             @(posedge clk);
             check_cycles++;
             // Check if both read and write channels are active
-            if ((u_dut.u_dma.r_state != 0) && (u_dut.u_dma.w_state != 0)) begin
+            if ((u_dut.u_dma.u_engine.r_state != 0) && (u_dut.u_dma.u_engine.w_state != 0)) begin
                 overlap_count++;
             end
             // Exit if done (w_state == W_IDLE)
-            if (u_dut.u_dma.w_state == 0) break;
+            if (u_dut.u_dma.u_engine.w_state == 0) break;
         end
         
         if (overlap_count > 5) 
@@ -596,7 +596,7 @@ task automatic test_D06_fifo_isolation;
         wait_cycles(50);
         
         // 4. Check FIFO count - should be partially or fully filled
-        fifo_count_check = {28'd0, u_dut.u_dma.count};
+        fifo_count_check = {28'd0, u_dut.u_dma.u_engine.count};
         $display("      FIFO count after 50 cycles with writer stalled: %0d", fifo_count_check);
         
         // 5. Disable stress and let it finish
@@ -638,21 +638,21 @@ task automatic test_D07_concurrency;
             total_cycles++;
             
             // Check if Read is active
-            if (axi_arvalid || (u_dut.u_dma.r_state != 0 && u_dut.u_dma.r_state != 3))
+            if (axi_arvalid || (u_dut.u_dma.u_engine.r_state != 0 && u_dut.u_dma.u_engine.r_state != 3))
                 cycles_read_active++;
             
             // Check if Write is active
-            if (axi_awvalid || axi_wvalid || (u_dut.u_dma.w_state != 0 && u_dut.u_dma.w_state != 3))
+            if (axi_awvalid || axi_wvalid || (u_dut.u_dma.u_engine.w_state != 0 && u_dut.u_dma.u_engine.w_state != 3))
                 cycles_write_active++;
             
             // Check Overlap
-            if ((axi_arvalid || u_dut.u_dma.m_axi_rready) && 
+            if ((axi_arvalid || u_dut.u_dma.u_engine.m_axi_rready) && 
                 (axi_awvalid || axi_wvalid)) begin
                 cycles_overlap++;
             end
             
             // Exit if done (w_state == W_IDLE)
-            if (u_dut.u_dma.w_state == 0) break;
+            if (u_dut.u_dma.u_engine.w_state == 0) break;
         end
         
         // Data integrity check

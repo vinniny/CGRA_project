@@ -221,8 +221,8 @@ module cgra_protocol_monitor (
     // AXI4 Write Channel: SVA Property Definitions
     // =========================================================================
     // Peek into DUT's internal DMA signals for burst verification (legacy)
-    wire [7:0] mon_write_beat_counter = tb_top.u_dut.u_dma.write_beat_counter;
-    wire [7:0] mon_write_burst_len    = tb_top.u_dut.u_dma.write_burst_len;
+    wire [7:0] mon_write_beat_counter = tb_top.u_dut.u_dma.u_engine.write_beat_counter;
+    wire [7:0] mon_write_burst_len    = tb_top.u_dut.u_dma.u_engine.write_burst_len;
 
     // =========================================================================
     // FIX: Independent WLAST Beat Counter (does NOT use DUT internals)
