@@ -114,8 +114,7 @@ module cgra_dma_engine #(
         R_IDLE  = 3'd0,
         R_ADDR  = 3'd1,
         R_DATA  = 3'd2,
-        R_DONE  = 3'd3,
-        R_DRAIN = 3'd4
+        R_DRAIN = 3'd3
     } read_state_t;
 
     typedef enum logic [2:0] {
@@ -124,9 +123,8 @@ module cgra_dma_engine #(
         W_ADDR  = 3'd2,
         W_DATA  = 3'd3,
         W_RESP  = 3'd4,
-        W_DONE  = 3'd5,
-        W_DRAIN = 3'd6,
-        W_LOCAL = 3'd7
+        W_DRAIN = 3'd5,
+        W_LOCAL = 3'd6
     } write_state_t;
 
     read_state_t  r_state;
@@ -323,7 +321,7 @@ module cgra_dma_engine #(
                                 read_row_words_remaining <= read_row_words_remaining - 1'b1;
                             tile_read_phase <= 1'b0;
                             if (read_words_remaining == 32'd1)
-                                r_state <= R_DONE;
+                                r_state <= R_IDLE;
                         end
                     end else begin
                         m_axi_rready <= !fifo_full;
@@ -334,7 +332,8 @@ module cgra_dma_engine #(
                             if (m_axi_rlast) begin
                                 m_axi_rready <= 1'b0;
                                 if (read_words_remaining == 32'd1) begin
-                                    r_state <= R_DONE;
+                                    m_axi_arvalid <= 1'b0;
+                                    r_state <= R_IDLE;
                                 end else begin
                                     if (read_2d_mode && (read_row_words_remaining == 32'd1)) begin
                                         read_row_base_addr <= read_row_base_addr + read_row_stride;
@@ -350,12 +349,6 @@ module cgra_dma_engine #(
                             end
                         end
                     end
-                end
-
-                R_DONE: begin
-                    m_axi_arvalid <= 1'b0;
-                    m_axi_rready <= 1'b0;
-                    r_state <= R_IDLE;
                 end
 
                 R_DRAIN: begin
@@ -569,7 +562,7 @@ module cgra_dma_engine #(
                         else            local_fifo_pop <= 1'b1;
                         w_state <= dst_is_axi ? W_ADDR : W_LOCAL;
                     end else if (write_words_remaining == '0) begin
-                        w_state <= W_DONE;
+                        w_state <= W_IDLE;
                     end
                 end
 
@@ -628,17 +621,8 @@ module cgra_dma_engine #(
                 W_RESP: begin
                     if (m_axi_bvalid) begin
                         m_axi_bready <= 1'b0;
-                        w_state <= (write_words_remaining == 32'd0) ? W_DONE : W_WAIT;
+                        w_state <= (write_words_remaining == 32'd0) ? W_IDLE : W_WAIT;
                     end
-                end
-
-                W_DONE: begin
-                    m_axi_awvalid <= 1'b0;
-                    m_axi_wvalid <= 1'b0;
-                    m_axi_bready <= 1'b0;
-                    local_write_en <= 1'b0;
-                    local_fifo_pop <= 1'b0;
-                    w_state <= W_IDLE;
                 end
 
                 W_DRAIN: begin
@@ -694,7 +678,7 @@ module cgra_dma_engine #(
                             broadcast_bank_cnt <= 2'd0;
                             write_addr <= write_addr + BYTES_PER_WORD;
                             write_words_remaining <= write_words_remaining - 1'b1;
-                            w_state <= (write_words_remaining == 32'd1) ? W_DONE : W_WAIT;
+                            w_state <= W_WAIT;
                         end else begin
                             broadcast_bank_cnt <= broadcast_bank_cnt + 2'd1;
                         end
