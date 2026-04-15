@@ -55,12 +55,11 @@
 module cgra_pe #(
     parameter DATA_WIDTH  = 32,
     parameter COORD_WIDTH = 4,
-    parameter PAYLOAD_WIDTH = 16,
     parameter ADDR_WIDTH  = 8,
     parameter SPM_DEPTH   = 256,
     parameter RF_DEPTH    = 16,
-    parameter CONTEXT_DEPTH = 16,  // Number of config slots (recipes)
-    parameter PC_WIDTH    = 4      // $clog2(CONTEXT_DEPTH)
+    parameter CONTEXT_DEPTH = 16,
+    parameter PC_WIDTH    = 4
 )(
     input  logic clk,
     input  logic rst_n,
@@ -78,18 +77,13 @@ module cgra_pe #(
     input  logic [63:0]         cfg_wr_data,    // Config to store
     input  logic                cfg_wr_en,      // Write enable
     
-    // Routing inputs (from N/E/S/W neighbors) - Full 32-bit data path
+    // Routing inputs (from N/E/S/W neighbors)
     input  logic [DATA_WIDTH-1:0] data_in_n,
     input  logic [DATA_WIDTH-1:0] data_in_e,
     input  logic [DATA_WIDTH-1:0] data_in_s,
     input  logic [DATA_WIDTH-1:0] data_in_w,
-    /* verilator lint_off UNUSEDSIGNAL */
-    input  logic                  valid_in_n,  // Unused: mesh broadcast mode — data always available (ASSIGN-10)
-    input  logic                  valid_in_e,  // Unused: kept for interface compatibility & future flow-control
-    input  logic                  valid_in_s,  // Unused: tile.sv bypasses router, feeds PE direct from neighbors
-    input  logic                  valid_in_w,  // Unused: tile memory valid comes via edge_valid_in_w instead
-    /* verilator lint_on UNUSEDSIGNAL */
-    
+
+
     // Routing outputs (to N/E/S/W neighbors)
     output logic [DATA_WIDTH-1:0] data_out_n,
     output logic [DATA_WIDTH-1:0] data_out_e,
@@ -133,9 +127,6 @@ module cgra_pe #(
     logic                  branch_en;
     // B1: Mixed-precision mode
     logic [1:0]            data_mode;  // 00=INT32, 01=INT16x2, 10=INT8x4
-
-    localparam int HEADER_WIDTH  = DATA_WIDTH - PAYLOAD_WIDTH;
-    localparam int RESERVED_WIDTH = HEADER_WIDTH - (1 + (2 * COORD_WIDTH));
 
     // =========================================================================
     // Config RAM (The "Recipe Book" - 16 config slots using BSG Memory)
@@ -273,49 +264,30 @@ module cgra_pe #(
         rf_rdata1 = rf_mem[rf_raddr1];
     end
     
-    // =========================================================================
-    // Operand Multiplexing (payload extracted from packets)
-    // =========================================================================
+    // Operand multiplexing
     logic [DATA_WIDTH-1:0] operand0;
     logic [DATA_WIDTH-1:0] operand1;
-    
-    // =========================================================================
-    // FULL 32-BIT DATA PATH (FIX: Removed 16-bit payload bottleneck)
-    // =========================================================================
-    // Previously extracted only PAYLOAD_WIDTH (16) bits and sign-extended.
-    // Now using full DATA_WIDTH (32) for proper data flow between PEs.
-    logic [DATA_WIDTH-1:0] data_in_n_full;
-    logic [DATA_WIDTH-1:0] data_in_e_full;
-    logic [DATA_WIDTH-1:0] data_in_s_full;
-    logic [DATA_WIDTH-1:0] data_in_w_full;
 
-    assign data_in_n_full = data_in_n;  // Full 32-bit passthrough
-    assign data_in_e_full = data_in_e;
-    assign data_in_s_full = data_in_s;
-    assign data_in_w_full = data_in_w;
-    
     always_comb begin
-        // src0 selection (now uses full 32-bit data)
         unique case (src0_sel)
             4'd0:    operand0 = rf_rdata0;
-            4'd1:    operand0 = data_in_n_full;   // Full 32-bit from North
-            4'd2:    operand0 = data_in_e_full;   // Full 32-bit from East
-            4'd3:    operand0 = data_in_s_full;   // Full 32-bit from South
-            4'd4:    operand0 = data_in_w_full;   // Full 32-bit from West
+            4'd1:    operand0 = data_in_n;
+            4'd2:    operand0 = data_in_e;
+            4'd3:    operand0 = data_in_s;
+            4'd4:    operand0 = data_in_w;
             4'd5:    operand0 = spm_rdata;
-            4'd6:    operand0 = {{16{immediate[15]}}, immediate};  // FIX: Sign-extend 16-bit to 32-bit
+            4'd6:    operand0 = {{16{immediate[15]}}, immediate};
             default: operand0 = '0;
         endcase
-        
-        // src1 selection (now uses full 32-bit data)
+
         unique case (src1_sel)
             4'd0:    operand1 = rf_rdata1;
-            4'd1:    operand1 = data_in_n_full;   // Full 32-bit from North
-            4'd2:    operand1 = data_in_e_full;   // Full 32-bit from East
-            4'd3:    operand1 = data_in_s_full;   // Full 32-bit from South
-            4'd4:    operand1 = data_in_w_full;   // Full 32-bit from West
+            4'd1:    operand1 = data_in_n;
+            4'd2:    operand1 = data_in_e;
+            4'd3:    operand1 = data_in_s;
+            4'd4:    operand1 = data_in_w;
             4'd5:    operand1 = spm_rdata;
-            4'd6:    operand1 = {{16{immediate[15]}}, immediate};  // FIX: Sign-extend 16-bit to 32-bit
+            4'd6:    operand1 = {{16{immediate[15]}}, immediate};
             default: operand1 = '0;
         endcase
     end

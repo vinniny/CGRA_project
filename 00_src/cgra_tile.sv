@@ -150,7 +150,6 @@ module cgra_tile #(
     cgra_pe #(
         .DATA_WIDTH(DATA_WIDTH),
         .COORD_WIDTH(COORD_WIDTH),
-        .PAYLOAD_WIDTH(PAYLOAD_WIDTH),
         .ADDR_WIDTH(ADDR_WIDTH),
         .SPM_DEPTH(SPM_DEPTH),
         .RF_DEPTH(RF_DEPTH),
@@ -161,33 +160,26 @@ module cgra_tile #(
         .rst_n(rst_n),
         .config_frame(config_frame),
         .config_valid(config_valid),
-        
-        // Multi-context
+
         .context_pc(context_pc),
         .global_stall(global_stall),
-        
-        // Config write
+
         .cfg_wr_addr(cfg_wr_addr),
         .cfg_wr_data(cfg_wr_data),
         .cfg_wr_en(cfg_wr_en),
 
-        .data_in_n(data_in_n),          // FIX 1: Direct from tile port (not router)
-        .data_in_e(data_in_e),          // FIX 1: Direct from tile port
-        .data_in_s(data_in_s),          // FIX 1: Direct from tile port  
-        .data_in_w(data_in_w),          // FIX 1: Direct from tile port (Tile Memory path!)
-        .valid_in_n(valid_in_n),        // FIX 1: Direct valid
-        .valid_in_e(valid_in_e),        // FIX 1: Direct valid
-        .valid_in_s(valid_in_s),        // FIX 1: Direct valid
-        .valid_in_w(valid_in_w),        // FIX 1: Direct valid (Tile Memory!)
+        .data_in_n(data_in_n),
+        .data_in_e(data_in_e),
+        .data_in_s(data_in_s),
+        .data_in_w(data_in_w),
 
-        // FIX #4: Capture PE directional outputs (all carry same result)
-        .data_out_n(pe_result),         // Capture result
+        // PE broadcasts same data on all 4 directional outputs; capture one.
+        .data_out_n(pe_result),
         /* verilator lint_off PINCONNECTEMPTY */
-        .data_out_e(),                  // Intentional: PE broadcasts same data_out_n
-        .data_out_s(),                  // Intentional: PE broadcasts same data_out_n
-        .data_out_w(),                  // Intentional: PE broadcasts same data_out_n
+        .data_out_e(),
+        .data_out_s(),
+        .data_out_w(),
         /* verilator lint_on PINCONNECTEMPTY */
-        // FIX: Capture all 4 PE valid outputs (not just N) so any route direction works
         .valid_out_n(pe_valid_n),
         .valid_out_e(pe_valid_e),
         .valid_out_s(pe_valid_s),
