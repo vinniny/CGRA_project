@@ -10,6 +10,18 @@
 file mkdir reports
 
 # ------------------------------------------------------------------------------
+# Suppress known-good warnings that would drown out real issues
+# CDFG-818 : "Using default parameter value" — expected for every parameterized module
+# CDFG-368 : "Modeled as wire instead of flip-flop" — Genus 20.09 false positive for
+#             always_ff registers that have combinational feedback (config_high_loaded,
+#             auto_stop_armed, etc.)  The registers ARE inferred; this is a tool quirk.
+# CDFG-472 : "Unreachable default case" in cgra_tile_memory — by-design X-protection
+# ------------------------------------------------------------------------------
+suppress_message CDFG-818
+suppress_message CDFG-368
+suppress_message CDFG-472
+
+# ------------------------------------------------------------------------------
 # Read RTL — no PDK library needed for check_design
 # ------------------------------------------------------------------------------
 puts "=========================================================================="
@@ -72,8 +84,12 @@ check_design -unresolved > reports/check_design.rpt
 puts "=========================================================================="
 puts " \[HAL\] Design Status Summary"
 puts "=========================================================================="
+# Count actionable issues (errors only — warnings already filtered above)
+set rpt_lines [exec grep -c "^Error" reports/check_design.rpt 2>/dev/null || echo 0]
+set rpt_lines [string trim $rpt_lines]
 puts ""
-puts "\[HAL\] Full report: reports/check_design.rpt"
-puts "\[HAL\] Genus log:   02_log/hal.log"
+puts "\[HAL\] Full report : reports/check_design.rpt"
+puts "\[HAL\] Genus log   : 02_log/hal.log"
+puts "\[HAL\] Errors in report: $rpt_lines"
 
 exit 0

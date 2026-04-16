@@ -42,10 +42,18 @@ read_verilog -sv {
     00_src/cgra_top.sv
 }
 
+# ── Suppress known-good structural warnings ───────────────────────────────────
+# Synth 8-7129 : "Port is unconnected or has no load"
+#   88 instances, all by-design:
+#   - APB paddr[25:10]: CGRA only decodes bits [7:2]; upper address lines unused
+#   - loop_start/end_pc_i[15:4]: CU only uses PC_WIDTH=4 lower bits; upper tied to 0
+#   - m_axi_rid/bid[3:0]: AXI response IDs not checked (single-master design)
+#   - m_axi_rresp[1:0]: DECERR/SLVERR detection done in DMA engine; rresp OK path only
+set_msg_config -id {Synth 8-7129} -new_severity INFO
+
 # ── RTL elaboration (no mapping, no P&R) ──────────────────────────────────────
-# -rtl          : elaboration only, no technology mapping
-# -no_iobuf     : don't insert IOBUFs (top-level ports aren't board pads here)
-# -keep_equivalent_registers : don't optimize away registers during RTL check
+# -rtl         : elaboration only, no technology mapping
+# -no_iobuf    : don't insert IOBUFs (top-level ports aren't board pads here)
 synth_design \
     -top cgra_top \
     -part $part \

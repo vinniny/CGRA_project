@@ -127,7 +127,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
         syn restore_syn lec full create_flist lint check_tools gui \
-        cov cov_gui cov_report hal xprop vivado_lint \
+        cov cov_gui cov_report hal xprop vivado_lint lint_static lint_all \
         hw_server_start hw_server_stop hw_server_check \
         program fpga_status run_elf reg_read reg_write reg_dump \
         pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
@@ -162,9 +162,12 @@ help:
 	@echo "   make cov_gui      - Open SimVision with coverage database"
 	@echo ""
 	@echo " Static Analysis & X-Prop Targets:"
-	@echo "   make hal          - Genus check_design: synthesizability + latches"
+	@echo "   make lint         - Xcelium compile-time lint (fast)"
+	@echo "   make hal          - Genus check_design: synthesizability, latches (VM)"
 	@echo "   make vivado_lint  - Vivado synth_design -rtl: latches, widths, CDC"
 	@echo "   make xprop        - Simulate with X-Propagation (ternary mode)"
+	@echo "   make lint_static  - lint + hal + vivado_lint (no simulation)"
+	@echo "   make lint_all     - lint_static + xprop (full suite)"
 	@echo "   XPROP=1           - Enable X-prop on existing build/run targets"
 	@echo ""
 	@echo " Synthesis & Formal Targets:"
@@ -461,7 +464,7 @@ vivado_lint:
 	@echo " [VIVADO LINT] RTL elaboration lint (synth_design -rtl)"
 	@echo "=========================================================================="
 	@mkdir -p $(LOG_DIR)
-	$(VIVADO) -mode batch \
+	cd $(CURDIR) && $(VIVADO) -mode batch \
 		-source $(SCRIPT_DIR)/vivado_lint.tcl \
 		-log $(LOG_DIR)/vivado_lint.log \
 		-nojournal
@@ -469,9 +472,30 @@ vivado_lint:
 	@echo "  Log      : $(LOG_DIR)/vivado_lint.log"
 	@echo "  DRC      : $(LOG_DIR)/vivado_lint_drc.rpt"
 	@echo "  Method   : $(LOG_DIR)/vivado_lint_methodology.rpt"
-	@echo "--- Error/Warning summary ---"
+	@echo "--- Error/Warning summary (Synth 8-7129 suppressed — by-design) ---"
 	@grep -E "^(ERROR|WARNING|CRITICAL)" $(LOG_DIR)/vivado_lint.log \
+		| grep -v "Synth 8-7129" \
 		| sort | uniq -c | sort -rn | head -40 || true
+
+# ------------------------------------------------------------------------------
+# Combined lint targets
+# lint_static : fast static checks — no simulation required (lint + hal + vivado_lint)
+# lint_all    : full suite including X-propagation simulation
+# Note: hal requires Genus (Cadence VM); vivado_lint requires Vivado (local)
+# ------------------------------------------------------------------------------
+lint_static: lint hal vivado_lint
+	@echo "=========================================================================="
+	@echo " [LINT_STATIC] All static lint checks complete"
+	@echo "   Xcelium compile  : $(LOG_DIR)/lint.log"
+	@echo "   Genus HAL        : $(LOG_DIR)/hal.log  +  $(SYN_DIR)/reports/check_design.rpt"
+	@echo "   Vivado RTL       : $(LOG_DIR)/vivado_lint.log  +  $(LOG_DIR)/vivado_lint_drc.rpt"
+	@echo "=========================================================================="
+
+lint_all: lint_static xprop
+	@echo "=========================================================================="
+	@echo " [LINT_ALL] Full lint suite complete (static + X-propagation)"
+	@echo "   X-prop sim       : $(LOG_DIR)/xprop.log"
+	@echo "=========================================================================="
 
 # ------------------------------------------------------------------------------
 # X-Propagation: elaborate with -xprop c and run full regression
