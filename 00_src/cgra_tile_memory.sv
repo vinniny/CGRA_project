@@ -64,7 +64,8 @@ module cgra_tile_memory #(
     generate
         for (b = 0; b < NUM_BANKS; b++) begin : g_bank
             logic read_reg;
-            wire  ext_hits = (ext_bank_sel == b[1:0]);
+            logic ext_hits;
+            assign ext_hits = (ext_bank_sel == b[1:0]);
 
             always_ff @(posedge clk) begin
                 if (!rst_n) begin

@@ -120,13 +120,16 @@ module cgra_dma_subsystem #(
     logic        engine_done;
 
     // Muxed command to engine (chain owns while chain_active)
-    wire [31:0] eng_cfg_src   = chain_active ? chain_cmd_src   : cfg_src;
-    wire [31:0] eng_cfg_dst   = chain_active ? chain_cmd_dst   : cfg_dst;
-    wire [31:0] eng_cfg_size  = chain_active ? chain_cmd_size  : cfg_size;
-    wire        eng_cfg_start = chain_active ? chain_cmd_start : cfg_start;
+    logic [31:0] eng_cfg_src, eng_cfg_dst, eng_cfg_size;
+    logic        eng_cfg_start;
+    assign eng_cfg_src   = chain_active ? chain_cmd_src   : cfg_src;
+    assign eng_cfg_dst   = chain_active ? chain_cmd_dst   : cfg_dst;
+    assign eng_cfg_size  = chain_active ? chain_cmd_size  : cfg_size;
+    assign eng_cfg_start = chain_active ? chain_cmd_start : cfg_start;
 
     // AR/R channel mux (combinational; fetch_active is from a registered FSM).
-    wire ar_sel_chain = chain_fetch_active;
+    logic ar_sel_chain;
+    assign ar_sel_chain = chain_fetch_active;
 
     assign m_axi_arid    = ar_sel_chain ? {AXI_ID_WIDTH{1'b0}} : eng_arid;
     assign m_axi_araddr  = ar_sel_chain ? chain_araddr   : eng_araddr;

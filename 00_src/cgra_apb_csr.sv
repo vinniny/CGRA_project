@@ -181,10 +181,14 @@ module cgra_apb_csr #(
     assign pslverr = 1'b0;
 
     // APB write decode helpers
-    wire apb_write = psel && penable && pwrite;
-    wire apb_w_irq_status = apb_write && (paddr[7:0] == ADDR_IRQ_STATUS);
-    wire apb_w_dma_ctrl   = apb_write && (paddr[7:0] == ADDR_DMA_CTRL);
-    wire apb_w_cu_ctrl    = apb_write && (paddr[7:0] == ADDR_CU_CTRL);
+    logic apb_write;
+    logic apb_w_irq_status;
+    logic apb_w_dma_ctrl;
+    logic apb_w_cu_ctrl;
+    assign apb_write        = psel && penable && pwrite;
+    assign apb_w_irq_status = apb_write && (paddr[7:0] == ADDR_IRQ_STATUS);
+    assign apb_w_dma_ctrl   = apb_write && (paddr[7:0] == ADDR_DMA_CTRL);
+    assign apb_w_cu_ctrl    = apb_write && (paddr[7:0] == ADDR_CU_CTRL);
 
     // Sticky done/error latches. Start-write clears done; engine pulse sets it;
     // software W1C via IRQ_STATUS clears. Engine sets win over W1C clears.
@@ -236,9 +240,12 @@ module cgra_apb_csr #(
 
     // Config writes are rejected while the relevant engine is busy to prevent
     // mid-transaction corruption.
-    wire dma_wr_ok  = !dma_busy_i;
-    wire cu_wr_ok   = !cu_busy_i;
-    wire tile_wr_ok = !dma_busy_i && !cu_busy_i;
+    logic dma_wr_ok;
+    logic cu_wr_ok;
+    logic tile_wr_ok;
+    assign dma_wr_ok  = !dma_busy_i;
+    assign cu_wr_ok   = !cu_busy_i;
+    assign tile_wr_ok = !dma_busy_i && !cu_busy_i;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin

@@ -95,8 +95,10 @@ module cgra_dma_engine #(
     logic [FIFO_ADDR_BITS-1:0] w_ptr, r_ptr;
     logic [FIFO_ADDR_BITS:0] count;
 
-    wire fifo_full  = (count == FIFO_DEPTH);
-    wire fifo_empty = (count == '0);
+    logic fifo_full;
+    logic fifo_empty;
+    assign fifo_full  = (count == FIFO_DEPTH);
+    assign fifo_empty = (count == '0);
 
     // Latched destination/source routing (captured on cfg_start)
     logic dst_is_axi;
@@ -129,12 +131,14 @@ module cgra_dma_engine #(
     read_state_t  r_state;
     write_state_t w_state;
 
-    wire fifo_pop_axi   = (axi_fifo_pop && dst_is_axi && !fifo_empty);
-    wire fifo_pop_local = (local_fifo_pop && !dst_is_axi && !fifo_empty);
-    wire fifo_pop       = fifo_pop_axi || fifo_pop_local;
-    wire fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
-    wire fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
-    wire fifo_push      = fifo_push_axi || fifo_push_tile;
+    logic fifo_pop_axi, fifo_pop_local, fifo_pop;
+    logic fifo_push_axi, fifo_push_tile, fifo_push;
+    assign fifo_pop_axi   = axi_fifo_pop && dst_is_axi && !fifo_empty;
+    assign fifo_pop_local = local_fifo_pop && !dst_is_axi && !fifo_empty;
+    assign fifo_pop       = fifo_pop_axi || fifo_pop_local;
+    assign fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
+    assign fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
+    assign fifo_push      = fifo_push_axi || fifo_push_tile;
 
     logic [DATA_WIDTH-1:0] fifo_rdata;
     assign fifo_rdata = fifo_mem[r_ptr];
@@ -193,9 +197,12 @@ module cgra_dma_engine #(
     assign m_axi_arsize  = 3'b010;
     assign m_axi_arburst = 2'b01;
 
-    wire        cfg_2d_mode         = (cfg_rows != '0);
-    wire [31:0] cfg_cols_words      = (cfg_cols + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
-    wire [31:0] cfg_transfer_words  = cfg_2d_mode
+    logic        cfg_2d_mode;
+    logic [31:0] cfg_cols_words;
+    logic [31:0] cfg_transfer_words;
+    assign cfg_2d_mode        = (cfg_rows != '0);
+    assign cfg_cols_words     = (cfg_cols + BYTES_PER_WORD - 1) / BYTES_PER_WORD;
+    assign cfg_transfer_words = cfg_2d_mode
                                       ? (cfg_rows * cfg_cols_words)
                                       : ((cfg_size + BYTES_PER_WORD - 1) / BYTES_PER_WORD);
 
@@ -213,11 +220,12 @@ module cgra_dma_engine #(
     endfunction
 
     // Read burst size: FIFO-capped, row-capped (2D mode), then 4KB-clamped
-    wire [31:0] len_limit_fifo   = (read_words_remaining > MAX_BURST_WORDS)
-                                   ? MAX_BURST_WORDS : read_words_remaining;
-    wire [31:0] len_limit_row    = (read_2d_mode && (read_row_words_remaining < len_limit_fifo))
-                                   ? read_row_words_remaining : len_limit_fifo;
-    wire [31:0] words_this_burst = clamp_to_4kb(len_limit_row, read_addr[11:0]);
+    logic [31:0] len_limit_fifo, len_limit_row, words_this_burst;
+    assign len_limit_fifo   = (read_words_remaining > MAX_BURST_WORDS)
+                              ? MAX_BURST_WORDS : read_words_remaining;
+    assign len_limit_row    = (read_2d_mode && (read_row_words_remaining < len_limit_fifo))
+                              ? read_row_words_remaining : len_limit_fifo;
+    assign words_this_burst = clamp_to_4kb(len_limit_row, read_addr[11:0]);
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -369,9 +377,10 @@ module cgra_dma_engine #(
     assign m_axi_wstrb   = {(DATA_WIDTH/8){1'b1}};
 
     // Write burst size: FIFO-capped then 4KB-clamped (no row limit on write path)
-    wire [31:0] len_limit_w = (write_words_remaining > MAX_BURST_WORDS)
-                               ? MAX_BURST_WORDS : write_words_remaining;
-    wire [31:0] words_this_write_burst = clamp_to_4kb(len_limit_w, write_addr[11:0]);
+    logic [31:0] len_limit_w, words_this_write_burst;
+    assign len_limit_w           = (write_words_remaining > MAX_BURST_WORDS)
+                                   ? MAX_BURST_WORDS : write_words_remaining;
+    assign words_this_write_burst = clamp_to_4kb(len_limit_w, write_addr[11:0]);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -627,8 +636,9 @@ module cgra_dma_engine #(
     end
 
     // Tile / config output assignments (routed by dst_is_tile / dst_is_config)
-    wire tile_rd_en = src_is_tile && (r_state == R_DATA) && !tile_read_phase
-                      && !fifo_full && (read_words_remaining != '0);
+    logic tile_rd_en;
+    assign tile_rd_en = src_is_tile && (r_state == R_DATA) && !tile_read_phase
+                        && !fifo_full && (read_words_remaining != '0);
 
     assign tile_addr_o     = src_is_tile ? read_addr[11:0]   : local_write_addr[11:0];
     assign tile_bank_sel_o = src_is_tile ? read_addr[13:12]  : local_write_addr[13:12];
@@ -653,9 +663,10 @@ module cgra_dma_engine #(
     assign error_valid = error_flag;
     assign status_busy = busy;
 
-    wire bresp_error = m_axi_bvalid && m_axi_bready && (m_axi_bresp != 2'b00);
-    wire rresp_error = m_axi_rvalid && m_axi_rready && (m_axi_rresp != 2'b00);
-    wire engine_idle = (r_state == R_IDLE) && (w_state == W_IDLE) && fifo_empty;
+    logic bresp_error, rresp_error, engine_idle;
+    assign bresp_error = m_axi_bvalid && m_axi_bready && (m_axi_bresp != 2'b00);
+    assign rresp_error = m_axi_rvalid && m_axi_rready && (m_axi_rresp != 2'b00);
+    assign engine_idle = (r_state == R_IDLE) && (w_state == W_IDLE) && fifo_empty;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin

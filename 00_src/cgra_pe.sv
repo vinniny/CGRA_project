@@ -153,8 +153,10 @@ module cgra_pe #(
     logic [3:0]            rf_waddr;
     logic [DATA_WIDTH-1:0] rf_wdata;
     logic                  rf_we;
-    wire  [DATA_WIDTH-1:0] rf_rdata0 = rf_mem[src0_sel];
-    wire  [DATA_WIDTH-1:0] rf_rdata1 = rf_mem[src1_sel];
+    logic [DATA_WIDTH-1:0] rf_rdata0;
+    logic [DATA_WIDTH-1:0] rf_rdata1;
+    assign rf_rdata0 = rf_mem[src0_sel];
+    assign rf_rdata1 = rf_mem[src1_sel];
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -292,20 +294,17 @@ module cgra_pe #(
     logic signed [31:0]    simd_dot_product;
 
     // INT8 lane extraction (signed)
-    wire signed [7:0] op0_b3 = operand0_r[31:24];
-    wire signed [7:0] op0_b2 = operand0_r[23:16];
-    wire signed [7:0] op0_b1 = operand0_r[15:8];
-    wire signed [7:0] op0_b0 = operand0_r[7:0];
-    wire signed [7:0] op1_b3 = operand1_r[31:24];
-    wire signed [7:0] op1_b2 = operand1_r[23:16];
-    wire signed [7:0] op1_b1 = operand1_r[15:8];
-    wire signed [7:0] op1_b0 = operand1_r[7:0];
+    logic signed [7:0] op0_b3, op0_b2, op0_b1, op0_b0;
+    logic signed [7:0] op1_b3, op1_b2, op1_b1, op1_b0;
+    assign op0_b3 = operand0_r[31:24]; assign op0_b2 = operand0_r[23:16];
+    assign op0_b1 = operand0_r[15:8];  assign op0_b0 = operand0_r[7:0];
+    assign op1_b3 = operand1_r[31:24]; assign op1_b2 = operand1_r[23:16];
+    assign op1_b1 = operand1_r[15:8];  assign op1_b0 = operand1_r[7:0];
 
     // INT16 lane extraction (signed)
-    wire signed [15:0] op0_h1 = operand0_r[31:16];
-    wire signed [15:0] op0_h0 = operand0_r[15:0];
-    wire signed [15:0] op1_h1 = operand1_r[31:16];
-    wire signed [15:0] op1_h0 = operand1_r[15:0];
+    logic signed [15:0] op0_h1, op0_h0, op1_h1, op1_h0;
+    assign op0_h1 = operand0_r[31:16]; assign op0_h0 = operand0_r[15:0];
+    assign op1_h1 = operand1_r[31:16]; assign op1_h0 = operand1_r[15:0];
 
     // SIMD dot-product (reads _r operands)
     always_comb begin
@@ -602,7 +601,8 @@ module cgra_pe #(
 
     // Output broadcast: single data bus, per-direction valid via route_mask
     // (bit[3]=N, bit[2]=E, bit[1]=S, bit[0]=W).
-    wire output_valid = config_active_r2 && execute_enable_r2 && !stall;
+    logic output_valid;
+    assign output_valid = config_active_r2 && execute_enable_r2 && !stall;
 
     assign data_out     = alu_result;
     assign valid_out_n  = output_valid && route_mask_r2[3];

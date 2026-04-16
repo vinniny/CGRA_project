@@ -682,13 +682,14 @@ module cgra_top #(
     // during CU execution. ARM pops via APB reads at 0x58-0x64.
 
     // Push valid: PE output is valid when CU is running and not stalled
-    wire result_push_valid = pe_enable && !global_stall && !cu_soft_reset
-                           && cu_busy;  // cu_busy is high during STATE_RUN
+    logic result_push_valid;
+    assign result_push_valid = pe_enable && !global_stall && !cu_soft_reset
+                               && cu_busy;  // cu_busy is high during STATE_RUN
 
     // FIFO clear: on CU start or soft-reset
     assign result_fifo_clear = cu_start || cu_soft_reset;
 
-    wire [DATA_WIDTH-1:0] result_push_data [0:3];
+    logic [DATA_WIDTH-1:0] result_push_data [0:3];
     assign result_push_data = edge_out_e;
 
     cgra_result_fifo #(
@@ -722,7 +723,8 @@ module cgra_top #(
     // then writes to 0x44 to advance. This ensures all 4 rows see the same
     // pre-fetched data before the pop advances to the next entry.
     // (Note: writing to 0x44 also handles W1C for overflow/underflow bits.)
-    wire result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
+    logic result_fifo_pop_trigger;
+    assign result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
     assign result_fifo_pop_read = result_fifo_pop_trigger;
 
     always_comb begin

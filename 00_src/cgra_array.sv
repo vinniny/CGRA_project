@@ -104,17 +104,21 @@ module cgra_array #(
                 // ── Determine input signals for each direction ──
 
                 // North input: from tile(y-1,x) south output, or edge input
-                wire [DATA_WIDTH-1:0] in_n_data = (y == 0) ? edge_data_in_n[x]
-                                                            : tile_out_s_data[y-1][x];
+                logic [DATA_WIDTH-1:0] in_n_data;
+                assign in_n_data = (y == 0) ? edge_data_in_n[x]
+                                            : tile_out_s_data[y-1][x];
                 // South input: from tile(y+1,x) north output, or edge input
-                wire [DATA_WIDTH-1:0] in_s_data = (y == ROWS-1) ? edge_data_in_s[x]
-                                                                 : tile_out_n_data[y+1][x];
+                logic [DATA_WIDTH-1:0] in_s_data;
+                assign in_s_data = (y == ROWS-1) ? edge_data_in_s[x]
+                                                 : tile_out_n_data[y+1][x];
                 // West input: from tile(y,x-1) east output, or edge input
-                wire [DATA_WIDTH-1:0] in_w_data = (x == 0) ? edge_data_in_w[y]
-                                                             : tile_out_e_data[y][x-1];
+                logic [DATA_WIDTH-1:0] in_w_data;
+                assign in_w_data = (x == 0) ? edge_data_in_w[y]
+                                             : tile_out_e_data[y][x-1];
                 // East input: from tile(y,x+1) west output, or edge input
-                wire [DATA_WIDTH-1:0] in_e_data = (x == COLS-1) ? edge_data_in_e[y]
-                                                                 : tile_out_w_data[y][x+1];
+                logic [DATA_WIDTH-1:0] in_e_data;
+                assign in_e_data = (x == COLS-1) ? edge_data_in_e[y]
+                                                 : tile_out_w_data[y][x+1];
 
                 cgra_tile #(
                     .DATA_WIDTH    (DATA_WIDTH),
