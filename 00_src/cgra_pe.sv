@@ -61,9 +61,6 @@ module cgra_pe #(
     logic        pred_inv;
     logic [15:0] immediate;
     logic [23:0] extended;
-    logic [COORD_WIDTH-1:0] cfg_dest_x;
-    logic [COORD_WIDTH-1:0] cfg_dest_y;
-    logic                   cfg_multicast;
     // B4: Dynamic branching
     logic [PC_WIDTH-1:0]   branch_target;
     logic                  branch_en;
@@ -124,9 +121,6 @@ module cgra_pe #(
         pred_inv   = active_config[23];
         immediate  = active_config[39:24];
         extended   = active_config[63:40];
-        cfg_dest_x = extended[COORD_WIDTH-1:0];
-        cfg_dest_y = extended[(2 * COORD_WIDTH)-1:COORD_WIDTH];
-        cfg_multicast = extended[2 * COORD_WIDTH];
         // B4: Branch target from config frame bits [47:44] = extended[7:4]
         branch_target = extended[PC_WIDTH+3:4];
         branch_en = extended[PC_WIDTH+4];  // bit [48] = extended[8]: enable branch
@@ -156,40 +150,19 @@ module cgra_pe #(
     
     // Register file (16×32b flip-flops)
     logic [DATA_WIDTH-1:0] rf_mem [0:RF_DEPTH-1];
-    logic [3:0]            rf_raddr0;
-    logic [3:0]            rf_raddr1;
     logic [3:0]            rf_waddr;
-    logic [DATA_WIDTH-1:0] rf_rdata0;
-    logic [DATA_WIDTH-1:0] rf_rdata1;
     logic [DATA_WIDTH-1:0] rf_wdata;
     logic                  rf_we;
+    wire  [DATA_WIDTH-1:0] rf_rdata0 = rf_mem[src0_sel];
+    wire  [DATA_WIDTH-1:0] rf_rdata1 = rf_mem[src1_sel];
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            rf_mem[0] <= '0;
-            rf_mem[1] <= '0;
-            rf_mem[2] <= '0;
-            rf_mem[3] <= '0;
-            rf_mem[4] <= '0;
-            rf_mem[5] <= '0;
-            rf_mem[6] <= '0;
-            rf_mem[7] <= '0;
-            rf_mem[8] <= '0;
-            rf_mem[9] <= '0;
-            rf_mem[10] <= '0;
-            rf_mem[11] <= '0;
-            rf_mem[12] <= '0;
-            rf_mem[13] <= '0;
-            rf_mem[14] <= '0;
-            rf_mem[15] <= '0;
+            for (int i = 0; i < RF_DEPTH; i++)
+                rf_mem[i] <= '0;
         end else if (rf_we && !stall) begin
             rf_mem[rf_waddr] <= rf_wdata;
         end
-    end
-    
-    always_comb begin
-        rf_rdata0 = rf_mem[rf_raddr0];
-        rf_rdata1 = rf_mem[rf_raddr1];
     end
     
     // Operand multiplexing
@@ -630,12 +603,6 @@ module cgra_pe #(
                 default: rf_we = 1'b0;
             endcase
         end
-    end
-
-    // Set RF read addresses
-    always_comb begin
-        rf_raddr0 = src0_sel;
-        rf_raddr1 = src1_sel;
     end
 
     // Output broadcast: single data bus, per-direction valid via route_mask
