@@ -218,10 +218,6 @@ module cgra_top #(
     logic [31:0] row_data [0:3];
     logic        row_valid [0:3];
 
-    // Pipeline register: align tile data with config_frame_reg (both 1-cycle delayed)
-    logic [31:0] row_data_reg [0:3];
-    logic        row_valid_reg [0:3];
-    
     // =========================================================================
     // Internal Wires: DMA → Config Bus (Recipe Book)
     // =========================================================================
@@ -278,17 +274,6 @@ module cgra_top #(
         .out_we     (cfg_wr_en_mux)
     );
 
-    // Tile data alignment: Both tile SRAM and PE config BRAM have 1-cycle
-    // read latency. Tile prefetch uses next_context_pc to compensate.
-    // No extra pipeline register needed — row_data and config_ram_data
-    // are naturally aligned (both 1 cycle from address to output).
-    always_comb begin
-        for (int i = 0; i < 4; i++) begin
-            row_data_reg[i]  = row_data[i];
-            row_valid_reg[i] = row_valid[i];
-        end
-    end
-
     // =========================================================================
     // Internal Wires: Control Unit → Flow Control
     // =========================================================================
@@ -303,7 +288,6 @@ module cgra_top #(
     // Capture computation result from last PE (PE 3,3 = tile 15)
     // Using East edge output as it's typically the final output direction
     logic [31:0] global_result;
-    logic        result_valid;
 
     // Config Write Logic: Populate config_frames when DMA commits
     // Slot-0 broadcast: writing to slot 0 fills ALL 16 context slots of the PE.
@@ -316,22 +300,9 @@ module cgra_top #(
     // The old config_frames[16][16] register array has been removed (A2).
     // Broadcast (slot-0) is handled by the broadcast FSM above.
 
-    // =========================================================================
-    // TEMPORARY: Placeholder assignment for config PE selection
-    // =========================================================================
-    // Address layout within 2048-byte config block:
-    //   [2]    = HI/LO (0=HI latch, 1=LO commit)
-    //   [6:3]  = context slot (0-15, stride 8 bytes)
-    //   [10:7] = PE select (0-15, stride 128 bytes)
+    // Config address within 2048-byte block: [2]=HI/LO, [6:3]=slot, [10:7]=PE
     assign dma_cfg_pe_sel = dma_cfg_addr[10:7];
-    
-    // =========================================================================
-    // TEMPORARY: Hardware Loop Configuration - NOW WIRED FROM CSR
-    // =========================================================================
-    // Hardware loop parameters are programmable via APB CSR registers:
-    //   0x48 = LOOP_START, 0x4C = LOOP_END, 0x50 = LOOP_COUNT
-    // Default values (no looping): start=0, end=15, count=0
-        
+
     // =========================================================================
     // 1. APB CSR Module
     // =========================================================================
@@ -525,9 +496,6 @@ module cgra_top #(
     // Tile memory: 4 banks × 4096 words, DMA writes ext_*, array reads bank*_rdata.
     // Pre-fetch with next_context_pc so the sync-read registered data arrives
     // aligned with the PE executing at that PC (also handles loop back-jumps).
-    logic [3:0] tile_prefetch_pc;
-    assign tile_prefetch_pc = next_context_pc;
-
     cgra_tile_memory #(
         .DATA_WIDTH(DATA_WIDTH),
         .ADDR_WIDTH(12),
@@ -543,8 +511,8 @@ module cgra_top #(
 
         // Bank addresses: auto-inc concatenates {offset[6:0], pc[3:0]};
         // legacy mode uses only the low 4 bits (16-word stream).
-        .bank0_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
-                                     : {8'd0, tile_prefetch_pc}),
+        .bank0_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
+                                     : {8'd0, next_context_pc}),
         .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
         .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
@@ -552,8 +520,8 @@ module cgra_top #(
         .bank0_valid(row_valid[0]),
 
         // Bank 1 (Row 1) - Read port to array
-        .bank1_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
-                                     : {8'd0, tile_prefetch_pc}),
+        .bank1_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
+                                     : {8'd0, next_context_pc}),
         .bank1_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
@@ -561,8 +529,8 @@ module cgra_top #(
         .bank1_valid(row_valid[1]),
 
         // Bank 2 (Row 2) - Read port to array
-        .bank2_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
-                                     : {8'd0, tile_prefetch_pc}),
+        .bank2_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
+                                     : {8'd0, next_context_pc}),
         .bank2_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
@@ -570,8 +538,8 @@ module cgra_top #(
         .bank2_valid(row_valid[2]),
 
         // Bank 3 (Row 3) - Read port to array
-        .bank3_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], tile_prefetch_pc}
-                                     : {8'd0, tile_prefetch_pc}),
+        .bank3_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
+                                     : {8'd0, next_context_pc}),
         .bank3_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),
@@ -722,8 +690,8 @@ module cgra_top #(
         .edge_valid_in_e(edge_zero_valid[0:ROWS-1]),
 
         // West edge inputs — from Tile Memory
-        .edge_data_in_w(row_data_reg),
-        .edge_valid_in_w(row_valid_reg),
+        .edge_data_in_w(row_data),
+        .edge_valid_in_w(row_valid),
 
         // Edge outputs
         .edge_data_out_n(edge_out_n),
@@ -793,16 +761,6 @@ module cgra_top #(
         .overflow_pulse(result_fifo_overflow),
         .underflow_pulse(result_fifo_underflow)
     );
-    
-    // Latch cu_done (1-cycle pulse) so result_valid survives until soft-reset.
-    logic result_valid_latch;
-    always_ff @(posedge clk) begin
-        if (!rst_n || cu_soft_reset)
-            result_valid_latch <= 1'b0;
-        else if (cu_done)
-            result_valid_latch <= 1'b1;
-    end
-    assign result_valid = result_valid_latch;
     
     // APB read path mux: 0x40/0x44/0x58-0x64 go to Result FIFO / status;
     // every other address falls through to the CSR module.

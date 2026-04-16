@@ -459,46 +459,23 @@ module cgra_protocol_monitor (
     // =========================================================================
     // Peek into DUT's internal result signals for verification
     wire [31:0] mon_global_result = tb_top.u_dut.global_result;
-    wire        mon_result_valid  = tb_top.u_dut.result_valid;
-    
+
     // =========================================================================
-    // Hybrid I/O: APB Assertion 1 - Data Integrity (0x40 Read)
+    // Hybrid I/O: APB Assertion — Data Integrity (0x40 Read)
     // =========================================================================
     // Verify: When CPU reads address 0x40 (RESULT_DATA), the returned prdata
     // matches the internal global_result value.
-    //
-    // Property: APB read of 0x40 → prdata == global_result
     property apb_result_data_integrity;
         @(posedge clk) disable iff (!rst_n)
             (psel && penable && !pwrite && (paddr[7:0] == 8'h40))
             |-> (prdata == mon_global_result);
     endproperty
-    
+
     assert property (apb_result_data_integrity)
         else $error("[HYBRID_IO] DATA INTEGRITY VIOLATION: APB read 0x40 returned 0x%08h, expected 0x%08h",
                     prdata, mon_global_result);
-    
+
     cover property (apb_result_data_integrity)
         $display("[HYBRID_IO] ✓ APB RESULT_DATA (0x40) read verified: prdata=0x%08h", prdata);
-    
-    // =========================================================================
-    // Hybrid I/O: APB Assertion 2 - Valid Flag Correctness (0x44 Read)
-    // =========================================================================
-    // Verify: When CPU reads address 0x44 (RESULT_STATUS), bit [0] matches
-    // the internal result_valid flag, and bits [31:1] are zero (reserved).
-    //
-    // Property: APB read of 0x44 → prdata[0] == result_valid && prdata[31:1] == 0
-    property apb_result_status_valid_flag;
-        @(posedge clk) disable iff (!rst_n)
-            (psel && penable && !pwrite && (paddr[7:0] == 8'h44))
-            |-> (prdata[0] == mon_result_valid && prdata[31:1] == 31'b0);
-    endproperty
-    
-    assert property (apb_result_status_valid_flag)
-        else $error("[HYBRID_IO] VALID FLAG VIOLATION: APB read 0x44 returned 0x%08h, expected {31'b0, %0b}",
-                    prdata, mon_result_valid);
-    
-    cover property (apb_result_status_valid_flag)
-        $display("[HYBRID_IO] ✓ APB RESULT_STATUS (0x44) valid flag verified: prdata[0]=%0b", prdata[0]);
 
 endmodule
