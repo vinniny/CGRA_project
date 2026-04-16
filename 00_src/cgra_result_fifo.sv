@@ -64,11 +64,13 @@ module cgra_result_fifo #(
     // Warmup Skip Counter
     // =========================================================================
     logic [3:0] warmup_counter;
-    wire        warmup_done = (warmup_counter >= skip_count);
+    logic warmup_done;
+    assign warmup_done = (warmup_counter >= skip_count);
 
     // Effective push: only after warmup and when not full
-    wire do_push = push_valid && warmup_done && !fifo_full;
-    wire do_pop  = pop_read && !empty;
+    logic do_push, do_pop;
+    assign do_push = push_valid && warmup_done && !fifo_full;
+    assign do_pop  = pop_read && !empty;
 
     // Overflow / underflow detection (1-cycle pulses)
     assign overflow_pulse  = push_valid && warmup_done && fifo_full;
@@ -102,13 +104,14 @@ module cgra_result_fifo #(
     // Issue BRAM read on:
     //  (1) pop with more entries remaining (prefetch next after pop)
     //  (2) one cycle after first push into empty (BRAM write committed)
-    wire issue_bram_read = (do_pop && (fifo_count > 1)) || first_push_bypass;
+    logic issue_bram_read;
+    assign issue_bram_read = (do_pop && (fifo_count > 1)) || first_push_bypass;
 
     // BRAM read address:
     //  - On pop: read rd_ptr+1 (next entry to prefetch)
     //  - On first-push bypass: read rd_ptr (= 0, the entry just written)
-    wire [ADDR_BITS-1:0] bram_rd_addr = first_push_bypass ? rd_ptr
-                                                           : (rd_ptr + 1'b1);
+    logic [ADDR_BITS-1:0] bram_rd_addr;
+    assign bram_rd_addr = first_push_bypass ? rd_ptr : (rd_ptr + 1'b1);
 
     always_ff @(posedge clk) begin
         if (!rst_n || fifo_clear) begin

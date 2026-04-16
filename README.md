@@ -7,7 +7,7 @@
 *Version 4.0.0 | April 2026*
 
 [![Silicon Verified](https://img.shields.io/badge/Status-Silicon%20Verified-brightgreen)]()
-[![Sim Tests](https://img.shields.io/badge/Sim-8926%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Sim Tests](https://img.shields.io/badge/Sim-8957%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![HW Tests](https://img.shields.io/badge/Hardware-96%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(19%2F19%20verified%20on%20silicon)-blue)]()
 [![Perf/Watt](https://img.shields.io/badge/Perf%2FWatt-8.2x%20vs%20ARM-orange)]()
@@ -31,7 +31,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 - **Double-Buffered Tile Memory**: 4 banks × 4096 words (64 KB) with bank_sel for latency-hiding data swaps.
 - **Bi-Directional DMA**: AXI4 burst master, 32-word FIFO, 2D strided transfers, W_LOCAL fast-drain path. **76.3 MB/s measured peak** at 16 KB bulk transfer.
 - **Nested Hardware Loops**: 2-level zero-overhead loops with loop-aware auto-stop and tile address auto-increment.
-- **UVM-Inspired Verification**: 8926 tests, 26 suites (including tile auto-increment), 0 failures. Transaction-based monitors/scoreboards, covergroups, clocking blocks.
+- **UVM-Inspired Verification**: 8957 tests, 26 suites (including tile auto-increment), 0 failures. Transaction-based monitors/scoreboards, covergroups, clocking blocks.
 - **11-Category HW Benchmark**: Per-op throughput, MAC hazard, SIMD, DMA bandwidth, multicast, parallel rows, FC pattern, FPS, config overhead, power — all measured on silicon with ARM PMCCNTR timing.
 
 ### Target Applications
@@ -124,7 +124,7 @@ Current silicon targets **Zynq-7000 XC7Z020** (DSP48E1, different resource count
 
 ```bash
 # Run full verification suite (Cadence Xcelium 20.09+)
-make sim                # Compile, elaborate, simulate (8915 tests)
+make sim                # Compile, elaborate, simulate (8957 tests)
 
 # Split flow for debugging
 make compile            # Compile RTL + TB sources
@@ -148,6 +148,19 @@ SEED=12345 make sim
 # Clean build artifacts
 make clean
 ```
+
+### Static Analysis
+
+```bash
+make lint           # Xcelium compile-time lint (no simulation)
+make hal            # Genus RTL synthesizability check (check_design -unresolved)
+make vivado_lint    # Vivado RTL elaboration lint (synth_design -rtl)
+
+make lint_static    # All three static flows in sequence
+make lint_all       # lint_static + X-propagation simulation (xprop)
+```
+
+Reports written to `02_log/` and `04_syn/reports/check_design.rpt`.
 
 ### Building Software
 
@@ -568,7 +581,7 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | **8915 PASS, 0 FAIL** |
+| Total Tests | **8957 PASS, 0 FAIL** |
 | Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | **21/21 (100%)** operations verified |
 | Verification Method | CRV + directed + deployment replay + UVM-inspired TLM |
@@ -658,7 +671,6 @@ cgra_top #(
     .DATA_WIDTH   (32),
     .ADDR_WIDTH   (32),
     .COORD_WIDTH  (4),
-    .PAYLOAD_WIDTH(16),   // Internal routing (compatibility)
     .SPM_DEPTH    (256),
     .RF_DEPTH     (16),
     .CONFIG_WIDTH (64),
@@ -837,17 +849,17 @@ void cgra_get_results(uint32_t results[4]) {
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
 | cgra_top | cgra_top.sv | 904 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop, System ILA hooks |
+| cgra_config_broadcaster | cgra_config_broadcaster.sv | ~60 | Slot-0 replay FSM: 15-cycle broadcast to all 16 PE config contexts |
 | cgra_apb_csr | cgra_apb_csr.sv | 381 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
 | cgra_dma_engine | cgra_dma_engine.sv | 1199 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
 | cgra_control_unit | cgra_control_unit.sv | 379 | FSM, 2-level nested loops, timeout, loops_done_o, global stall (registered to break 5610-fanout) |
-| cgra_tile_memory | cgra_tile_memory.sv | 302 | 4-bank × 4096 SRAM, double-buffer bank_sel, prefetch PC |
+| cgra_tile_memory | cgra_tile_memory.sv | ~130 | 4-bank × 4096 SRAM, double-buffer bank_sel, prefetch PC (generate loop) |
 | cgra_array | cgra_array.sv | 244 | Parameterized N×M PE mesh (generate blocks) |
-| cgra_tile | cgra_tile.sv | 230 | PE + Router wrapper with branch passthrough (registered to break LUTLP-1 loop) |
-| cgra_pe | cgra_pe.sv | 767 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
-| cgra_router | cgra_router.sv | 519 | 5-port mesh router (N/E/S/W/Local, unicast/multicast) |
+| cgra_tile | cgra_tile.sv | ~110 | PE wrapper with branch passthrough and direct N/E/S/W mesh wiring |
+| cgra_pe | cgra_pe.sv | ~640 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
 | bsg_mem/ wrappers | bsg_mem/*.sv + *.v | 633 | BSG SRAM macros + DFF library (16×64-bit config RAM per PE, sync 1r1w) |
 | axi_ram (sim only) | axi_ram.sv | 373 | Testbench AXI slave model, not synthesized |
-| **Total synthesizable** | **11 modules, 16 files** | **~5,560** | RTL excluding the testbench AXI RAM model |
+| **Total synthesizable** | **11 modules, 16 files** | **~5,080** | RTL excluding the testbench AXI RAM model |
 
 ---
 
@@ -995,14 +1007,17 @@ REG=...` even while the ELF is parked in its `wfi` hang loop.
 
 ### Synthesis Readiness
 
-| Check | Status |
-|-------|--------|
-| Lint clean (major) | ✅ |
-| No combinational loops | ✅ |
-| Clock domain: single | ✅ |
-| Reset: synchronous active-low | ✅ |
-| Memory inference | ✅ SRAM/BRAM |
-| BSG memory macros | ✅ Integrated |
+| Check | Tool | Status |
+|-------|------|--------|
+| Xcelium compile lint | `make lint` | ✅ Clean |
+| Genus elaboration + check_design | `make hal` | ✅ Clean (0 errors) |
+| Vivado RTL elaboration (synth -rtl) | `make vivado_lint` | ✅ Clean (0 warnings) |
+| X-propagation | `make xprop` | ✅ Clean |
+| No combinational loops | Genus check_design | ✅ |
+| Clock domain: single | — | ✅ |
+| Reset: synchronous active-low | — | ✅ |
+| Memory inference | — | ✅ SRAM/BRAM |
+| BSG memory macros | — | ✅ Integrated |
 
 ### Known Design Constraints
 
@@ -1168,7 +1183,7 @@ PL utilization: 57% LUT, 16% FF, 20% BRAM, 67% DSP.
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
-| UVM-Inspired Testbench | 8926 tests, 26 suites, covergroups, TLM scoreboards, clocking blocks |
+| UVM-Inspired Testbench | 8957 tests, 26 suites, covergroups, TLM scoreboards, clocking blocks |
 | **Verdict Hardening** | Scoreboard errors propagate to global verdict; zero-test guard; watchdog signals failure; 8 checks tightened to exact/bounded values |
 | **HW Performance Benchmark** | 11-category bare-metal benchmark suite (`bench_cgra.c`) — per-op throughput, MAC pipeline hazard, SIMD, DMA bandwidth, multicast fan-out, parallel rows, FC pattern, FPS, config overhead, power efficiency. All measured on silicon with ARM PMCCNTR. Golden model cross-check (`golden_model.py`). |
 | **LPRNet Feasibility Study** | ONNX topology builder (`build_lprnet.py`), per-layer MAC/weight/activation analyzer (`analyze_lprnet.py`), Zynq-7000 timing extrapolation (`extrapolate_lprnet.py`) for full/small/micro variants. Verdict: dense CNN is config-reload-bound on current silicon; Conv-streaming workloads (config-once) are the CGRA sweet spot. |
@@ -1211,6 +1226,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for Edge AI Inference**
 
-*Silicon-Verified | 8915/8915 Sim Tests | 96/96 HW Checks | 19/19 ISA Ops | 86.6% MAC Util | 4× Multicast | 8.2× Perf/Watt*
+*Silicon-Verified | 8957/8957 Sim Tests | 96/96 HW Checks | 19/19 ISA Ops | 86.6% MAC Util | 4× Multicast | 8.2× Perf/Watt*
 
 </div>

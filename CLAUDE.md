@@ -9,12 +9,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Simulation Commands
 
 ```bash
-make sim                # Full simulation flow (compile + elaborate + run, 8915 tests)
+make sim                # Full simulation flow (compile + elaborate + run, 8957 tests)
 make compile            # xmvlog compilation only
 make build              # xmelab elaboration only
 make run                # xmsim simulation only
 make gui                # Interactive SimVision waveform debugging
 make lint               # Xcelium lint checks
+make hal                # Genus RTL synthesizability check (check_design -unresolved)
+make vivado_lint        # Vivado RTL elaboration lint (synth_design -rtl)
+make lint_static        # All three static lint flows in sequence
+make lint_all           # lint_static + X-propagation simulation
 SEED=12345 make sim     # Run with custom random seed
 make cov                # Simulate with coverage collection (COV=1)
 make cov_report         # Generate text coverage summary
@@ -155,7 +159,7 @@ Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. 
 
 ## Testbench Architecture
 
-5-layer modular TB with 26 test suites, 8926 tests + UVM-inspired transaction layer:
+5-layer modular TB with 26 test suites, 8957 tests + UVM-inspired transaction layer:
 - Layer 1: tb_defs.svh — macros, constants, assertion helpers (CHECK_EQ, ASSERT_TRUE, etc.)
 - Layer 2: tb_scenario_gen.svh — constrained-random classes (cgra_dma_stim, cgra_pe_stim, cgra_apb_stim) + sequence base classes
 - Layer 3: tb_tasks.svh — APB/DMA/PE driver tasks + clocking-block variants (apb_cb_write/read)
