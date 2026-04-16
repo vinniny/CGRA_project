@@ -35,7 +35,7 @@ module cgra_control_unit #(
     // =========================================================================
     // Array Interface
     // =========================================================================
-    output logic        pe_enable,      // Enable PE array execution
+    (* keep = "true" *) output logic pe_enable,  // Registered RUN flag — 1-cycle lag gates PE on STATE_RUN entry
     output logic        pe_reset_n,     // Array reset (active low)
     input  logic        array_done_i,   // Array signals completion
     
