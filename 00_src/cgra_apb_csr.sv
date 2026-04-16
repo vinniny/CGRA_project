@@ -1,24 +1,16 @@
 // ==============================================================================
-// CGRA APB CSR - Centralized Configuration and Status Registers
+// CGRA APB CSR — Configuration and Status Registers
 // ==============================================================================
-// APB Slave interface (zero wait states) for CPU configuration.
-// Provides config wires to DMA Engine and Control Unit.
+// APB slave, zero wait states. 29 registers at 0x00-0x7C + 0x80.
 //
-// REGISTER MAP (11 registers):
-//   0x00  DMA_CTRL    RW  [0] Start (auto-clear)
-//   0x04  DMA_STATUS  RO  [0] Busy, [1] Done (sticky)
-//   0x08  DMA_SRC     RW  Source address
-//   0x0C  DMA_DST     RW  Destination address
-//   0x10  DMA_SIZE    RW  Transfer size (bytes)
-//   0x20  CU_CTRL     RW  [0] Start, [1] Soft Reset
-//   0x24  CU_STATUS   RO  [0] Busy, [1] Done (sticky)
-//   0x28  CU_CYCLES   RO  Cycle counter
-//   0x2C  CU_TIMEOUT  RW  Max cycles (0 = no limit)  [NEW]
-//   0x30  IRQ_STATUS  W1C [0] DMA Done, [1] CU Done
-//   0x34  IRQ_MASK    RW  IRQ enable mask
-//   0x48  LOOP_START  RW  Hardware loop start PC  [NEW - LPR]
-//   0x4C  LOOP_END    RW  Hardware loop end PC    [NEW - LPR]
-//   0x50  LOOP_COUNT  RW  Hardware loop count     [NEW - LPR]
+// DMA:  DMA_CTRL(00 RW), DMA_STATUS(04 RO), DMA_SRC(08), DMA_DST(0C),
+//       DMA_SIZE(10), DMA_SRC_STRIDE(14), DMA_ROWS(18), DMA_COLS(1C),
+//       DMA_ERROR(38 RO), DMA_DESC_HEAD(7C RW), DMA_DESC_STATUS(80 RO)
+// CU:   CU_CTRL(20 RW), CU_STATUS(24 RO), CU_CYCLES(28 RO), CU_TIMEOUT(2C RW)
+// IRQ:  IRQ_STATUS(30 W1C), IRQ_MASK(34 RW)
+// Loop: LOOP_START(48), LOOP_END(4C), LOOP_COUNT(50),
+//       LOOP2_START(68), LOOP2_END(6C), LOOP2_COUNT(70)
+// Misc: RESULT_SKIP(54), TILE_BANK_SEL(74), TILE_AUTO_INC(78)
 // ==============================================================================
 
 module cgra_apb_csr #(
