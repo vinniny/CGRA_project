@@ -22,52 +22,53 @@ module cgra_array #(
     parameter RF_DEPTH      = 16,
     parameter CONTEXT_DEPTH = 16,
     parameter PC_WIDTH      = 4,
-    parameter NUM_PES       = ROWS * COLS
+    parameter NUM_PES       = 16,   // = ROWS × COLS; explicit literal for tool compat
+    parameter PE_SEL_W      = 4     // = $clog2(NUM_PES); explicit literal for tool compat
 )(
     input  logic clk,
     input  logic rst_n,
 
     // Configuration (unused in BRAM mode — PEs use internal config RAM)
-    input  logic [63:0] config_frame [0:NUM_PES-1],
+    input  logic [63:0] config_frame [0:15],        // [0:NUM_PES-1]
     input  logic        config_valid,
 
     // Multi-context interface (broadcast to all PEs)
-    input  logic [PC_WIDTH-1:0] context_pc,
-    input  logic                global_stall,
+    input  logic [3:0] context_pc,                  // [PC_WIDTH-1:0]
+    input  logic       global_stall,
 
     // Config write interface (targeted per-PE)
-    input  logic [PC_WIDTH-1:0]              cfg_wr_addr,
-    input  logic [63:0]                      cfg_wr_data,
-    input  logic [$clog2(NUM_PES)-1:0]       cfg_wr_pe_sel,
-    input  logic                             cfg_wr_en,
+    input  logic [3:0]  cfg_wr_addr,                // [PC_WIDTH-1:0]
+    input  logic [63:0] cfg_wr_data,
+    input  logic [3:0]  cfg_wr_pe_sel,              // [PE_SEL_W-1:0]
+    input  logic        cfg_wr_en,
 
     // Edge inputs — North/South/East (tied off at top level; West from Tile Memory)
-    input  logic [DATA_WIDTH-1:0] edge_data_in_n  [0:COLS-1],
-    input  logic [DATA_WIDTH-1:0] edge_data_in_s  [0:COLS-1],
-    input  logic [DATA_WIDTH-1:0] edge_data_in_e  [0:ROWS-1],
+    input  logic [31:0] edge_data_in_n  [0:3],      // [DATA_WIDTH-1:0][0:COLS-1]
+    input  logic [31:0] edge_data_in_s  [0:3],
+    input  logic [31:0] edge_data_in_e  [0:3],      // [0:ROWS-1]
 
     // Edge inputs — West (one per row, from Tile Memory)
-    input  logic [DATA_WIDTH-1:0] edge_data_in_w  [0:ROWS-1],
+    input  logic [31:0] edge_data_in_w  [0:3],      // [0:ROWS-1]
 
     // Edge outputs — North (one per column)
-    output logic [DATA_WIDTH-1:0] edge_data_out_n  [0:COLS-1],
-    output logic                  edge_valid_out_n [0:COLS-1],
+    output logic [31:0] edge_data_out_n  [0:3],     // [0:COLS-1]
+    output logic        edge_valid_out_n [0:3],
 
     // Edge outputs — South (one per column)
-    output logic [DATA_WIDTH-1:0] edge_data_out_s  [0:COLS-1],
-    output logic                  edge_valid_out_s [0:COLS-1],
+    output logic [31:0] edge_data_out_s  [0:3],
+    output logic        edge_valid_out_s [0:3],
 
     // Edge outputs — East (one per row)
-    output logic [DATA_WIDTH-1:0] edge_data_out_e  [0:ROWS-1],
-    output logic                  edge_valid_out_e [0:ROWS-1],
+    output logic [31:0] edge_data_out_e  [0:3],     // [0:ROWS-1]
+    output logic        edge_valid_out_e [0:3],
 
     // Edge outputs — West (one per row)
-    output logic [DATA_WIDTH-1:0] edge_data_out_w  [0:ROWS-1],
-    output logic                  edge_valid_out_w [0:ROWS-1],
+    output logic [31:0] edge_data_out_w  [0:3],
+    output logic        edge_valid_out_w [0:3],
 
     // B4: Branch output from PE[0][0] (designated branch source)
-    output logic [PC_WIDTH-1:0]   branch_target_o,
-    output logic                  branch_taken_o
+    output logic [3:0]  branch_target_o,            // [PC_WIDTH-1:0]
+    output logic        branch_taken_o
 );
 
     // =========================================================================
@@ -98,7 +99,7 @@ module cgra_array #(
                 localparam int PE_ID = y * COLS + x;
                 logic cfg_wr_en_tile;
                 assign cfg_wr_en_tile = cfg_wr_en &&
-                    (cfg_wr_pe_sel == PE_ID[$clog2(NUM_PES)-1:0]);
+                    (cfg_wr_pe_sel == PE_ID[PE_SEL_W-1:0]);
 
                 // ── Determine input signals for each direction ──
 

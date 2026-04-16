@@ -106,6 +106,7 @@ LEC     := lec
 XILINX_VITIS    ?= /tools/Xilinx/2025.1/Vitis
 XILINX_SETTINGS := $(XILINX_VITIS)/settings64.sh
 XSDB            := $(XILINX_VITIS)/bin/xsdb
+VIVADO          ?= /tools/Xilinx/2025.1/Vivado/bin/vivado
 HW_SERVER_BIN   := $(XILINX_VITIS)/bin/hw_server
 BIT             ?= bitstreams/cgra_top.bit
 ELF             ?=
@@ -126,7 +127,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
 # ==============================================================================
 .PHONY: all help compile build run sim test lab_test wave clean clean-all \
         syn restore_syn lec full create_flist lint check_tools gui \
-        cov cov_gui cov_report hal xprop \
+        cov cov_gui cov_report hal xprop vivado_lint \
         hw_server_start hw_server_stop hw_server_check \
         program fpga_status run_elf reg_read reg_write reg_dump \
         pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
@@ -162,6 +163,7 @@ help:
 	@echo ""
 	@echo " Static Analysis & X-Prop Targets:"
 	@echo "   make hal          - Genus check_design: synthesizability + latches"
+	@echo "   make vivado_lint  - Vivado synth_design -rtl: latches, widths, CDC"
 	@echo "   make xprop        - Simulate with X-Propagation (ternary mode)"
 	@echo "   XPROP=1           - Enable X-prop on existing build/run targets"
 	@echo ""
@@ -448,6 +450,28 @@ hal:
 	@echo "[HAL] Error/Warning summary:"
 	@grep -iE "^(error|warning)" $(SYN_DIR)/reports/check_design.rpt \
 		| sort | uniq -c | sort -rn | head -30 || true
+
+# ------------------------------------------------------------------------------
+# Vivado RTL lint: synth_design -rtl elaboration (no P&R)
+# Catches: inferred latches, multi-driven nets, port-width mismatches,
+# unresolved references, unsynthesizable constructs.
+# ------------------------------------------------------------------------------
+vivado_lint:
+	@echo "=========================================================================="
+	@echo " [VIVADO LINT] RTL elaboration lint (synth_design -rtl)"
+	@echo "=========================================================================="
+	@mkdir -p $(LOG_DIR)
+	$(VIVADO) -mode batch \
+		-source $(SCRIPT_DIR)/vivado_lint.tcl \
+		-log $(LOG_DIR)/vivado_lint.log \
+		-nojournal
+	@echo "[VIVADO LINT] Done"
+	@echo "  Log      : $(LOG_DIR)/vivado_lint.log"
+	@echo "  DRC      : $(LOG_DIR)/vivado_lint_drc.rpt"
+	@echo "  Method   : $(LOG_DIR)/vivado_lint_methodology.rpt"
+	@echo "--- Error/Warning summary ---"
+	@grep -E "^(ERROR|WARNING|CRITICAL)" $(LOG_DIR)/vivado_lint.log \
+		| sort | uniq -c | sort -rn | head -40 || true
 
 # ------------------------------------------------------------------------------
 # X-Propagation: elaborate with -xprop c and run full regression

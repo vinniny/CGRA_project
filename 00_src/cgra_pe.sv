@@ -60,7 +60,7 @@ module cgra_pe #(
     logic        pred_en;
     logic        pred_inv;
     logic [15:0] immediate;
-    logic [23:0] extended;
+    logic [10:0] extended;  // bits [23:11] of config[63:40] unused; only [10:0] consumed
     // B4: Dynamic branching
     logic [PC_WIDTH-1:0]   branch_target;
     logic                  branch_en;
@@ -120,7 +120,7 @@ module cgra_pe #(
         pred_en    = active_config[22];
         pred_inv   = active_config[23];
         immediate  = active_config[39:24];
-        extended   = active_config[63:40];
+        extended   = active_config[50:40];  // [10:0]: data_mode[10:9], branch_en[8], branch_target[7:4]
         // B4: Branch target from config frame bits [47:44] = extended[7:4]
         branch_target = extended[PC_WIDTH+3:4];
         branch_en = extended[PC_WIDTH+4];  // bit [48] = extended[8]: enable branch
@@ -443,6 +443,7 @@ module cgra_pe #(
     logic [31:0]           mac_result_sat;
     logic signed [39:0]    mac_sum;
     logic signed [40:0]    mac_sum_temp;
+    logic signed [40:0]    simd_mac_temp;  // SIMD MAC accumulate (combinatorial)
 
     always_comb begin
         // MAC: accumulator + mult_ext_r2 (accumulator is fresh, mult is pipelined)
@@ -477,6 +478,9 @@ module cgra_pe #(
             mac_result_sat = 32'h80000000;
         else
             mac_result_sat = mac_sum[31:0];
+
+        // SIMD MAC: dot-product accumulate (sign-extended to 41b for overflow detection)
+        simd_mac_temp = {accumulator[39], accumulator} + {{9{simd_dot_r2[31]}}, simd_dot_r2};
     end
 
     // =========================================================================
@@ -508,11 +512,8 @@ module cgra_pe #(
                 OP_MAC: begin
                     if (data_mode_r2 != 2'b00) begin
                         // SIMD MAC: accumulate dot-product with 41-bit overflow detection
-                        // (matches INT32 MAC saturation pattern using mac_sum_temp)
+                        // simd_mac_temp is computed combinatorially above (module-level always_comb)
                         begin
-                            logic signed [40:0] simd_mac_temp;
-                            simd_mac_temp = {accumulator[39], accumulator}
-                                          + {{9{simd_dot_r2[31]}}, simd_dot_r2};
                             if (simd_mac_temp > 41'sd549755813887)
                                 accumulator <= 40'sd549755813887;   // MAX_POS_40
                             else if (simd_mac_temp < -41'sd549755813888)
