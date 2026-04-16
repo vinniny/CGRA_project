@@ -85,7 +85,8 @@ puts "==========================================================================
 puts " \[HAL\] Design Status Summary"
 puts "=========================================================================="
 # Count actionable issues (errors only — warnings already filtered above)
-set rpt_lines [exec grep -c "^Error" reports/check_design.rpt 2>/dev/null || echo 0]
+set rpt_lines 0
+catch {set rpt_lines [exec grep -c "^Error" reports/check_design.rpt]}
 set rpt_lines [string trim $rpt_lines]
 puts ""
 puts "\[HAL\] Full report : reports/check_design.rpt"

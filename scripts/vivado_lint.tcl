@@ -51,6 +51,12 @@ read_verilog -sv {
 #   - m_axi_rresp[1:0]: DECERR/SLVERR detection done in DMA engine; rresp OK path only
 set_msg_config -id {Synth 8-7129} -new_severity INFO
 
+# Synth 8-11357 : "Potential Runtime issue for 3D-RAM"
+#   BSG bsg_mem_1r1w_sync_synth behavioral model inferred as a large register
+#   array in -rtl mode. Tile memory: 4 banks × 4096 × 32b = 524288 bits.
+#   In real synthesis this maps to BRAM primitives. RTL-mode only artifact.
+set_msg_config -id {Synth 8-11357} -new_severity INFO
+
 # ── RTL elaboration (no mapping, no P&R) ──────────────────────────────────────
 # -rtl         : elaboration only, no technology mapping
 # -no_iobuf    : don't insert IOBUFs (top-level ports aren't board pads here)
