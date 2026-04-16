@@ -2,10 +2,6 @@
 //
 // PE computes from its 4 neighbor inputs; result broadcasts to all 4 outputs,
 // with per-direction valid gated by the PE's configured route_mask.
-//
-// Handshake `ready_in_*` / `ready_out_*` ports are kept for interface
-// compatibility with earlier router-mode designs — always asserted high
-// (no backpressure in broadcast mode).
 
 module cgra_tile #(
     parameter DATA_WIDTH   = 32,
@@ -30,26 +26,11 @@ module cgra_tile #(
     input  logic [63:0]            cfg_wr_data,
     input  logic                   cfg_wr_en,
 
-    // Mesh ports (N/E/S/W). valid_in_* and ready_in_* are interface-compat
-    // no-ops in broadcast mode.
+    // Mesh ports (N/E/S/W)
     input  logic [DATA_WIDTH-1:0]  data_in_n,
     input  logic [DATA_WIDTH-1:0]  data_in_e,
     input  logic [DATA_WIDTH-1:0]  data_in_s,
     input  logic [DATA_WIDTH-1:0]  data_in_w,
-    /* verilator lint_off UNUSEDSIGNAL */
-    input  logic                   valid_in_n,
-    input  logic                   valid_in_e,
-    input  logic                   valid_in_s,
-    input  logic                   valid_in_w,
-    input  logic                   ready_in_n,
-    input  logic                   ready_in_e,
-    input  logic                   ready_in_s,
-    input  logic                   ready_in_w,
-    /* verilator lint_on UNUSEDSIGNAL */
-    output logic                   ready_out_n,
-    output logic                   ready_out_e,
-    output logic                   ready_out_s,
-    output logic                   ready_out_w,
 
     output logic [DATA_WIDTH-1:0]  data_out_n,
     output logic [DATA_WIDTH-1:0]  data_out_e,
@@ -112,10 +93,5 @@ module cgra_tile #(
     assign valid_out_e = pe_valid_e;
     assign valid_out_s = pe_valid_s;
     assign valid_out_w = pe_valid_w;
-
-    assign ready_out_n = 1'b1;
-    assign ready_out_e = 1'b1;
-    assign ready_out_s = 1'b1;
-    assign ready_out_w = 1'b1;
 
 endmodule

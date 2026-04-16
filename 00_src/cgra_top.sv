@@ -645,11 +645,9 @@ module cgra_top #(
     logic                  edge_valid_out_w [0:ROWS-1];
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // Tie-off arrays for unused edge inputs
+    // Tie-off array for unused edge data inputs
     logic [DATA_WIDTH-1:0] edge_zero_data [0:3];
-    logic                  edge_zero_valid [0:3];
     assign edge_zero_data  = '{default: '0};
-    assign edge_zero_valid = '{default: 1'b0};
 
     // PEs use BRAM for programming; static config_frame tied to zeros.
     logic [63:0] config_frame_zeros [0:ROWS*COLS-1];
@@ -683,15 +681,11 @@ module cgra_top #(
 
         // North/South/East edge inputs — tied off
         .edge_data_in_n(edge_zero_data[0:COLS-1]),
-        .edge_valid_in_n(edge_zero_valid[0:COLS-1]),
         .edge_data_in_s(edge_zero_data[0:COLS-1]),
-        .edge_valid_in_s(edge_zero_valid[0:COLS-1]),
         .edge_data_in_e(edge_zero_data[0:ROWS-1]),
-        .edge_valid_in_e(edge_zero_valid[0:ROWS-1]),
 
         // West edge inputs — from Tile Memory
         .edge_data_in_w(row_data),
-        .edge_valid_in_w(row_valid),
 
         // Edge outputs
         .edge_data_out_n(edge_out_n),

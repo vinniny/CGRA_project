@@ -10,7 +10,6 @@
 // WIRING CONVENTION:
 //   Horizontal: tile(y,x).data_out_e → tile(y,x+1).data_in_w
 //   Vertical:   tile(y,x).data_out_s → tile(y+1,x).data_in_n
-//   Edge boundary tiles have ready_in = 1'b1 on external-facing sides.
 // ==============================================================================
 
 module cgra_array #(
@@ -42,21 +41,13 @@ module cgra_array #(
     input  logic [$clog2(NUM_PES)-1:0]       cfg_wr_pe_sel,
     input  logic                             cfg_wr_en,
 
-    // Edge inputs — North (one per column)
+    // Edge inputs — North/South/East (tied off at top level; West from Tile Memory)
     input  logic [DATA_WIDTH-1:0] edge_data_in_n  [0:COLS-1],
-    input  logic                  edge_valid_in_n [0:COLS-1],
-
-    // Edge inputs — South (one per column)
     input  logic [DATA_WIDTH-1:0] edge_data_in_s  [0:COLS-1],
-    input  logic                  edge_valid_in_s [0:COLS-1],
-
-    // Edge inputs — East (one per row)
     input  logic [DATA_WIDTH-1:0] edge_data_in_e  [0:ROWS-1],
-    input  logic                  edge_valid_in_e [0:ROWS-1],
 
     // Edge inputs — West (one per row, from Tile Memory)
     input  logic [DATA_WIDTH-1:0] edge_data_in_w  [0:ROWS-1],
-    input  logic                  edge_valid_in_w [0:ROWS-1],
 
     // Edge outputs — North (one per column)
     output logic [DATA_WIDTH-1:0] edge_data_out_n  [0:COLS-1],
@@ -82,26 +73,19 @@ module cgra_array #(
     // =========================================================================
     // Internal Mesh Wiring — Per-Tile Outputs
     // =========================================================================
-    // Each tile has 4 outputs (N/E/S/W data + valid) and 4 ready outputs
+    // Each tile has 4 outputs (N/E/S/W data + valid)
     logic [DATA_WIDTH-1:0] tile_out_n_data  [0:ROWS-1][0:COLS-1];
     logic                  tile_out_n_valid [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_n_ready [0:ROWS-1][0:COLS-1]; // ready_out_n
-
     logic [DATA_WIDTH-1:0] tile_out_e_data  [0:ROWS-1][0:COLS-1];
     logic                  tile_out_e_valid [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_e_ready [0:ROWS-1][0:COLS-1]; // ready_out_e
+    logic [DATA_WIDTH-1:0] tile_out_s_data  [0:ROWS-1][0:COLS-1];
+    logic                  tile_out_s_valid [0:ROWS-1][0:COLS-1];
+    logic [DATA_WIDTH-1:0] tile_out_w_data  [0:ROWS-1][0:COLS-1];
+    logic                  tile_out_w_valid [0:ROWS-1][0:COLS-1];
 
     // B4: Per-tile branch outputs (only PE[0][0] used at array level)
     logic [PC_WIDTH-1:0]   tile_branch_target [0:ROWS-1][0:COLS-1];
     logic                  tile_branch_taken  [0:ROWS-1][0:COLS-1];
-
-    logic [DATA_WIDTH-1:0] tile_out_s_data  [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_s_valid [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_s_ready [0:ROWS-1][0:COLS-1]; // ready_out_s
-
-    logic [DATA_WIDTH-1:0] tile_out_w_data  [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_w_valid [0:ROWS-1][0:COLS-1];
-    logic                  tile_out_w_ready [0:ROWS-1][0:COLS-1]; // ready_out_w
 
     // =========================================================================
     // Tile Instantiation (ROWS × COLS mesh)
@@ -119,36 +103,17 @@ module cgra_array #(
                 // ── Determine input signals for each direction ──
 
                 // North input: from tile(y-1,x) south output, or edge input
-                wire [DATA_WIDTH-1:0] in_n_data  = (y == 0) ? edge_data_in_n[x]
-                                                             : tile_out_s_data[y-1][x];
-                wire                  in_n_valid = (y == 0) ? edge_valid_in_n[x]
-                                                             : tile_out_s_valid[y-1][x];
-                wire                  in_n_ready = (y == 0) ? 1'b1
-                                                             : tile_out_n_ready[y-1][x];
-
+                wire [DATA_WIDTH-1:0] in_n_data = (y == 0) ? edge_data_in_n[x]
+                                                            : tile_out_s_data[y-1][x];
                 // South input: from tile(y+1,x) north output, or edge input
-                wire [DATA_WIDTH-1:0] in_s_data  = (y == ROWS-1) ? edge_data_in_s[x]
-                                                                  : tile_out_n_data[y+1][x];
-                wire                  in_s_valid = (y == ROWS-1) ? edge_valid_in_s[x]
-                                                                  : tile_out_n_valid[y+1][x];
-                wire                  in_s_ready = (y == ROWS-1) ? 1'b1
-                                                                  : tile_out_s_ready[y+1][x];
-
+                wire [DATA_WIDTH-1:0] in_s_data = (y == ROWS-1) ? edge_data_in_s[x]
+                                                                 : tile_out_n_data[y+1][x];
                 // West input: from tile(y,x-1) east output, or edge input
-                wire [DATA_WIDTH-1:0] in_w_data  = (x == 0) ? edge_data_in_w[y]
-                                                              : tile_out_e_data[y][x-1];
-                wire                  in_w_valid = (x == 0) ? edge_valid_in_w[y]
-                                                              : tile_out_e_valid[y][x-1];
-                wire                  in_w_ready = (x == 0) ? 1'b1
-                                                              : tile_out_w_ready[y][x-1];
-
+                wire [DATA_WIDTH-1:0] in_w_data = (x == 0) ? edge_data_in_w[y]
+                                                             : tile_out_e_data[y][x-1];
                 // East input: from tile(y,x+1) west output, or edge input
-                wire [DATA_WIDTH-1:0] in_e_data  = (x == COLS-1) ? edge_data_in_e[y]
-                                                                  : tile_out_w_data[y][x+1];
-                wire                  in_e_valid = (x == COLS-1) ? edge_valid_in_e[y]
-                                                                  : tile_out_w_valid[y][x+1];
-                wire                  in_e_ready = (x == COLS-1) ? 1'b1
-                                                                  : tile_out_e_ready[y][x+1];
+                wire [DATA_WIDTH-1:0] in_e_data = (x == COLS-1) ? edge_data_in_e[y]
+                                                                 : tile_out_w_data[y][x+1];
 
                 cgra_tile #(
                     .DATA_WIDTH    (DATA_WIDTH),
@@ -175,35 +140,23 @@ module cgra_array #(
 
                     // North
                     .data_in_n     (in_n_data),
-                    .valid_in_n    (in_n_valid),
-                    .ready_out_n   (tile_out_n_ready[y][x]),
                     .data_out_n    (tile_out_n_data[y][x]),
                     .valid_out_n   (tile_out_n_valid[y][x]),
-                    .ready_in_n    (in_n_ready),
 
                     // South
                     .data_in_s     (in_s_data),
-                    .valid_in_s    (in_s_valid),
-                    .ready_out_s   (tile_out_s_ready[y][x]),
                     .data_out_s    (tile_out_s_data[y][x]),
                     .valid_out_s   (tile_out_s_valid[y][x]),
-                    .ready_in_s    (in_s_ready),
 
                     // East
                     .data_in_e     (in_e_data),
-                    .valid_in_e    (in_e_valid),
-                    .ready_out_e   (tile_out_e_ready[y][x]),
                     .data_out_e    (tile_out_e_data[y][x]),
                     .valid_out_e   (tile_out_e_valid[y][x]),
-                    .ready_in_e    (in_e_ready),
 
                     // West
                     .data_in_w     (in_w_data),
-                    .valid_in_w    (in_w_valid),
-                    .ready_out_w   (tile_out_w_ready[y][x]),
                     .data_out_w    (tile_out_w_data[y][x]),
                     .valid_out_w   (tile_out_w_valid[y][x]),
-                    .ready_in_w    (in_w_ready),
 
                     // B4: Branch
                     .branch_target_o(tile_branch_target[y][x]),
