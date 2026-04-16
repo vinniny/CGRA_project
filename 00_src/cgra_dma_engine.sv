@@ -203,17 +203,23 @@ module cgra_dma_engine #(
 
     localparam MAX_BURST_WORDS = FIFO_DEPTH;
 
-    // 4KB boundary protection — bursts cannot cross 4KB pages
-    wire [11:0] addr_offset      = read_addr[11:0];
-    wire [31:0] words_to_boundary = (32'd4096 - {20'd0, addr_offset}) >> 2;
+    // Clamp word count to a single 4KB page; guard against zero (unaligned boundary underflow).
+    function automatic [31:0] clamp_to_4kb (
+        input [31:0] words_in,
+        input [11:0] addr_offset
+    );
+        logic [31:0] to_boundary, raw;
+        to_boundary = (32'd4096 - {20'd0, addr_offset}) >> 2;
+        raw         = (words_in > to_boundary) ? to_boundary : words_in;
+        return      (raw == '0) ? 32'd1 : raw;
+    endfunction
+
+    // Read burst size: FIFO-capped, row-capped (2D mode), then 4KB-clamped
     wire [31:0] len_limit_fifo   = (read_words_remaining > MAX_BURST_WORDS)
                                    ? MAX_BURST_WORDS : read_words_remaining;
     wire [31:0] len_limit_row    = (read_2d_mode && (read_row_words_remaining < len_limit_fifo))
                                    ? read_row_words_remaining : len_limit_fifo;
-    wire [31:0] words_this_burst_raw = (len_limit_row > words_to_boundary)
-                                       ? words_to_boundary : len_limit_row;
-    // Guard zero (unaligned addr at 4KB boundary underflows to ARLEN=255)
-    wire [31:0] words_this_burst = (words_this_burst_raw == '0) ? 32'd1 : words_this_burst_raw;
+    wire [31:0] words_this_burst = clamp_to_4kb(len_limit_row, read_addr[11:0]);
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -246,22 +252,6 @@ module cgra_dma_engine #(
                 R_DATA: begin
                     r_state <= R_DRAIN;
                     m_axi_rready <= 1'b1;
-                end
-                R_DRAIN: begin
-                    if (m_axi_arvalid) begin
-                        if (m_axi_arready) begin
-                            m_axi_arvalid <= 1'b0;
-                            m_axi_rready <= 1'b1;
-                        end
-                    end else if (m_axi_rvalid) begin
-                        m_axi_rready <= 1'b1;
-                        if (m_axi_rready && m_axi_rlast) begin
-                            m_axi_rready <= 1'b0;
-                            r_state <= R_IDLE;
-                        end
-                    end else if (!m_axi_rready) begin
-                        r_state <= R_IDLE;
-                    end
                 end
                 default: begin
                     r_state <= R_IDLE;
@@ -387,21 +377,10 @@ module cgra_dma_engine #(
     assign m_axi_awburst = 2'b01;
     assign m_axi_wstrb   = {(DATA_WIDTH/8){1'b1}};
 
-    logic [11:0] write_addr_offset;
-    logic [31:0] words_to_write_boundary;
-    logic [31:0] len_limit_fifo_write;
-    logic [31:0] words_this_write_burst;
-
-    always_comb begin
-        write_addr_offset       = write_addr[11:0];
-        words_to_write_boundary = (32'd4096 - {20'd0, write_addr_offset}) >> 2;
-        len_limit_fifo_write    = (write_words_remaining > MAX_BURST_WORDS)
-                                  ? MAX_BURST_WORDS : write_words_remaining;
-        words_this_write_burst  = (len_limit_fifo_write > words_to_write_boundary)
-                                  ? words_to_write_boundary : len_limit_fifo_write;
-        if (words_this_write_burst == '0) words_this_write_burst = 32'd1;
-    end
-
+    // Write burst size: FIFO-capped then 4KB-clamped (no row limit on write path)
+    wire [31:0] len_limit_w = (write_words_remaining > MAX_BURST_WORDS)
+                               ? MAX_BURST_WORDS : write_words_remaining;
+    wire [31:0] words_this_write_burst = clamp_to_4kb(len_limit_w, write_addr[11:0]);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -467,45 +446,6 @@ module cgra_dma_engine #(
                         w_state <= W_IDLE;
                     end else begin
                         w_state <= W_DRAIN;
-                    end
-                end
-                W_DRAIN: begin
-                    if (m_axi_awvalid) begin
-                        if (m_axi_awready) begin
-                            m_axi_awvalid <= 1'b0;
-                            write_beat_counter <= '0;
-                            m_axi_wdata <= '0;
-                            m_axi_wlast <= (write_burst_len == 8'd0);
-                            m_axi_wvalid <= 1'b1;
-                        end
-                    end else if (m_axi_wvalid) begin
-                        if (m_axi_wready) begin
-                            if (write_beat_counter == write_burst_len) begin
-                                m_axi_wvalid <= 1'b0;
-                                m_axi_wlast <= 1'b0;
-                                m_axi_bready <= 1'b1;
-                            end else begin
-                                write_beat_counter <= write_beat_counter + 8'd1;
-                                m_axi_wdata <= '0;
-                                m_axi_wlast <= ((write_beat_counter + 8'd1) == write_burst_len);
-                                m_axi_wvalid <= 1'b1;
-                            end
-                        end
-                    end else if (m_axi_bready) begin
-                        if (m_axi_bvalid) begin
-                            m_axi_bready <= 1'b0;
-                            write_data_reg_valid <= 1'b0;
-                            write_beat_counter <= '0;
-                            w_state <= W_IDLE;
-                        end
-                    end else begin
-                        if (write_beat_counter <= write_burst_len) begin
-                            m_axi_wdata <= '0;
-                            m_axi_wlast <= (write_beat_counter == write_burst_len);
-                            m_axi_wvalid <= 1'b1;
-                        end else begin
-                            m_axi_bready <= 1'b1;
-                        end
                     end
                 end
                 default: begin
