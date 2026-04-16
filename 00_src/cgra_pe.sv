@@ -158,8 +158,10 @@ module cgra_pe #(
     
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            for (int i = 0; i < RF_DEPTH; i++)
-                rf_mem[i] <= '0;
+            rf_mem[0]  <= '0; rf_mem[1]  <= '0; rf_mem[2]  <= '0; rf_mem[3]  <= '0;
+            rf_mem[4]  <= '0; rf_mem[5]  <= '0; rf_mem[6]  <= '0; rf_mem[7]  <= '0;
+            rf_mem[8]  <= '0; rf_mem[9]  <= '0; rf_mem[10] <= '0; rf_mem[11] <= '0;
+            rf_mem[12] <= '0; rf_mem[13] <= '0; rf_mem[14] <= '0; rf_mem[15] <= '0;
         end else if (rf_we && !stall) begin
             rf_mem[rf_waddr] <= rf_wdata;
         end

@@ -77,8 +77,10 @@ module cgra_result_fifo #(
     // =========================================================================
     always_ff @(posedge clk) begin
         if (do_push) begin
-            for (int r = 0; r < ROWS; r++)
-                mem[r][wr_ptr] <= push_data[r];
+            mem[0][wr_ptr] <= push_data[0];
+            mem[1][wr_ptr] <= push_data[1];
+            mem[2][wr_ptr] <= push_data[2];
+            mem[3][wr_ptr] <= push_data[3];
         end
     end
 
@@ -119,8 +121,10 @@ module cgra_result_fifo #(
     // BRAM synchronous read
     always_ff @(posedge clk) begin
         if (issue_bram_read) begin
-            for (int r = 0; r < ROWS; r++)
-                bram_rd[r] <= mem[r][bram_rd_addr];
+            bram_rd[0] <= mem[0][bram_rd_addr];
+            bram_rd[1] <= mem[1][bram_rd_addr];
+            bram_rd[2] <= mem[2][bram_rd_addr];
+            bram_rd[3] <= mem[3][bram_rd_addr];
         end
     end
 
@@ -131,12 +135,12 @@ module cgra_result_fifo #(
     //   2. Pop of last entry — invalidate prefetch
     always_ff @(posedge clk) begin
         if (!rst_n || fifo_clear) begin
-            for (int r = 0; r < ROWS; r++)
-                prefetch_reg[r] <= '0;
+            prefetch_reg[0] <= '0; prefetch_reg[1] <= '0;
+            prefetch_reg[2] <= '0; prefetch_reg[3] <= '0;
             prefetch_valid <= 1'b0;
         end else if (bram_rd_pending) begin
-            for (int r = 0; r < ROWS; r++)
-                prefetch_reg[r] <= bram_rd[r];
+            prefetch_reg[0] <= bram_rd[0]; prefetch_reg[1] <= bram_rd[1];
+            prefetch_reg[2] <= bram_rd[2]; prefetch_reg[3] <= bram_rd[3];
             prefetch_valid <= 1'b1;
         end else if (do_pop && (fifo_count == 1)) begin
             prefetch_valid <= 1'b0;
@@ -145,10 +149,10 @@ module cgra_result_fifo #(
 
     // Output
     assign pop_valid = prefetch_valid;
-    always_comb begin
-        for (int r = 0; r < ROWS; r++)
-            pop_data[r] = prefetch_reg[r];
-    end
+    assign pop_data[0] = prefetch_reg[0];
+    assign pop_data[1] = prefetch_reg[1];
+    assign pop_data[2] = prefetch_reg[2];
+    assign pop_data[3] = prefetch_reg[3];
 
     // (debug probes removed after warmup skip calibration)
 
