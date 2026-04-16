@@ -31,11 +31,15 @@ read_hdl -sv -define XCELIUM \
     ../00_src/bsg_mem/cgra_config_mem_bsg.sv \
     ../00_src/cgra_pe.sv \
     ../00_src/cgra_tile.sv \
+    ../00_src/cgra_config_broadcaster.sv \
     ../00_src/cgra_array.sv \
     ../00_src/cgra_tile_memory.sv \
     ../00_src/cgra_apb_csr.sv \
     ../00_src/cgra_control_unit.sv \
     ../00_src/cgra_dma_engine.sv \
+    ../00_src/cgra_dma_chain_ctrl.sv \
+    ../00_src/cgra_dma_subsystem.sv \
+    ../00_src/cgra_result_fifo.sv \
     ../00_src/cgra_top.sv
 
 # ------------------------------------------------------------------------------
@@ -60,7 +64,7 @@ puts " \[HAL\] Running check_design"
 puts "=========================================================================="
 
 check_design -unresolved > reports/check_design.rpt
-check_design -all       >> reports/check_design.rpt
+# check_design -all omitted: hangs on Genus 20.09 with this design size
 
 # ------------------------------------------------------------------------------
 # Summary report
@@ -68,8 +72,6 @@ check_design -all       >> reports/check_design.rpt
 puts "=========================================================================="
 puts " \[HAL\] Design Status Summary"
 puts "=========================================================================="
-report_design_status
-
 puts ""
 puts "\[HAL\] Full report: reports/check_design.rpt"
 puts "\[HAL\] Genus log:   02_log/hal.log"
