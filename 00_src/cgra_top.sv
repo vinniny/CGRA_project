@@ -638,20 +638,9 @@ module cgra_top #(
     logic [DATA_WIDTH-1:0] edge_out_s [0:COLS-1];
     logic [DATA_WIDTH-1:0] edge_out_e [0:ROWS-1];
     logic [DATA_WIDTH-1:0] edge_out_w [0:ROWS-1];
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic                  edge_valid_out_n [0:COLS-1];
-    logic                  edge_valid_out_s [0:COLS-1];
-    logic                  edge_valid_out_e [0:ROWS-1];
-    logic                  edge_valid_out_w [0:ROWS-1];
-    /* verilator lint_on UNUSEDSIGNAL */
-
     // Tie-off array for unused edge data inputs
     logic [DATA_WIDTH-1:0] edge_zero_data [0:3];
     assign edge_zero_data  = '{default: '0};
-
-    // PEs use BRAM for programming; static config_frame tied to zeros.
-    logic [63:0] config_frame_zeros [0:ROWS*COLS-1];
-    assign config_frame_zeros = '{default: 64'd0};
 
     cgra_array #(
         .ROWS(ROWS),
@@ -667,8 +656,8 @@ module cgra_top #(
         .clk(clk),
         .rst_n(rst_n & pe_reset_n),
 
-        // Config (unused — PEs use internal BRAM)
-        .config_frame(config_frame_zeros),
+        // PEs use BRAM for programming; config_frame port tied to zeros
+        .config_frame('{default: 64'd0}),
         .config_valid(1'b0),
 
         // Multi-context + config write
@@ -687,15 +676,15 @@ module cgra_top #(
         // West edge inputs — from Tile Memory
         .edge_data_in_w(row_data),
 
-        // Edge outputs
+        // Edge data outputs (valid outputs not consumed at top level)
         .edge_data_out_n(edge_out_n),
-        .edge_valid_out_n(edge_valid_out_n),
+        .edge_valid_out_n(),
         .edge_data_out_s(edge_out_s),
-        .edge_valid_out_s(edge_valid_out_s),
+        .edge_valid_out_s(),
         .edge_data_out_e(edge_out_e),
-        .edge_valid_out_e(edge_valid_out_e),
+        .edge_valid_out_e(),
         .edge_data_out_w(edge_out_w),
-        .edge_valid_out_w(edge_valid_out_w),
+        .edge_valid_out_w(),
 
         // B4: Branch from PE[0][0]
         .branch_target_o(array_branch_target),
