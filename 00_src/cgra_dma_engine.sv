@@ -180,7 +180,6 @@ module cgra_dma_engine #(
     // =========================================================================
     logic [31:0] read_addr;
     logic [31:0] read_words_remaining;
-    logic [7:0]  current_burst_len;  // Current burst length (ARLEN value, 0-indexed)
     logic        read_2d_mode;
     logic [31:0] read_row_base_addr;
     logic [31:0] read_row_stride;
@@ -287,7 +286,6 @@ module cgra_dma_engine #(
                         if ((32'(FIFO_DEPTH) - 32'(count)) >= words_this_burst && read_words_remaining != '0) begin
                             m_axi_araddr <= read_addr;
                             m_axi_arlen <= words_this_burst[7:0] - 8'd1;
-                            current_burst_len <= words_this_burst[7:0] - 8'd1;
                             m_axi_arvalid <= 1'b1;
                         end
                     end else if (m_axi_arready) begin
@@ -331,7 +329,7 @@ module cgra_dma_engine #(
                                             read_rows_remaining <= read_rows_remaining - 1'b1;
                                         read_row_words_remaining <= read_cols_words;
                                     end else begin
-                                        read_addr <= read_addr + ((32'(current_burst_len) + 32'd1) * BYTES_PER_WORD);
+                                        read_addr <= read_addr + ((32'(m_axi_arlen) + 32'd1) * BYTES_PER_WORD);
                                     end
                                     r_state <= R_ADDR;
                                 end
