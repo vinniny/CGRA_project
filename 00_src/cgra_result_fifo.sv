@@ -45,10 +45,12 @@ module cgra_result_fifo #(
 );
 
     // =========================================================================
-    // BRAM Storage (4 independent arrays, shared pointers)
+    // BRAM Storage (4 independent 1-D arrays → Vivado infers 4 BRAMs)
     // =========================================================================
-    (* ram_style = "block" *)
-    logic [DATA_WIDTH-1:0] mem [0:ROWS-1][0:DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem0 [0:DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem1 [0:DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem2 [0:DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem3 [0:DEPTH-1];
 
     logic [ADDR_BITS-1:0] wr_ptr;
     logic [ADDR_BITS-1:0] rd_ptr;
@@ -77,10 +79,10 @@ module cgra_result_fifo #(
     // =========================================================================
     always_ff @(posedge clk) begin
         if (do_push) begin
-            mem[0][wr_ptr] <= push_data[0];
-            mem[1][wr_ptr] <= push_data[1];
-            mem[2][wr_ptr] <= push_data[2];
-            mem[3][wr_ptr] <= push_data[3];
+            mem0[wr_ptr] <= push_data[0];
+            mem1[wr_ptr] <= push_data[1];
+            mem2[wr_ptr] <= push_data[2];
+            mem3[wr_ptr] <= push_data[3];
         end
     end
 
@@ -121,10 +123,10 @@ module cgra_result_fifo #(
     // BRAM synchronous read
     always_ff @(posedge clk) begin
         if (issue_bram_read) begin
-            bram_rd[0] <= mem[0][bram_rd_addr];
-            bram_rd[1] <= mem[1][bram_rd_addr];
-            bram_rd[2] <= mem[2][bram_rd_addr];
-            bram_rd[3] <= mem[3][bram_rd_addr];
+            bram_rd[0] <= mem0[bram_rd_addr];
+            bram_rd[1] <= mem1[bram_rd_addr];
+            bram_rd[2] <= mem2[bram_rd_addr];
+            bram_rd[3] <= mem3[bram_rd_addr];
         end
     end
 
