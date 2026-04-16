@@ -207,7 +207,6 @@ module cgra_pe #(
     logic [3:0]            dst_sel_r;
     logic [4:0]            route_mask_r;
     logic                  pred_en_r, pred_inv_r;
-    logic [15:0]           immediate_r;
     logic                  config_active_r;
     logic [DATA_WIDTH-1:0] spm_rdata_r;
     logic [PC_WIDTH-1:0]   branch_target_r;
@@ -223,7 +222,6 @@ module cgra_pe #(
             route_mask_r   <= '0;
             pred_en_r      <= 1'b0;
             pred_inv_r     <= 1'b0;
-            immediate_r    <= '0;
             config_active_r <= 1'b0;
             spm_rdata_r    <= '0;
             branch_target_r <= '0;
@@ -237,7 +235,6 @@ module cgra_pe #(
             route_mask_r   <= route_mask;
             pred_en_r      <= pred_en;
             pred_inv_r     <= pred_inv;
-            immediate_r    <= immediate;
             config_active_r <= config_active;
             spm_rdata_r    <= spm_rdata;
             branch_target_r <= branch_target;
@@ -387,7 +384,6 @@ module cgra_pe #(
     logic [31:0] operand0_r2, operand1_r2;  // For simple ops
     logic [3:0]  dst_sel_r2;
     logic [4:0]  route_mask_r2;
-    logic        pred_en_r2, pred_inv_r2;
     logic [31:0] spm_rdata_r2;
     logic [PC_WIDTH-1:0] branch_target_r2;
     logic        branch_en_r2;
@@ -409,8 +405,6 @@ module cgra_pe #(
             operand1_r2      <= '0;
             dst_sel_r2       <= '0;
             route_mask_r2    <= '0;
-            pred_en_r2       <= 1'b0;
-            pred_inv_r2      <= 1'b0;
             spm_rdata_r2     <= '0;
             branch_target_r2 <= '0;
             branch_en_r2     <= 1'b0;
@@ -430,8 +424,6 @@ module cgra_pe #(
             operand1_r2      <= operand1_r;
             dst_sel_r2       <= dst_sel_r;
             route_mask_r2    <= route_mask_r;
-            pred_en_r2       <= pred_en_r;
-            pred_inv_r2      <= pred_inv_r;
             spm_rdata_r2     <= spm_rdata_r;
             branch_target_r2 <= branch_target_r;
             branch_en_r2     <= branch_en_r;

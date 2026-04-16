@@ -183,7 +183,6 @@ module cgra_dma_engine #(
     logic        read_2d_mode;
     logic [31:0] read_row_base_addr;
     logic [31:0] read_row_stride;
-    logic [31:0] read_rows_remaining;
     logic [31:0] read_cols_words;
     logic [31:0] read_row_words_remaining;
     
@@ -228,10 +227,8 @@ module cgra_dma_engine #(
             read_2d_mode <= 1'b0;
             read_row_base_addr <= '0;
             read_row_stride <= '0;
-            read_rows_remaining <= '0;
             read_cols_words <= '0;
             read_row_words_remaining <= '0;
-            current_burst_len <= '0;
             m_axi_araddr <= '0;
             m_axi_arlen <= '0;
             m_axi_arvalid <= 1'b0;
@@ -241,7 +238,6 @@ module cgra_dma_engine #(
         end else if (cfg_abort && r_state != R_DRAIN) begin
             read_words_remaining <= '0;
             read_2d_mode <= 1'b0;
-            read_rows_remaining <= '0;
             read_row_words_remaining <= '0;
             if (src_is_tile) begin
                 r_state <= R_IDLE;
@@ -268,7 +264,6 @@ module cgra_dma_engine #(
                         read_2d_mode <= cfg_2d_mode;
                         read_row_base_addr <= cfg_src;
                         read_row_stride <= cfg_src_stride;
-                        read_rows_remaining <= cfg_2d_mode ? cfg_rows : 32'd1;
                         read_cols_words <= cfg_2d_mode ? cfg_cols_words : cfg_transfer_words;
                         read_row_words_remaining <= cfg_2d_mode ? cfg_cols_words : cfg_transfer_words;
                         read_addr <= cfg_src;
@@ -325,8 +320,6 @@ module cgra_dma_engine #(
                                     if (read_2d_mode && (read_row_words_remaining == 32'd1)) begin
                                         read_row_base_addr <= read_row_base_addr + read_row_stride;
                                         read_addr <= read_row_base_addr + read_row_stride;
-                                        if (read_rows_remaining > 0)
-                                            read_rows_remaining <= read_rows_remaining - 1'b1;
                                         read_row_words_remaining <= read_cols_words;
                                     end else begin
                                         read_addr <= read_addr + ((32'(m_axi_arlen) + 32'd1) * BYTES_PER_WORD);

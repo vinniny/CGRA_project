@@ -82,10 +82,6 @@ module cgra_apb_csr #(
 
     // Result FIFO
     output logic [3:0]            result_skip_count,    // warmup skip (default 13)
-    input  logic                  result_overflow_i,    // pulse from FIFO
-    input  logic                  result_underflow_i,   // pulse from FIFO
-    input  logic [8:0]            result_fifo_count_i,
-    input  logic                  result_fifo_pop_valid_i,
 
     // Scatter-Gather DMA
     output logic [31:0]           dma_desc_head,        // descriptor chain head pointer
@@ -174,8 +170,6 @@ module cgra_apb_csr #(
     logic [31:0] reg_tile_auto_inc;
     logic [31:0] reg_result_skip;
     logic [31:0] reg_dma_desc_head;
-    logic        result_overflow_sticky;
-    logic        result_underflow_sticky;
 
     logic        dma_done_latch;
     logic        cu_done_latch;
@@ -267,8 +261,6 @@ module cgra_apb_csr #(
             reg_tile_bank_sel  <= 32'd0;
             reg_tile_auto_inc  <= 32'd0;
             reg_result_skip    <= 32'd13;  // 3-stage PE x 3 hops + router pipeline warmup
-            result_overflow_sticky  <= 1'b0;
-            result_underflow_sticky <= 1'b0;
             reg_dma_desc_head  <= 32'd0;
         end else begin
             if (apb_write) begin
@@ -293,11 +285,6 @@ module cgra_apb_csr #(
                     ADDR_TILE_AUTO_INC:  if (cu_wr_ok)   reg_tile_auto_inc  <= pwdata;
                     ADDR_RESULT_SKIP:    if (cu_wr_ok)   reg_result_skip    <= pwdata;
                     ADDR_DMA_DESC_HEAD:  if (dma_wr_ok)  reg_dma_desc_head  <= pwdata;
-                    // RESULT_STATUS W1C: bits [10:9] clear sticky FIFO flags
-                    8'h44: begin
-                        if (pwdata[9])  result_overflow_sticky  <= 1'b0;
-                        if (pwdata[10]) result_underflow_sticky <= 1'b0;
-                    end
                     default: ;
                 endcase
             end
@@ -307,8 +294,6 @@ module cgra_apb_csr #(
             if (reg_dma_ctrl[1] && !apb_w_dma_ctrl) reg_dma_ctrl[1] <= 1'b0;
             if (reg_cu_ctrl[0]  && !apb_w_cu_ctrl)  reg_cu_ctrl[0]  <= 1'b0;
 
-            if (result_overflow_i)  result_overflow_sticky  <= 1'b1;
-            if (result_underflow_i) result_underflow_sticky <= 1'b1;
         end
     end
     

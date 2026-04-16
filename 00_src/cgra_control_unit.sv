@@ -103,8 +103,6 @@ module cgra_control_unit #(
     logic [PC_WIDTH-1:0]  loop_start_reg;
     logic [PC_WIDTH-1:0]  loop_end_reg;
     logic [15:0]          loop2_count_reg;
-    logic [PC_WIDTH-1:0]  loop2_start_reg;
-    logic [PC_WIDTH-1:0]  loop2_end_reg;
     logic [15:0]          loop1_count_reload;  // L1 count saved for reload per L2 iteration
 
     assign timeout_reached = (max_cycles_reg != 32'd0) && (wall_counter >= max_cycles_reg);
@@ -163,8 +161,6 @@ module cgra_control_unit #(
             loop_start_reg <= '0;
             loop_end_reg   <= '0;
             loop2_count_reg <= 16'd0;
-            loop2_start_reg <= '0;
-            loop2_end_reg   <= '0;
             loop1_count_reload <= 16'd0;
             tile_base_offset <= 8'd0;
         end else begin
@@ -183,9 +179,7 @@ module cgra_control_unit #(
                     loop_count_reg <= 16'd0;
                 else
                     loop_count_reg <= loop_count_i;
-                // B3: Latch nested loop (level 2) parameters
-                loop2_start_reg <= loop2_start_pc_i[PC_WIDTH-1:0];
-                loop2_end_reg   <= loop2_end_pc_i[PC_WIDTH-1:0];
+                // B3: Latch nested loop (level 2) count (bounds unused: L2 shares L1 jump-back)
                 if (loop2_count_i > 16'd0 &&
                     loop2_start_pc_i[PC_WIDTH-1:0] > loop2_end_pc_i[PC_WIDTH-1:0])
                     loop2_count_reg <= 16'd0;
