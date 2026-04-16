@@ -1,44 +1,16 @@
 // ==============================================================================
-// CGRA Top-Level Integration - v2.4
+// CGRA Top-Level Integration
 // ==============================================================================
-// A 4x4 Coarse-Grained Reconfigurable Array accelerator with APB control,
-// AXI4-Lite DMA master, and neuromorphic (LIF) support.
+// 4×4 CGRA accelerator with APB control, AXI4 DMA, and neuromorphic support.
 //
 // COMPONENTS:
-//   - APB CSR Interface (cgra_axi_csr) - 11 registers
-//   - Pipelined DMA Engine (cgra_dma_engine) with 32-word FIFO
-//   - Control Unit (cgra_control_unit) with 3-state FSM + auto-stop
-//   - 4-Bank Tile Memory (cgra_tile_memory) with context_pc streaming  
-//   - 4x4 PE Array (cgra_array_4x4) with mesh broadcast
-//
-// FEATURES:
-//   - Auto-Stop: Programmable timeout via 0x2C register
-//   - Synthesis Keeper: OR-reduce of all edge outputs
-//   - Double-Pump Config: 32→64 bit configuration loader
-//   - Mesh Broadcast: PE outputs → all 4 neighbors
-//   - 21-Op ISA: Includes LIF neuron, RELU, MAX for neuromorphic/ANN
-//
-// APB REGISTER MAP:
-//   0x00  DMA_CTRL    [0] Start (auto-clear)
-//   0x04  DMA_STATUS  [0] Busy, [1] Done
-//   0x08  DMA_SRC     Source address
-//   0x0C  DMA_DST     Destination address
-//   0x10  DMA_SIZE    Transfer size (bytes)
-//   0x20  CU_CTRL     [0] Start, [1] Soft Reset
-//   0x24  CU_STATUS   [0] Busy, [1] Done
-//   0x28  CU_CYCLES   Cycle counter (read-only)
-//   0x2C  CU_TIMEOUT  Max cycles (0 = no limit)
-//   0x30  IRQ_STATUS  [0] DMA Done, [1] CU Done
-//   0x34  IRQ_MASK    IRQ enable mask
-//   0x48  LOOP_START  Hardware loop start PC      [NEW - LPR]
-//   0x4C  LOOP_END    Hardware loop end PC         [NEW - LPR]
-//   0x50  LOOP_COUNT  Hardware loop iteration count [NEW - LPR]
-//   0x58  RESULT_ROW0 East-edge result row 0 (RO)  [NEW - LPR]
-//   0x5C  RESULT_ROW1 East-edge result row 1 (RO)  [NEW - LPR]
-//   0x60  RESULT_ROW2 East-edge result row 2 (RO)  [NEW - LPR]
-//   0x64  RESULT_ROW3 East-edge result row 3 (RO)  [NEW - LPR]
-//
-// VERIFICATION: All 38 suites pass (21-op ISA, Silicon Ready)
+//   - APB CSR (cgra_apb_csr)       — 29 registers (0x00-0x78)
+//   - Config Broadcaster            — slot-0 replay to slots 1-15
+//   - DMA Subsystem (engine + SG)   — AXI4 burst master, 32-word FIFO
+//   - Control Unit                  — nested HW loops, dynamic branch, timeout
+//   - Tile Memory (4 banks × 4KB)   — double-buffered, DMA-writable
+//   - 4×4 PE Array (mesh broadcast) — 21-op ISA, 40-bit MAC
+//   - Result FIFO (256-entry × 4)   — east-edge capture, pop-on-write
 // ==============================================================================
 
 module cgra_top #(
@@ -189,7 +161,6 @@ module cgra_top #(
     logic                  result_fifo_pop_valid;
     logic                  result_fifo_pop_read;
     logic                  result_fifo_full;
-    logic                  result_fifo_empty;
     logic [8:0]            result_fifo_count;
     logic                  result_fifo_overflow;
     logic                  result_fifo_underflow;
@@ -740,7 +711,7 @@ module cgra_top #(
         .fifo_clear(result_fifo_clear),
         .skip_count(result_skip_count),
         .count(result_fifo_count),
-        .empty(result_fifo_empty),
+        .empty(),
         .overflow_pulse(result_fifo_overflow),
         .underflow_pulse(result_fifo_underflow)
     );
