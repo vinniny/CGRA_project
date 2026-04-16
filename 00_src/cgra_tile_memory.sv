@@ -123,12 +123,14 @@ module cgra_tile_memory #(
     // behavior; the CU's global_stall gating should prevent this in practice.
     always_ff @(posedge clk) begin
         if (rst_n) begin
-            for (int i = 0; i < NUM_BANKS; i++) begin
-                if (bank_write[i] && ext_write && ext_bank_sel == i[1:0])
-                    $fatal(0, "[TILE_MEM] Simultaneous bank%0d_write + ext_write — data corruption", i);
-                if (bank_read[i] && ext_read && ext_bank_sel == i[1:0])
-                    $error("[TILE_MEM] Simultaneous bank%0d_read + ext_read — bank gets ext data", i);
-            end
+            if (bank_write[0] && ext_write && ext_bank_sel == 2'd0) $fatal(0, "[TILE_MEM] Simultaneous bank0_write + ext_write — data corruption");
+            if (bank_read[0]  && ext_read  && ext_bank_sel == 2'd0) $error("[TILE_MEM] Simultaneous bank0_read + ext_read — bank gets ext data");
+            if (bank_write[1] && ext_write && ext_bank_sel == 2'd1) $fatal(0, "[TILE_MEM] Simultaneous bank1_write + ext_write — data corruption");
+            if (bank_read[1]  && ext_read  && ext_bank_sel == 2'd1) $error("[TILE_MEM] Simultaneous bank1_read + ext_read — bank gets ext data");
+            if (bank_write[2] && ext_write && ext_bank_sel == 2'd2) $fatal(0, "[TILE_MEM] Simultaneous bank2_write + ext_write — data corruption");
+            if (bank_read[2]  && ext_read  && ext_bank_sel == 2'd2) $error("[TILE_MEM] Simultaneous bank2_read + ext_read — bank gets ext data");
+            if (bank_write[3] && ext_write && ext_bank_sel == 2'd3) $fatal(0, "[TILE_MEM] Simultaneous bank3_write + ext_write — data corruption");
+            if (bank_read[3]  && ext_read  && ext_bank_sel == 2'd3) $error("[TILE_MEM] Simultaneous bank3_read + ext_read — bank gets ext data");
         end
     end
     // synthesis translate_on
