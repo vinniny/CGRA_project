@@ -120,7 +120,7 @@ device to capture traces if any future test fails.
 ## Architecture
 
 ```
-Host CPU (APB) -> APB CSR (28 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
+Host CPU (APB) -> APB CSR (29 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
                                      -> DMA Engine (AXI4 master, 32-word FIFO, 2D strided) <-> AXI RAM
                                      -> Tile Memory (4 banks * 4096 * 32b, double-buffered)
                                      -> 4x4 PE Array (parameterized mesh, broadcast routing)

@@ -1,7 +1,7 @@
 # ==============================================================================
 # CGRA Project Makefile - Cadence Xcelium / Genus / Conformal Flow
 # ==============================================================================
-# Version: 2.6.0 | March 2026
+# Version: 2.7.0 | April 2026
 # ==============================================================================
 SHELL := /bin/bash
 
@@ -131,7 +131,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
         hw_server_start hw_server_stop hw_server_check \
         program fpga_status run_elf reg_read reg_write reg_dump \
         pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
-        baremetal run_baremetal demo run_demo
+        baremetal run_baremetal demo run_demo bench bench_res bench_tai
 
 # ==============================================================================
 # Default Target
@@ -177,9 +177,9 @@ help:
 	@echo "   make full         - Run complete flow (sim + syn + lec)"
 	@echo ""
 	@echo " Utility Targets:"
-	@echo "   make lint         - Run Xcelium lint checks"
 	@echo "   make clean        - Remove simulation artifacts"
 	@echo "   make clean-all    - Remove all generated files"
+	@echo "   make check_tools  - Verify Cadence tool availability"
 	@echo ""
 	@echo " Options:"
 	@echo "   SEED=N                  - Set random seed (default: timestamp)"
@@ -202,7 +202,7 @@ help:
 	@echo "   make run_elf ELF=<f> BIT=<b>        - Program PL + run ELF"
 	@echo "   make reg_read REG=<name>            - Read single CGRA register"
 	@echo "   make reg_write REG=<name> VAL=<val> - Write CGRA register"
-	@echo "   make reg_dump                       - Dump all 28 CGRA registers"
+	@echo "   make reg_dump                       - Dump all 29 CGRA registers"
 	@echo "   make hw_server_start                - Start Xilinx hw_server"
 	@echo "   make hw_server_stop                 - Stop hw_server"
 	@echo ""
@@ -226,6 +226,9 @@ help:
 	@echo "   make run_baremetal        - Build + program FPGA + load ELF + UART monitor"
 	@echo "   make demo                 - Build ASCII Image Accelerator demo ELF (Vitis BSP)"
 	@echo "   make run_demo             - Build + program FPGA + load demo + UART monitor"
+	@echo "   make bench                - Build bench_cgra.elf (11-category HW benchmark)"
+	@echo "   make bench_res            - Build bench_resolution.elf (resolution sweep)"
+	@echo "   make bench_tai            - Build bench_tile_autoinc.elf (tile auto-inc verification)"
 	@echo "=========================================================================="
 
 # ==============================================================================
@@ -848,6 +851,27 @@ run_demo: demo program
 		--hw-host $(HW_HOST) \
 		2>&1 | tee $(LOG_DIR)/demo_run_elf.log
 	@echo "[RUN_DEMO] ELF running. UART log: $(LOG_DIR)/demo_uart.log"
+
+# ------------------------------------------------------------------------------
+# HW benchmark ELFs (arm-none-eabi-gcc, run via make run_elf)
+# ------------------------------------------------------------------------------
+bench:
+	@echo "=========================================================================="
+	@echo " [BENCH] Building bench_cgra.elf (11-category HW benchmark)"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) bench
+
+bench_res:
+	@echo "=========================================================================="
+	@echo " [BENCH_RES] Building bench_resolution.elf (resolution sweep)"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) bench_res
+
+bench_tai:
+	@echo "=========================================================================="
+	@echo " [BENCH_TAI] Building bench_tile_autoinc.elf (tile auto-inc verification)"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) bench_tai
 
 # ------------------------------------------------------------------------------
 # One-command deploy: pull bitstream + program FPGA
