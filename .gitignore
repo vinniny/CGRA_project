@@ -337,7 +337,7 @@ xcelium.args
 # Project Specific
 # ==============================================================================
 .claude/
-CGRA_opencores/extracted/
+CGRA_opencores/
 # Ensure empty output directories are tracked
 !03_sim/.gitkeep
 !04_syn/.gitkeep
