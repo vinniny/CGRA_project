@@ -806,7 +806,7 @@ pull_all: pull_bit pull_ps7 pull_hwh
 # BARE-METAL TARGETS
 # ==============================================================================
 BAREMETAL_DIR := 07_sw/baremetal
-UART_PORT     ?= /dev/ttyUSB2
+UART_PORT     ?= /dev/ttyUSB0
 UART_BAUD     ?= 115200
 
 baremetal:
