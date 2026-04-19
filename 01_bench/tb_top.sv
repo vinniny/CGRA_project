@@ -188,6 +188,7 @@ module tb_top;
     `include "include/tb_suite_tile_autoinc.svh"    // Suite TAI: Tile Auto-Increment
     `include "include/tb_suite_result_fifo.svh"   // Suite RF: Result FIFO
     `include "include/tb_suite_sg_dma.svh"        // Suite SG: Scatter-Gather DMA
+    `include "include/tb_suite_opencores_dma.svh" // Suite OC: OpenCores LFSR DMA Integrity
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -262,6 +263,19 @@ module tb_top;
 
     logic axi_arready_reg, axi_rvalid_reg;
 
+    // ── Deterministic backpressure LFSRs ─────────────────────────────────────
+    // Three independent 32-bit Galois LFSRs with different seeds replace
+    // $urandom_range in ARREADY/AWREADY/WREADY — patterns are now reproducible
+    // regardless of simulation SEED. Seeds chosen to decorrelate the channels.
+    logic [31:0] lfsr_ar_out, lfsr_aw_out, lfsr_w_out;
+
+    lfsr_32 #(.SEED_VALUE(32'h1ACA_3107)) u_lfsr_ar (
+        .reset(~rst_n), .clock(clk), .out(lfsr_ar_out));
+    lfsr_32 #(.SEED_VALUE(32'hDEAD_BEEF)) u_lfsr_aw (
+        .reset(~rst_n), .clock(clk), .out(lfsr_aw_out));
+    lfsr_32 #(.SEED_VALUE(32'hC0FF_EE42)) u_lfsr_w  (
+        .reset(~rst_n), .clock(clk), .out(lfsr_w_out));
+
     assign axi_arready = axi_arready_reg;
     assign axi_rvalid = axi_rvalid_reg;
     assign axi_rid = r_id_reg;      // Echo captured ARID as RID
@@ -287,7 +301,7 @@ module tb_top;
         end else begin
             case (r_state)
                 R_IDLE: begin
-                    if (!stress_enable || $urandom_range(0,100) >= stress_probability)
+                    if (!stress_enable || lfsr_ar_out[6:0] >= stress_probability)
                         axi_arready_reg <= 1'b1;
                     else
                         axi_arready_reg <= 1'b0;
@@ -343,7 +357,7 @@ module tb_top;
             axi_waddr_next <= 32'd0;
             w_id_reg <= 4'd0;
         end else begin
-            if (stress_enable && $urandom_range(0,100) < stress_probability)
+            if (stress_enable && lfsr_aw_out[6:0] < stress_probability)
                 axi_awready_reg <= 1'b0;
             else
                 axi_awready_reg <= 1'b1;
@@ -378,7 +392,7 @@ module tb_top;
         if (!rst_n) begin
             axi_wready_reg <= 1'b1;
         end else begin
-            if (stress_enable && $urandom_range(0,100) < stress_probability)
+            if (stress_enable && lfsr_w_out[6:0] < stress_probability)
                 axi_wready_reg <= 1'b0;
             else
                 axi_wready_reg <= 1'b1;
@@ -658,6 +672,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_SG_sg_dma();
+
+        // =====================================================================
+        // Suite OC: OpenCores LFSR DMA Integrity
+        // =====================================================================
+        reset_dut(5);
+        run_suite_OC_opencores_dma();
 
         // Print functional coverage before finishing
         print_functional_coverage();
