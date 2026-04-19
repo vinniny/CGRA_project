@@ -100,10 +100,13 @@ module cgra_dma_engine #(
     assign fifo_full  = (count == FIFO_DEPTH);
     assign fifo_empty = (count == '0);
 
-    // Latched destination/source routing (captured on cfg_start)
-    logic dst_is_axi;
-    logic dst_is_tile;
-    logic dst_is_config;
+    // Latched destination routing (captured on cfg_start)
+    typedef enum logic [1:0] {
+        DST_AXI    = 2'd0,
+        DST_TILE   = 2'd1,
+        DST_CONFIG = 2'd2
+    } dst_kind_t;
+    dst_kind_t dst_kind;
     logic src_is_tile;
     logic tile_read_phase;
 
@@ -133,8 +136,8 @@ module cgra_dma_engine #(
 
     logic fifo_pop_axi, fifo_pop_local, fifo_pop;
     logic fifo_push_axi, fifo_push_tile, fifo_push;
-    assign fifo_pop_axi   = axi_fifo_pop && dst_is_axi && !fifo_empty;
-    assign fifo_pop_local = local_fifo_pop && !dst_is_axi && !fifo_empty;
+    assign fifo_pop_axi   = axi_fifo_pop && (dst_kind == DST_AXI) && !fifo_empty;
+    assign fifo_pop_local = local_fifo_pop && (dst_kind != DST_AXI) && !fifo_empty;
     assign fifo_pop       = fifo_pop_axi || fifo_pop_local;
     assign fifo_push_axi  = m_axi_rvalid && m_axi_rready && !fifo_full && r_state != R_DRAIN && !src_is_tile;
     assign fifo_push_tile = tile_rvalid_i && !fifo_full && src_is_tile && r_state == R_DATA && tile_read_phase;
@@ -387,9 +390,7 @@ module cgra_dma_engine #(
             w_state <= W_IDLE;
             write_addr <= '0;
             write_words_remaining <= '0;
-            dst_is_axi <= 1'b0;
-            dst_is_tile <= 1'b0;
-            dst_is_config <= 1'b0;
+            dst_kind <= DST_AXI;
             write_data_reg <= '0;
             write_data_reg_valid <= 1'b0;
             local_write_en <= 1'b0;
@@ -410,9 +411,7 @@ module cgra_dma_engine #(
             broadcast_bank_cnt <= 2'd0;
         end else if (cfg_abort && w_state != W_DRAIN) begin
             write_words_remaining <= '0;
-            dst_is_axi <= 1'b0;
-            dst_is_tile <= 1'b0;
-            dst_is_config <= 1'b0;
+            dst_kind       <= DST_AXI;
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
             axi_fifo_pop <= 1'b0;
@@ -438,26 +437,15 @@ module cgra_dma_engine #(
                     end
                     w_state <= W_DRAIN;
                 end
-                W_RESP: begin
-                    if (m_axi_bvalid && m_axi_bready) begin
-                        m_axi_bready <= 1'b0;
-                        write_data_reg_valid <= 1'b0;
-                        write_beat_counter <= '0;
-                        w_state <= W_IDLE;
-                    end else begin
-                        w_state <= W_DRAIN;
-                    end
-                end
+                W_RESP: w_state <= W_DRAIN; // W_DRAIN's bready path completes BRESP
                 default: begin
-                    w_state <= W_IDLE;
-                    local_write_en <= 1'b0;
-                    local_fifo_pop <= 1'b0;
                     write_data_reg_valid <= 1'b0;
-                    write_beat_counter <= '0;
-                    m_axi_awvalid <= 1'b0;
-                    m_axi_wlast <= 1'b0;
-                    m_axi_wvalid <= 1'b0;
-                    m_axi_bready <= 1'b0;
+                    write_beat_counter   <= '0;
+                    m_axi_awvalid        <= 1'b0;
+                    m_axi_wlast          <= 1'b0;
+                    m_axi_wvalid         <= 1'b0;
+                    m_axi_bready         <= 1'b0;
+                    w_state              <= W_IDLE;
                 end
             endcase
         end else begin
@@ -475,9 +463,9 @@ module cgra_dma_engine #(
                         // cfg_dst[31] = broadcast (multi-bank write)
                         write_addr <= {1'b0, cfg_dst[30:0]};
                         write_words_remaining <= cfg_transfer_words;
-                        dst_is_axi    <= (cfg_dst[31:28] == 4'h0) && !cfg_dst[31];
-                        dst_is_tile   <= (cfg_dst[31:28] == 4'h1) || cfg_dst[31];
-                        dst_is_config <= (cfg_dst[31:28] == 4'h2);
+                        dst_kind <= (cfg_dst[31:28] == 4'h2)                     ? DST_CONFIG :
+                                    ((cfg_dst[31:28] == 4'h1) || cfg_dst[31]) ? DST_TILE   :
+                                                                                 DST_AXI;
                         dst_broadcast <= cfg_dst[31];
                         w_state <= W_WAIT;
                     end
@@ -490,16 +478,16 @@ module cgra_dma_engine #(
                     axi_fifo_pop <= 1'b0;
 
                     if (!fifo_empty && write_words_remaining != '0) begin
-                        if (dst_is_axi) begin
+                        if (dst_kind == DST_AXI) begin
                             write_burst_len   <= words_this_write_burst[7:0] - 8'd1;
                             write_burst_words <= words_this_write_burst;
                             write_beat_counter <= '0;
                         end
                         write_data_reg       <= fifo_rdata;
                         write_data_reg_valid <= 1'b1;
-                        if (dst_is_axi) axi_fifo_pop <= 1'b1;
-                        else            local_fifo_pop <= 1'b1;
-                        w_state <= dst_is_axi ? W_ADDR : W_LOCAL;
+                        if (dst_kind == DST_AXI) axi_fifo_pop <= 1'b1;
+                        else                     local_fifo_pop <= 1'b1;
+                        w_state <= (dst_kind == DST_AXI) ? W_ADDR : W_LOCAL;
                     end else if (write_words_remaining == '0) begin
                         w_state <= W_IDLE;
                     end
@@ -508,7 +496,7 @@ module cgra_dma_engine #(
                 W_ADDR: begin
                     axi_fifo_pop <= 1'b0;
                     local_fifo_pop <= 1'b0;
-                    if (dst_is_axi) begin
+                    if (dst_kind == DST_AXI) begin
                         if (!m_axi_awvalid) begin
                             m_axi_awaddr <= write_addr;
                             m_axi_awlen <= write_burst_len;
@@ -608,7 +596,7 @@ module cgra_dma_engine #(
 
                 W_LOCAL: begin
                     local_fifo_pop <= 1'b0;
-                    if (dst_broadcast && dst_is_tile) begin
+                    if (dst_broadcast && dst_kind == DST_TILE) begin
                         // Broadcast: replicate word across 4 banks (bank_cnt 0..3)
                         local_write_addr <= {write_addr[31:14],
                                              broadcast_bank_cnt, write_addr[11:0]};
@@ -635,7 +623,7 @@ module cgra_dma_engine #(
         end
     end
 
-    // Tile / config output assignments (routed by dst_is_tile / dst_is_config)
+    // Tile / config output assignments (routed by dst_kind enum)
     logic tile_rd_en;
     assign tile_rd_en = src_is_tile && (r_state == R_DATA) && !tile_read_phase
                         && !fifo_full && (read_words_remaining != '0);
@@ -644,11 +632,11 @@ module cgra_dma_engine #(
     assign tile_bank_sel_o = src_is_tile ? read_addr[13:12]  : local_write_addr[13:12];
     assign tile_re_o       = tile_rd_en;
     assign tile_wdata_o    = write_data_reg;
-    assign tile_we_o       = local_write_en && dst_is_tile;
+    assign tile_we_o       = local_write_en && (dst_kind == DST_TILE);
 
     assign config_addr_o   = local_write_addr;
     assign config_wdata_o  = write_data_reg;
-    assign config_we_o     = local_write_en && dst_is_config;
+    assign config_we_o     = local_write_en && (dst_kind == DST_CONFIG);
 
     assign m_axi_awid = {AXI_ID_WIDTH{1'b0}};
     assign m_axi_arid = {AXI_ID_WIDTH{1'b0}};
