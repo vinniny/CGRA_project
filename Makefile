@@ -86,6 +86,7 @@ RTL_SRCS := \
 # Testbench files
 TB_SRCS := \
 	$(TB_DIR)/cgra_protocol_monitor.sv \
+	$(TB_DIR)/lfsr_32.v \
 	$(TB_DIR)/tb_top.sv
 
 # All sources for simulation
