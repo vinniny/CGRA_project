@@ -7,7 +7,7 @@
 *Version 4.0.0 | April 2026*
 
 [![Silicon Verified](https://img.shields.io/badge/Status-Silicon%20Verified-brightgreen)]()
-[![Sim Tests](https://img.shields.io/badge/Sim-8957%20PASS%20%7C%200%20FAIL-brightgreen)]()
+[![Sim Tests](https://img.shields.io/badge/Sim-9032%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![HW Tests](https://img.shields.io/badge/Hardware-96%20PASS%20%7C%200%20FAIL-brightgreen)]()
 [![ISA](https://img.shields.io/badge/ISA-21%20Operations%20(19%2F19%20verified%20on%20silicon)-blue)]()
 [![Perf/Watt](https://img.shields.io/badge/Perf%2FWatt-8.2x%20vs%20ARM-orange)]()
@@ -31,7 +31,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 - **Double-Buffered Tile Memory**: 4 banks × 4096 words (64 KB) with bank_sel for latency-hiding data swaps.
 - **Bi-Directional DMA**: AXI4 burst master, 32-word FIFO, 2D strided transfers, W_LOCAL fast-drain path. **76.3 MB/s measured peak** at 16 KB bulk transfer.
 - **Nested Hardware Loops**: 2-level zero-overhead loops with loop-aware auto-stop and tile address auto-increment.
-- **UVM-Inspired Verification**: 8957 tests, 26 suites (including tile auto-increment), 0 failures. Transaction-based monitors/scoreboards, covergroups, clocking blocks.
+- **UVM-Inspired Verification**: 9032 tests, 29 suites (including tile auto-increment), 0 failures. Transaction-based monitors/scoreboards, covergroups, clocking blocks.
 - **11-Category HW Benchmark**: Per-op throughput, MAC hazard, SIMD, DMA bandwidth, multicast, parallel rows, FC pattern, FPS, config overhead, power — all measured on silicon with ARM PMCCNTR timing.
 
 ### Target Applications
@@ -78,7 +78,7 @@ High-performance **Coarse-Grained Reconfigurable Array (CGRA)** accelerator IP d
 | PE Scratchpad | 256 entries | 32-bit | SRAM |
 | PE Config RAM | 16 entries | 64-bit | BSG SRAM |
 | Tile Memory | 4 x 4096 entries | 32-bit | SRAM (double-buffered) |
-| DMA FIFO | 32 entries | 32-bit | Flip-flop |
+| DMA FIFO | 32 entries | 32-bit | Distributed RAM |
 
 ### Interface Specifications
 
@@ -124,7 +124,7 @@ Current silicon targets **Zynq-7000 XC7Z020** (DSP48E1, different resource count
 
 ```bash
 # Run full verification suite (Cadence Xcelium 20.09+)
-make sim                # Compile, elaborate, simulate (8957 tests)
+make sim                # Compile, elaborate, simulate (9032 tests)
 
 # Split flow for debugging
 make compile            # Compile RTL + TB sources
@@ -452,7 +452,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 | Offset | Register | Access | Reset | Description |
 |--------|----------|--------|-------|-------------|
 | 0x40 | RESULT_DATA | RO | 0x0 | PE[3,3] east-edge output (latched by `global_result_reg`, same tap as RESULT_ROW3) |
-| 0x44 | RESULT_STATUS | RO | 0x0 | [0] result_valid |
+| 0x44 | RESULT_STATUS | RO† | 0x0 | [0] result_valid (FIFO non-empty), [8:1] FIFO entry count. †Writing any value pops one entry from the result FIFO. |
 
 **Hardware Loop Control (3 registers):**
 
@@ -581,11 +581,11 @@ Bit Position:
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | **8957 PASS, 0 FAIL** |
+| Total Tests | **9032 PASS, 0 FAIL** |
 | Protocol Violations | **0** (AXI4 + APB monitors) |
 | ISA Coverage | **21/21 (100%)** operations verified |
 | Verification Method | CRV + directed + deployment replay + UVM-inspired TLM |
-| Test Suites | **25** suites across 6 categories |
+| Test Suites | **28** suites across 7 categories |
 | Covergroups | 4 (DMA xfer, PE ISA, CU flow, APB regs) |
 | Clocking Blocks | APB (drive/sample) + AXI (sample-only) |
 | Transaction Layer | APB/AXI monitors, DMA/PE scoreboards, mailbox agents |
@@ -637,6 +637,15 @@ Bit Position:
 | Suite | ID | Tests | Focus |
 |-------|----|-------|-------|
 | Hardware Emulation | HE | ~61 | Multi-inference loops, bank_sel double-buffer, IRQ-driven completion, error injection mid-inference, large DDR payloads, AXI stress, dynamic reconfiguration |
+
+**OpenCores Cross-Verification (4 suites):**
+
+| Suite | ID | Tests | Focus |
+|-------|----|-------|-------|
+| LFSR DMA Integrity | OC | 3 | Deterministic AXI backpressure under LFSR-driven ARREADY/AWREADY/WREADY |
+| RTL Golden Models | OCR | 27 | qadd/qmult Q=0 golden reference: ADD, MUL, MAC vs CGRA ops (bit-exact) |
+| Adder Tree Parallel | OAT | 24 | 4-row parallel PASS0/ADD/MUL verified by OpenCores pipelined adder tree (N=4, 2-cycle latency) |
+| Sequential Divider | OD | 24 | MUL roundtrip, SHR=floor-div, floor-div bounds verified via OpenCores qdiv (Q=0, 32-cycle) |
 
 ### Real Application Suite (RAP) Details
 
@@ -1186,7 +1195,7 @@ PL utilization: 57% LUT, 16% FF, 20% BRAM, 67% DSP.
 | CGRA-Accelerated Classifier | FC offload with Q8.8 activations |
 | End-to-End Simulation | Suite RAP: 61-chunk FC verified bit-exact |
 | Protocol Monitor | AXI4 + APB assertion-based verification |
-| UVM-Inspired Testbench | 8957 tests, 26 suites, covergroups, TLM scoreboards, clocking blocks |
+| UVM-Inspired Testbench | 9032 tests, 29 suites, covergroups, TLM scoreboards, clocking blocks |
 | **Verdict Hardening** | Scoreboard errors propagate to global verdict; zero-test guard; watchdog signals failure; 8 checks tightened to exact/bounded values |
 | **HW Performance Benchmark** | 11-category bare-metal benchmark suite (`bench_cgra.c`) — per-op throughput, MAC pipeline hazard, SIMD, DMA bandwidth, multicast fan-out, parallel rows, FC pattern, FPS, config overhead, power efficiency. All measured on silicon with ARM PMCCNTR. Golden model cross-check (`golden_model.py`). |
 | **LPRNet Feasibility Study** | ONNX topology builder (`build_lprnet.py`), per-layer MAC/weight/activation analyzer (`analyze_lprnet.py`), Zynq-7000 timing extrapolation (`extrapolate_lprnet.py`) for full/small/micro variants. Verdict: dense CNN is config-reload-bound on current silicon; Conv-streaming workloads (config-once) are the CGRA sweet spot. |
@@ -1229,6 +1238,6 @@ This IP core is provided for evaluation purposes. Commercial licensing available
 
 **CGRA Accelerator for Edge AI Inference**
 
-*Silicon-Verified | 8957/8957 Sim Tests | 96/96 HW Checks | 19/19 ISA Ops | 86.6% MAC Util | 4× Multicast | 8.2× Perf/Watt*
+*Silicon-Verified | 9032/9032 Sim Tests | 96/96 HW Checks | 19/19 ISA Ops | 86.6% MAC Util | 4× Multicast | 8.2× Perf/Watt*
 
 </div>

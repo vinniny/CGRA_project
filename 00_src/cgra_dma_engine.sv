@@ -90,8 +90,8 @@ module cgra_dma_engine #(
             $fatal(1, "[DMA] FIFO_DEPTH=%0d is not a power of 2 — pointer wrap broken", FIFO_DEPTH);
     end
     
-    // FIFO between read and write engines
-    logic [DATA_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
+    // FIFO between read and write engines (async read → distributed RAM)
+    (* ram_style = "distributed" *) logic [DATA_WIDTH-1:0] fifo_mem [0:FIFO_DEPTH-1];
     logic [FIFO_ADDR_BITS-1:0] w_ptr, r_ptr;
     logic [FIFO_ADDR_BITS:0] count;
 
