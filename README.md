@@ -233,7 +233,7 @@ make program BIT=... PS_INIT=0                     # PL only, skip PS init
 
 # Inspect FPGA + every CGRA APB register
 make fpga_status
-make reg_dump                                      # all 28 registers, decoded
+make reg_dump                                      # all 29 registers, decoded
 make reg_read  REG=DMA_STATUS
 make reg_write REG=DMA_SRC VAL=0x10000000
 
@@ -307,7 +307,7 @@ build_linux/c_alpr configs/alpr_config.ini folder/      # Batch folder
                         │                                             │
     ┌─────────┐         │  ┌──────────────────────────────────────┐  │
     │   CPU   │◄────────┼──┤         APB Control Interface        │  │
-    │  (Host) │  APB    │  │  • 28 Registers (17 RW, 1 W1C, 10 RO) │  │
+    │  (Host) │  APB    │  │  • 29 Registers (18 RW, 1 W1C, 10 RO) │  │
     └─────────┘         │  │  • DMA, CU, IRQ, Loop, Result CSRs  │  │
                         │  │  • 256B address space, 32-bit access │  │
                         │  └────────────────┬─────────────────────┘  │
@@ -410,7 +410,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 
 ## Register Map
 
-### APB Address Space (28 Registers)
+### APB Address Space (29 Registers)
 
 **DMA Engine Control (8 registers):**
 
@@ -500,7 +500,7 @@ Read RESULT_ROW0-3 (east edge of row 0-3) → 4 accumulators → argmax → char
 1. Write `data[63:32]` to `0x2XXXXXXX` (addr[2]=0) — latches the upper 32 bits into `config_high_loaded`
 2. Write `data[31:0]` to `0x2XXXXXXX | 0x4` (addr[2]=1) — commits the full 64-bit config entry (fires `config_commit_en`)
 
-**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE (the broadcast FSM at `cgra_top.sv:289` runs for 15 cycles after the commit). Writing to slots 1–15 updates only that specific slot.
+**Slot 0 broadcast:** Writing config to slot 0 fills all 16 context slots of the target PE (the broadcast FSM in `cgra_config_broadcaster.sv` runs for 15 cycles after the commit). Writing to slots 1–15 updates only that specific slot.
 
 ---
 
@@ -848,18 +848,21 @@ void cgra_get_results(uint32_t results[4]) {
 
 | Module | File | Lines | Description |
 |--------|------|-------|-------------|
-| cgra_top | cgra_top.sv | 904 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop, System ILA hooks |
-| cgra_config_broadcaster | cgra_config_broadcaster.sv | ~60 | Slot-0 replay FSM: 15-cycle broadcast to all 16 PE config contexts |
-| cgra_apb_csr | cgra_apb_csr.sv | 381 | APB interface (28 registers, W1C IRQ, DMA_ERROR, protected write guards) |
-| cgra_dma_engine | cgra_dma_engine.sv | 1199 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, SLVERR/DECERR capture, abort safety |
-| cgra_control_unit | cgra_control_unit.sv | 379 | FSM, 2-level nested loops, timeout, loops_done_o, global stall (registered to break 5610-fanout) |
-| cgra_tile_memory | cgra_tile_memory.sv | ~130 | 4-bank × 4096 SRAM, double-buffer bank_sel, prefetch PC (generate loop) |
-| cgra_array | cgra_array.sv | 244 | Parameterized N×M PE mesh (generate blocks) |
-| cgra_tile | cgra_tile.sv | ~110 | PE wrapper with branch passthrough and direct N/E/S/W mesh wiring |
-| cgra_pe | cgra_pe.sv | ~640 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD with overflow-safe accumulation |
+| cgra_top | cgra_top.sv | 756 | Top-level: DMA, CU, tile memory, APB CSR, PE array, loop-aware auto-stop, System ILA hooks |
+| cgra_config_broadcaster | cgra_config_broadcaster.sv | 68 | Slot-0 replay FSM: 15-cycle broadcast to all 16 PE config contexts |
+| cgra_apb_csr | cgra_apb_csr.sv | 375 | APB interface (29 registers, W1C IRQ, DMA_ERROR, protected write guards) |
+| cgra_dma_engine | cgra_dma_engine.sv | 700 | AXI4 DMA: 32-word FIFO, 2D stride, W_LOCAL fast-drain, dst_kind enum, SLVERR/DECERR capture |
+| cgra_dma_chain_ctrl | cgra_dma_chain_ctrl.sv | 173 | Scatter-gather chain controller: linked-list descriptor fetch and dispatch |
+| cgra_dma_subsystem | cgra_dma_subsystem.sv | 256 | DMA wrapper: engine + chain controller + chain/single-shot arbitration |
+| cgra_control_unit | cgra_control_unit.sv | 378 | FSM, 2-level nested loops, timeout, loops_done_o, global stall |
+| cgra_result_fifo | cgra_result_fifo.sv | 195 | East-edge result capture FIFO with BRAM inference and warmup skip |
+| cgra_tile_memory | cgra_tile_memory.sv | 139 | 4-bank × 4096 SRAM, double-buffer bank_sel, prefetch PC (generate loop) |
+| cgra_array | cgra_array.sv | 200 | Parameterized N×M PE mesh (generate blocks) |
+| cgra_tile | cgra_tile.sv | 97 | PE wrapper with branch passthrough and direct N/E/S/W mesh wiring |
+| cgra_pe | cgra_pe.sv | 613 | 21-op ISA, 3-stage pipeline (_r/_r2), 40-bit sat MAC, INT8/16 SIMD |
 | bsg_mem/ wrappers | bsg_mem/*.sv + *.v | 633 | BSG SRAM macros + DFF library (16×64-bit config RAM per PE, sync 1r1w) |
 | axi_ram (sim only) | axi_ram.sv | 373 | Testbench AXI slave model, not synthesized |
-| **Total synthesizable** | **11 modules, 16 files** | **~5,080** | RTL excluding the testbench AXI RAM model |
+| **Total synthesizable** | **12 RTL + 7 BSG files** | **~4,580** | RTL excluding the testbench AXI RAM model |
 
 ---
 
