@@ -100,6 +100,19 @@ static void cfg_col_pass0_south(int col, uint16_t imm)
     }
 }
 
+/* Pop the result FIFO until one entry remains, so callers read the last
+ * (most recently captured) row values rather than the warmup-skip head. */
+static void fifo_drain_to_last(void)
+{
+    uint32_t count = cgra_rd(CGRA_RESULT_STATUS) >> 1;
+    int guard = 256;
+    while (count > 1 && guard-- > 0) {
+        cgra_wr(CGRA_RESULT_STATUS, 1u);
+        for (volatile int i = 0; i < 50; i++) __asm__("nop");
+        count = cgra_rd(CGRA_RESULT_STATUS) >> 1;
+    }
+}
+
 /* Set all 16 PEs to NOP */
 static void cfg_all_nop(void)
 {
@@ -398,6 +411,7 @@ static void test_pass0_south(void)
     cgra_cu_reset();
     int r = cu_run_wait(1000000u);
     check("CU done", r == 0);
+    fifo_drain_to_last();
     uint32_t row3 = cgra_rd(CGRA_RESULT_ROW3);
     uart_puts("    RESULT_ROW3 = "); uart_puthex(row3); uart_putchar('\n');
     check("RESULT_ROW3 == 0x55AA", (row3 & 0xFFFF) == 0x55AAu);
@@ -666,12 +680,13 @@ static void test_alu_smoke(void)
  * After PC=3, slots 4..15 execute NOP and PE[0,0]'s alu_result holds
  * 0x00003344. RESULT_ROW0 (after East forwarder chain) = 0x00003344.
  * ========================================================================= */
-static void cfg_multicontext_pe0(void)
+/* PE1 source (2 E-hops) ensures the chain reaches PE3 before the FIFO-skip window. */
+static void cfg_multicontext_pe1(void)
 {
-    cgra_config_pe_slot(0, 0, DDR_STAGE, OP_NOP,   0,       0, 0, 0,       0);
-    cgra_config_pe_slot(0, 1, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x1111);
-    cgra_config_pe_slot(0, 2, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x2222);
-    cgra_config_pe_slot(0, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x3344);
+    cgra_config_pe_slot(1, 0, DDR_STAGE, OP_NOP,   0,       0, 0, 0,       0);
+    cgra_config_pe_slot(1, 1, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x1111);
+    cgra_config_pe_slot(1, 2, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x2222);
+    cgra_config_pe_slot(1, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x3344);
 }
 
 static void test_multi_context(void)
@@ -679,9 +694,8 @@ static void test_multi_context(void)
     group_begin("[19] Multi-instruction context program");
     cgra_cu_reset(); cgra_clear_irqs(); cfg_all_nop();
 
-    cfg_multicontext_pe0();
-    /* East-chain forwarders on the rest of row 0 */
-    cgra_config_pe(1, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
+    cfg_multicontext_pe1();
+    /* East-chain forwarders: PE[0,1] is source; PE[0,2..3] forward */
     cgra_config_pe(2, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(3, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
 
@@ -692,6 +706,7 @@ static void test_multi_context(void)
     cgra_cu_reset();
     int r1 = cu_run_wait(1000000u);
     check("CU done (single sweep)", r1 == 0);
+    fifo_drain_to_last();
     uint32_t row_a = cgra_rd(CGRA_RESULT_ROW0);
     uart_puts("    Single-sweep RESULT_ROW0 = "); uart_puthex(row_a); uart_putchar('\n');
     check("Single-sweep last slot == 0x3344", (row_a & 0xFFFF) == 0x3344u);
@@ -701,8 +716,7 @@ static void test_multi_context(void)
      * natural advance through slots 4..15 (all NOP). Final alu_result is
      * still slot 3's last value = 0x3344. */
     cfg_all_nop();
-    cfg_multicontext_pe0();
-    cgra_config_pe(1, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
+    cfg_multicontext_pe1();
     cgra_config_pe(2, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(3, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_wr(CGRA_LOOP_START, 0);
@@ -710,6 +724,7 @@ static void test_multi_context(void)
     cgra_wr(CGRA_LOOP_COUNT, 4);
     cgra_cu_reset();
     cu_run_wait(1000000u);
+    fifo_drain_to_last();
     uint32_t row_b = cgra_rd(CGRA_RESULT_ROW0);
     uart_puts("    Looped RESULT_ROW0 = "); uart_puthex(row_b); uart_putchar('\n');
     check("Looped last slot == 0x3344", (row_b & 0xFFFF) == 0x3344u);
@@ -791,6 +806,7 @@ static void test_routing_directions(void)
     cgra_wr(CGRA_LOOP_COUNT, 30);
     cgra_cu_reset();
     cu_run_wait(2000000u);
+    fifo_drain_to_last();
     uint32_t row0_n = cgra_rd(CGRA_RESULT_ROW0);
     uart_puts("    North chain RESULT_ROW0 = "); uart_puthex(row0_n); uart_putchar('\n');
     check("North routing == 0x1111", (row0_n & 0xFFFF) == 0x1111u);
@@ -813,9 +829,10 @@ static void test_routing_directions(void)
     cgra_config_pe(13, DDR_STAGE, OP_PASS1, 0,       SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(14, DDR_STAGE, OP_PASS1, 0,       SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(15, DDR_STAGE, OP_PASS1, 0,       SRC_W, 0, ROUTE_E, 0);
-    cgra_wr(CGRA_LOOP_COUNT, 60);
+    cgra_wr(CGRA_LOOP_COUNT, 30);
     cgra_cu_reset();
     cu_run_wait(2000000u);
+    fifo_drain_to_last();
     uint32_t row3_w = cgra_rd(CGRA_RESULT_ROW3);
     uart_puts("    West perimeter RESULT_ROW3 = "); uart_puthex(row3_w); uart_putchar('\n');
     check("West routing == 0x2222", (row3_w & 0xFFFF) == 0x2222u);

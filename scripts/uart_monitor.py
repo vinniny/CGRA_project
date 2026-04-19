@@ -3,8 +3,8 @@
 uart_monitor.py — Read UART output from Zynq board over CH340 UART
 
 Usage:
-    python3 uart_monitor.py [port] [baud]
-    python3 uart_monitor.py /dev/ttyUSB0 115200
+    python3 uart_monitor.py [port] [baud] [idle_timeout_s]
+    python3 uart_monitor.py /dev/ttyUSB0 115200 120
 """
 import serial
 import sys
@@ -12,6 +12,7 @@ import time
 
 port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
 baud = int(sys.argv[2]) if len(sys.argv) > 2 else 115200
+idle_timeout = int(sys.argv[3]) if len(sys.argv) > 3 else 60
 
 print(f"[UART] Opening {port} @ {baud} baud...")
 
@@ -23,8 +24,6 @@ try:
 except serial.SerialException as e:
     print(f"[UART] ERROR: {e}")
     sys.exit(1)
-
-idle_timeout = 60  # seconds to wait after last output before giving up
 last_activity = time.time()
 
 print(f"[UART] Listening... (Ctrl+C to stop, idle timeout {idle_timeout}s)")
@@ -37,8 +36,9 @@ try:
             text = line.decode('ascii', errors='replace').rstrip('\r\n')
             print(f"  > {text}")
             sys.stdout.flush()
-            # If we see the final result line, give it a moment then exit
-            if "failed" in text and "passed" in text:
+            # Exit on final result lines (regression test or benchmark summary)
+            if ("failed" in text and "passed" in text) or \
+               "[BENCH COMPLETE]" in text:
                 time.sleep(0.5)
                 break
         else:

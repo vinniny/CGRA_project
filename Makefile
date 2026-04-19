@@ -86,6 +86,10 @@ RTL_SRCS := \
 # Testbench files
 TB_SRCS := \
 	$(TB_DIR)/cgra_protocol_monitor.sv \
+	$(TB_DIR)/qadd.v \
+	$(TB_DIR)/qmult.v \
+	$(TB_DIR)/adder_tree.sv \
+	$(TB_DIR)/qdiv.v \
 	$(TB_DIR)/lfsr_32.v \
 	$(TB_DIR)/tb_top.sv
 

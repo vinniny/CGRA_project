@@ -128,24 +128,22 @@ module cgra_pe #(
         data_mode = extended[10:9];
     end
     
-    // Scratchpad memory (256×32b)
-    logic [DATA_WIDTH-1:0] spm_mem [0:SPM_DEPTH-1];
+    // Split write/read always_ff for Vivado BRAM output-register inference (UG901).
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] spm_mem [0:SPM_DEPTH-1];
     logic [$clog2(SPM_DEPTH)-1:0] spm_addr;
     logic [DATA_WIDTH-1:0] spm_rdata;
     logic [DATA_WIDTH-1:0] spm_wdata;
     logic                  spm_we;
-    
+
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            spm_rdata <= '0;
-        end else begin
-            if (spm_we && !stall) begin
-                spm_mem[spm_addr] <= spm_wdata;
-            end
-            if (!stall) begin
-                spm_rdata <= spm_mem[spm_addr];
-            end
-        end
+        if (spm_we && !stall)
+            spm_mem[spm_addr] <= spm_wdata;
+    end
+
+    // !stall → BRAM REGCE; !rst_n → BRAM RSTREG (active-high, inverted by synth)
+    always_ff @(posedge clk) begin
+        if (!rst_n)         spm_rdata <= '0;
+        else if (!stall)    spm_rdata <= spm_mem[spm_addr];
     end
     
     // Register file (16×32b flip-flops)

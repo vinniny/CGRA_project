@@ -57,8 +57,8 @@ module cgra_tile_memory #(
     assign bank2_valid = bank_valid[2];
     assign bank3_valid = bank_valid[3];
 
-    // Bank storage shared across generate block
-    logic [DATA_WIDTH-1:0] mem [0:NUM_BANKS-1][0:BANK_DEPTH-1];
+    // (* ram_style = "block" *): one BRAM per leading index (Vivado UG901 2D-array rule).
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem [0:NUM_BANKS-1][0:BANK_DEPTH-1];
 
     genvar b;
     generate

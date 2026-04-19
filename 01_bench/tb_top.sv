@@ -34,12 +34,32 @@ module tb_top;
     // All $urandom calls in the TB use this seed via $srandom().
     int sim_seed;
     int verbosity;  // 0=quiet, 1=normal, 2=verbose
+
+    logic [31:0] ref_a, ref_b;
+    logic [31:0] ref_add_out, ref_mul_out;
+    logic        ref_mul_ovr;
+
+    // ── adder_tree(N=4) parallel reduction golden model ──────────────────────
+    logic signed [31:0] at_data [3:0];   // signed: matches adder_tree port type
+    logic        at_ena;
+    logic [33:0] at_result;       // RESULT_WIDTH = 34 for N=4, DATA_WIDTH=32
+
+    // ── qdiv(Q=0) sequential integer division golden model ───────────────────
+    logic [31:0] dv_dividend, dv_divisor;
+    logic        dv_start;
+    logic [31:0] dv_quotient_out;
+    logic        dv_complete;
+
     initial begin
         if (!$value$plusargs("SEED=%d", sim_seed))
             sim_seed = 42;
         if (!$value$plusargs("VERBOSITY=%d", verbosity))
             verbosity = 1;
         $srandom(sim_seed);
+        ref_a = 32'h0; ref_b = 32'h0;  // prevent X-prop into combinational golden models
+        at_ena = 1'b0;
+        at_data[0] = 32'h0; at_data[1] = 32'h0; at_data[2] = 32'h0; at_data[3] = 32'h0;
+        dv_dividend = 32'h0; dv_divisor = 32'h1; dv_start = 1'b0;
         $display("[INFO] [%0t] ============================================", $time);
         $display("[INFO] [%0t]   CGRA 4x4 Verification Suite", $time);
         $display("[INFO] [%0t]   Seed: %0d | Verbosity: %0d | Max Errors: %0d", $time, sim_seed, verbosity, `MAX_ERRORS);
@@ -189,6 +209,27 @@ module tb_top;
     `include "include/tb_suite_result_fifo.svh"   // Suite RF: Result FIFO
     `include "include/tb_suite_sg_dma.svh"        // Suite SG: Scatter-Gather DMA
     `include "include/tb_suite_opencores_dma.svh" // Suite OC: OpenCores LFSR DMA Integrity
+
+    // ── OpenCores golden reference models (combinational, Q=0 integer mode) ──
+    qadd  #(.Q(0), .N(32)) u_ref_qadd (
+        .a(ref_a), .b(ref_b), .c(ref_add_out));
+    qmult #(.Q(0), .N(32)) u_ref_qmult (
+        .i_multiplicand(ref_a), .i_multiplier(ref_b),
+        .o_result(ref_mul_out), .ovr(ref_mul_ovr));
+
+    `include "include/tb_suite_opencores_ref.svh" // Suite OCR: OpenCores RTL Golden Models
+    `include "include/tb_suite_opencores_at.svh"  // Suite OAT: Adder Tree Parallel Reduction
+    `include "include/tb_suite_opencores_div.svh" // Suite OD: Sequential Divider Cross-Verify
+
+    // ── adder_tree(N=4) and qdiv(Q=0) golden model instances ─────────────────
+    adder_tree #(.N(4), .DATA_WIDTH(32)) u_ref_adder_tree (
+        .clock(clk), .clock_ena(at_ena),
+        .data(at_data), .result(at_result));
+
+    qdiv #(.Q(0), .N(32)) u_ref_qdiv (
+        .dividend(dv_dividend), .divisor(dv_divisor),
+        .start(dv_start), .clk(clk),
+        .quotient_out(dv_quotient_out), .complete(dv_complete));
 
     // =========================================================================
     // 5. DUT INSTANTIATION
@@ -678,6 +719,24 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_OC_opencores_dma();
+
+        // =====================================================================
+        // Suite OCR: OpenCores RTL Golden Model Arithmetic Verification
+        // =====================================================================
+        reset_dut(5);
+        run_suite_OCR_opencores_ref();
+
+        // =====================================================================
+        // Suite OAT: OpenCores Adder Tree 4-Row Parallel Verification
+        // =====================================================================
+        reset_dut(5);
+        run_suite_OAT_opencores_at();
+
+        // =====================================================================
+        // Suite OD: OpenCores Sequential Divider Cross-Verification
+        // =====================================================================
+        reset_dut(5);
+        run_suite_OD_opencores_div();
 
         // Print functional coverage before finishing
         print_functional_coverage();

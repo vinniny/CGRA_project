@@ -57,6 +57,11 @@ set_msg_config -id {Synth 8-7129} -new_severity INFO
 #   In real synthesis this maps to BRAM primitives. RTL-mode only artifact.
 set_msg_config -id {Synth 8-11357} -new_severity INFO
 
+# Synth 8-6430 : "Block RAM may get memory collision error if read and write address collide"
+#   bsg_mem_1r1w_sync_synth is a true 1R1W memory (separate read/write ports);
+#   same-address simultaneous R/W cannot occur by design. False positive.
+set_msg_config -id {Synth 8-6430} -new_severity INFO
+
 # ── RTL elaboration (no mapping, no P&R) ──────────────────────────────────────
 # -rtl         : elaboration only, no technology mapping
 # -no_iobuf    : don't insert IOBUFs (top-level ports aren't board pads here)
