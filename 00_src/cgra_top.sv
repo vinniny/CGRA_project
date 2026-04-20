@@ -705,7 +705,11 @@ module cgra_top #(
     assign result_fifo_clear = cu_start || cu_soft_reset;
 
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n || result_fifo_clear) begin
+        if (!rst_n) begin
+            result_push_data[0] <= '0; result_push_data[1] <= '0;
+            result_push_data[2] <= '0; result_push_data[3] <= '0;
+            result_push_valid   <= 1'b0;
+        end else if (result_fifo_clear) begin
             result_push_valid <= 1'b0;
         end else begin
             result_push_data[0] <= edge_out_e[0];
