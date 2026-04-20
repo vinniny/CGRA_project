@@ -185,6 +185,7 @@ localparam logic [31:0] ADDR_CU_TIMEOUT     = 32'h2C;  // Max cycles (0=no limit
 localparam logic [31:0] ADDR_IRQ_STATUS     = 32'h30;  // W1C: [0] DMA Done, [1] CU Done, [2] DMA Error
 localparam logic [31:0] ADDR_IRQ_MASK       = 32'h34;  // [2:0] IRQ enable mask
 localparam logic [31:0] ADDR_DMA_ERROR      = 32'h38;  // RO: [0] error flag, [2:1] error code
+localparam logic [31:0] ADDR_CU_PC_END      = 32'h3C;  // RW: [3:0] last PC slot before array_done (default 15)
 
 // --- Result Registers (0x40-0x44, muxed in cgra_top) ---
 localparam logic [31:0] ADDR_RESULT_DATA    = 32'h40;  // PE[3,3] output
@@ -217,7 +218,7 @@ localparam logic [31:0] ADDR_DMA_DESC_HEAD   = 32'h7C; // RW: descriptor chain h
 localparam logic [31:0] ADDR_DMA_DESC_STATUS = 32'h80; // RO: [0] chain_active, [15:8] completed
 
 // --- Result FIFO Skip (0x54) ---
-localparam logic [31:0] ADDR_RESULT_SKIP    = 32'h54;  // [3:0] warmup skip count (default 13)
+localparam logic [31:0] ADDR_RESULT_SKIP    = 32'h54;  // [7:0] warmup skip count (default 12)
 
 // --- Unmapped address for negative testing ---
 localparam logic [31:0] ADDR_UNMAPPED       = 32'h88;  // Beyond register space

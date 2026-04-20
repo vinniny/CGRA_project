@@ -309,11 +309,11 @@ task automatic run_suite_AM_apb_sanity;
         // AM30: 0x38 (gap between IRQ_MASK and RESULT_DATA)
         apb_check(32'h38, 32'h0, "AM30: Unmapped 0x38 returns 0");
 
-        // AM31: 0x3C (gap)
-        apb_check(32'h3C, 32'h0, "AM31: Unmapped 0x3C returns 0");
+        // AM31: 0x3C = CU_PC_END (default 15 = 0xF)
+        apb_check(32'h3C, 32'h0000_000F, "AM31: CU_PC_END default=15");
 
         // AM32: 0x54 is now RESULT_SKIP (default 11 = 0x0B)
-        apb_check(32'h54, 32'h0000_000D, "AM32: RESULT_SKIP default=13");
+        apb_check(32'h54, 32'h0000_000C, "AM32: RESULT_SKIP default=12");
 
         // AM33: beyond register space
         apb_check(ADDR_UNMAPPED, 32'h0, "AM33: Unmapped returns 0");
