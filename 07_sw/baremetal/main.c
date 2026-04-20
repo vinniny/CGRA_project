@@ -680,13 +680,12 @@ static void test_alu_smoke(void)
  * After PC=3, slots 4..15 execute NOP and PE[0,0]'s alu_result holds
  * 0x00003344. RESULT_ROW0 (after East forwarder chain) = 0x00003344.
  * ========================================================================= */
-/* PE1 source (2 E-hops) ensures the chain reaches PE3 before the FIFO-skip window. */
-static void cfg_multicontext_pe1(void)
+static void cfg_multicontext_pe0(void)
 {
-    cgra_config_pe_slot(1, 0, DDR_STAGE, OP_NOP,   0,       0, 0, 0,       0);
-    cgra_config_pe_slot(1, 1, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x1111);
-    cgra_config_pe_slot(1, 2, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x2222);
-    cgra_config_pe_slot(1, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x3344);
+    cgra_config_pe_slot(0, 0, DDR_STAGE, OP_NOP,   0,       0, 0, 0,       0);
+    cgra_config_pe_slot(0, 1, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x1111);
+    cgra_config_pe_slot(0, 2, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x2222);
+    cgra_config_pe_slot(0, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0x3344);
 }
 
 static void test_multi_context(void)
@@ -694,8 +693,9 @@ static void test_multi_context(void)
     group_begin("[19] Multi-instruction context program");
     cgra_cu_reset(); cgra_clear_irqs(); cfg_all_nop();
 
-    cfg_multicontext_pe1();
-    /* East-chain forwarders: PE[0,1] is source; PE[0,2..3] forward */
+    cfg_multicontext_pe0();
+    /* East-chain forwarders: PE[0,0] is source; PE[0,1..3] forward */
+    cgra_config_pe(1, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(2, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(3, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
 
@@ -716,7 +716,8 @@ static void test_multi_context(void)
      * natural advance through slots 4..15 (all NOP). Final alu_result is
      * still slot 3's last value = 0x3344. */
     cfg_all_nop();
-    cfg_multicontext_pe1();
+    cfg_multicontext_pe0();
+    cgra_config_pe(1, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(2, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_config_pe(3, DDR_STAGE, OP_PASS1, 0, SRC_W, 0, ROUTE_E, 0);
     cgra_wr(CGRA_LOOP_START, 0);
