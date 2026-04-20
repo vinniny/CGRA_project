@@ -40,6 +40,7 @@
 #define CGRA_IRQ_STATUS      0x30
 #define CGRA_IRQ_MASK        0x34
 #define CGRA_DMA_ERROR       0x38
+#define CGRA_CU_PC_END       0x3C
 #define CGRA_RESULT_DATA     0x40
 #define CGRA_RESULT_STATUS   0x44
 #define CGRA_LOOP_START      0x48
@@ -146,6 +147,12 @@ static inline uint32_t cgra_rd(uint32_t off) {
 static inline void cgra_tile_auto_inc(int enable)
 {
     cgra_wr(CGRA_TILE_AUTO_INC, enable ? 1u : 0u);
+}
+
+/* CU stops after executing PC=n (0-15). Reset default 15 = full context. */
+static inline void cgra_set_pc_end(uint8_t n)
+{
+    cgra_wr(CGRA_CU_PC_END, (uint32_t)(n & 0xFu));
 }
 
 /* ── DMA polling ──────────────────────────────────────────────────────── */
