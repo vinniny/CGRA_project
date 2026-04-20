@@ -36,7 +36,7 @@ module cgra_tile_memory #(
 
     localparam BANK_ADDR_W = $clog2(BANK_DEPTH);
 
-    // Pack the per-bank interface into arrays for the generate loop below.
+    // Pack the per-bank interface into arrays used in the always_ff blocks below.
     logic [ADDR_WIDTH-1:0] bank_addr  [0:NUM_BANKS-1];
     logic                  bank_read  [0:NUM_BANKS-1];
     logic                  bank_write [0:NUM_BANKS-1];
@@ -57,44 +57,108 @@ module cgra_tile_memory #(
     assign bank2_valid = bank_valid[2];
     assign bank3_valid = bank_valid[3];
 
-    // (* ram_style = "block" *): one BRAM per leading index (Vivado UG901 2D-array rule).
-    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem [0:NUM_BANKS-1][0:BANK_DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem0 [0:BANK_DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem1 [0:BANK_DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem2 [0:BANK_DEPTH-1];
+    (* ram_style = "block" *) logic [DATA_WIDTH-1:0] mem3 [0:BANK_DEPTH-1];
 
-    genvar b;
-    generate
-        for (b = 0; b < NUM_BANKS; b++) begin : g_bank
-            logic read_reg;
-            logic ext_hits;
-            assign ext_hits = (ext_bank_sel == b[1:0]);
-
-            always_ff @(posedge clk) begin
-                if (!rst_n) begin
-                    read_reg        <= 1'b0;
-                    bank_rdata[b]   <= '0;
-                end else begin
-                    read_reg <= bank_read[b] || (ext_read && ext_hits);
-
-                    /* verilator lint_off WIDTHTRUNC */
-                    if (bank_write[b] || (ext_write && ext_hits)) begin
-                        if (ext_write && ext_hits)
-                            mem[b][ext_addr[BANK_ADDR_W-1:0]] <= ext_wdata;
-                        else
-                            mem[b][{bank_sel_i, bank_addr[b][BANK_ADDR_W-2:0]}] <= bank_wdata[b];
-                    end
-
-                    if (bank_read[b] || (ext_read && ext_hits)) begin
-                        if (ext_read && ext_hits)
-                            bank_rdata[b] <= mem[b][ext_addr[BANK_ADDR_W-1:0]];
-                        else
-                            bank_rdata[b] <= mem[b][{bank_sel_i, bank_addr[b][BANK_ADDR_W-2:0]}];
-                    end
-                    /* verilator lint_on WIDTHTRUNC */
-                end
+    /* verilator lint_off WIDTHTRUNC */
+    // ── Bank 0 ──────────────────────────────────────────────────────────
+    logic read_reg0;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            read_reg0     <= 1'b0;
+            bank_rdata[0] <= '0;
+        end else begin
+            read_reg0 <= bank_read[0] || (ext_read && (ext_bank_sel == 2'd0));
+            if (bank_write[0] || (ext_write && (ext_bank_sel == 2'd0))) begin
+                if (ext_write && (ext_bank_sel == 2'd0))
+                    mem0[ext_addr[BANK_ADDR_W-1:0]] <= ext_wdata;
+                else
+                    mem0[{bank_sel_i, bank_addr[0][BANK_ADDR_W-2:0]}] <= bank_wdata[0];
             end
-
-            assign bank_valid[b] = read_reg;
+            if (bank_read[0] || (ext_read && (ext_bank_sel == 2'd0))) begin
+                if (ext_read && (ext_bank_sel == 2'd0))
+                    bank_rdata[0] <= mem0[ext_addr[BANK_ADDR_W-1:0]];
+                else
+                    bank_rdata[0] <= mem0[{bank_sel_i, bank_addr[0][BANK_ADDR_W-2:0]}];
+            end
         end
-    endgenerate
+    end
+    assign bank_valid[0] = read_reg0;
+
+    // ── Bank 1 ──────────────────────────────────────────────────────────
+    logic read_reg1;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            read_reg1     <= 1'b0;
+            bank_rdata[1] <= '0;
+        end else begin
+            read_reg1 <= bank_read[1] || (ext_read && (ext_bank_sel == 2'd1));
+            if (bank_write[1] || (ext_write && (ext_bank_sel == 2'd1))) begin
+                if (ext_write && (ext_bank_sel == 2'd1))
+                    mem1[ext_addr[BANK_ADDR_W-1:0]] <= ext_wdata;
+                else
+                    mem1[{bank_sel_i, bank_addr[1][BANK_ADDR_W-2:0]}] <= bank_wdata[1];
+            end
+            if (bank_read[1] || (ext_read && (ext_bank_sel == 2'd1))) begin
+                if (ext_read && (ext_bank_sel == 2'd1))
+                    bank_rdata[1] <= mem1[ext_addr[BANK_ADDR_W-1:0]];
+                else
+                    bank_rdata[1] <= mem1[{bank_sel_i, bank_addr[1][BANK_ADDR_W-2:0]}];
+            end
+        end
+    end
+    assign bank_valid[1] = read_reg1;
+
+    // ── Bank 2 ──────────────────────────────────────────────────────────
+    logic read_reg2;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            read_reg2     <= 1'b0;
+            bank_rdata[2] <= '0;
+        end else begin
+            read_reg2 <= bank_read[2] || (ext_read && (ext_bank_sel == 2'd2));
+            if (bank_write[2] || (ext_write && (ext_bank_sel == 2'd2))) begin
+                if (ext_write && (ext_bank_sel == 2'd2))
+                    mem2[ext_addr[BANK_ADDR_W-1:0]] <= ext_wdata;
+                else
+                    mem2[{bank_sel_i, bank_addr[2][BANK_ADDR_W-2:0]}] <= bank_wdata[2];
+            end
+            if (bank_read[2] || (ext_read && (ext_bank_sel == 2'd2))) begin
+                if (ext_read && (ext_bank_sel == 2'd2))
+                    bank_rdata[2] <= mem2[ext_addr[BANK_ADDR_W-1:0]];
+                else
+                    bank_rdata[2] <= mem2[{bank_sel_i, bank_addr[2][BANK_ADDR_W-2:0]}];
+            end
+        end
+    end
+    assign bank_valid[2] = read_reg2;
+
+    // ── Bank 3 ──────────────────────────────────────────────────────────
+    logic read_reg3;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            read_reg3     <= 1'b0;
+            bank_rdata[3] <= '0;
+        end else begin
+            read_reg3 <= bank_read[3] || (ext_read && (ext_bank_sel == 2'd3));
+            if (bank_write[3] || (ext_write && (ext_bank_sel == 2'd3))) begin
+                if (ext_write && (ext_bank_sel == 2'd3))
+                    mem3[ext_addr[BANK_ADDR_W-1:0]] <= ext_wdata;
+                else
+                    mem3[{bank_sel_i, bank_addr[3][BANK_ADDR_W-2:0]}] <= bank_wdata[3];
+            end
+            if (bank_read[3] || (ext_read && (ext_bank_sel == 2'd3))) begin
+                if (ext_read && (ext_bank_sel == 2'd3))
+                    bank_rdata[3] <= mem3[ext_addr[BANK_ADDR_W-1:0]];
+                else
+                    bank_rdata[3] <= mem3[{bank_sel_i, bank_addr[3][BANK_ADDR_W-2:0]}];
+            end
+        end
+    end
+    assign bank_valid[3] = read_reg3;
+    /* verilator lint_on WIDTHTRUNC */
 
     // External read port: mux across banks
     logic ext_read_reg;
@@ -107,10 +171,10 @@ module cgra_tile_memory #(
             /* verilator lint_off WIDTHTRUNC */
             if (ext_read) begin
                 unique case (ext_bank_sel)
-                    2'd0: ext_rdata <= mem[0][ext_addr[BANK_ADDR_W-1:0]];
-                    2'd1: ext_rdata <= mem[1][ext_addr[BANK_ADDR_W-1:0]];
-                    2'd2: ext_rdata <= mem[2][ext_addr[BANK_ADDR_W-1:0]];
-                    2'd3: ext_rdata <= mem[3][ext_addr[BANK_ADDR_W-1:0]];
+                    2'd0: ext_rdata <= mem0[ext_addr[BANK_ADDR_W-1:0]];
+                    2'd1: ext_rdata <= mem1[ext_addr[BANK_ADDR_W-1:0]];
+                    2'd2: ext_rdata <= mem2[ext_addr[BANK_ADDR_W-1:0]];
+                    2'd3: ext_rdata <= mem3[ext_addr[BANK_ADDR_W-1:0]];
                     default: ext_rdata <= '0;
                 endcase
             end
