@@ -1241,6 +1241,63 @@ static void test_gic_irq(void)
 }
 
 /* =========================================================================
+ * [26] Bank ping-pong: DMA to opposite tile half while CU runs.
+ *
+ * dma_bank_conflict fires only when dma_tile_we && (dma_tile_addr[11] ==
+ * tile_bank_sel_csr). With TILE_BANK_SEL=0 (lower half, addr[11]=0),
+ * a DMA targeting addr[11]=1 (upper half = BASE_TILE + 0x800) must NOT
+ * stall the CU. Both should complete independently.
+ *
+ * Two checks:
+ *   (a) CU and DMA both complete (no deadlock with non-conflicting banks)
+ *   (b) CU result correct (chain propagated through 16 slots uninterrupted)
+ * ========================================================================= */
+static void test_bank_pingpong(void)
+{
+    /* Upper half of tile row 0: byte offset 0x800 → dma_tile_addr[11]=1 */
+    #define TILE_UPPER_HALF 0x10000800UL
+
+    group_begin("[26] Bank ping-pong (DMA upper half + CU lower half)");
+    cgra_cu_reset(); cgra_clear_irqs(); cfg_all_nop();
+
+    /* PE program: row 0 PASS0 East chain, IMM=0xD00D */
+    cfg_row_pass0_east(0, 0xD00D);
+    cgra_wr(CGRA_LOOP_START, 0);
+    cgra_wr(CGRA_LOOP_END,   0xF);
+    cgra_wr(CGRA_LOOP_COUNT, 50);   /* 51 passes → long CU run */
+    cgra_wr(CGRA_TILE_BANK_SEL, 0); /* CU reads lower half (addr[11]=0) */
+    cgra_cu_reset();
+
+    /* Pre-fill DDR source buffer with known pattern */
+    volatile uint32_t *src = (volatile uint32_t *)DDR_BUF_A;
+    for (int i = 0; i < 256; i++) src[i] = 0xBABE0000u | (uint32_t)i;
+
+    /* Start DMA to upper half (addr[11]=1 ≠ tile_bank_sel=0 → no conflict) */
+    cgra_dma_start(DDR_BUF_A, TILE_UPPER_HALF, 1024u);
+
+    /* Start CU immediately (non-blocking DMA start above) */
+    cgra_wr(CGRA_CU_CTRL, 1u);
+
+    /* Both should complete without deadlock */
+    int r = cgra_wait_dma_and_cu(5000000u);
+    check("[26] DMA + CU both completed (no deadlock)", r == 0);
+
+    /* Drain FIFO and verify CU result (last slot IMM = 0xD00D) */
+    fifo_drain_to_last();
+    uint32_t row0 = cgra_rd(CGRA_RESULT_ROW0);
+    uart_puts("    RESULT_ROW0 = "); uart_puthex(row0); uart_putchar('\n');
+    check("[26] CU result correct (0xD00D) after concurrent DMA",
+          (row0 & 0xFFFFu) == 0xD00Du);
+
+    cgra_cu_reset();
+    cgra_clear_irqs();
+    cgra_wr(CGRA_LOOP_COUNT, 0);
+    cgra_wr(CGRA_TILE_BANK_SEL, 0);
+
+    #undef TILE_UPPER_HALF
+}
+
+/* =========================================================================
  * Entry point
  * ========================================================================= */
 void main(void)
@@ -1248,7 +1305,7 @@ void main(void)
     uart_init();
     uart_puts("\n");
     uart_puts("==========================================\n");
-    uart_puts(" CGRA Bare-Metal Test v4.0 (deep+ALU+IRQ)\n");
+    uart_puts(" CGRA Bare-Metal Test v4.1 (deep+ALU+IRQ+bank_pingpong)\n");
     uart_puts(" Zynq-7000 / CGRA 4x4\n");
     uart_puts("==========================================\n");
 
@@ -1277,6 +1334,7 @@ void main(void)
     test_concurrency();
     test_dma_error_and_protect();
     test_gic_irq();
+    test_bank_pingpong();
 
     uart_puts("\n==========================================\n");
     uart_puts(" RESULTS: ");

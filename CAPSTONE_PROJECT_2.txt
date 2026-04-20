@@ -225,10 +225,6 @@ Instructor: Assoc.Prof, PhD.Truong Quang Vinh
 
 Module Title (cgra_tile.sv) ................................................................................................. 43
 
-4.9.
-
-Router (cgra_router.sv) ...................................................................................................... 45
-
 VERIFICATION AND TESTING ............................................................................................ 47
 5.1.
 
@@ -2742,91 +2738,6 @@ and the router is minimized.
 
 44
 
-Capstone Project 2
-
-4.9.
-
-Instructor: Assoc.Prof, PhD.Truong Quang Vinh
-
-Router (cgra_router.sv)
-
-Figure 15: Module Router
-
-Signal Name
-
-Direction Width
-
-Description
-
-clk, rst_n
-
-Input
-
-Clock and Reset
-
-1
-
-Ports N, E, S, W, Local (Repeated for each port)
-data_in_X
-
-Input
-
-DATA_WIDTH Data Input
-
-valid_in_X
-
-Input
-
-1
-
-Valid Input
-
-ready_out_X
-
-Output
-
-1
-
-Ready Output
-
-data_out_X
-
-Output
-
-DATA_WIDTH Data Output
-
-valid_out_X
-
-Output
-
-1
-
-Valid Output
-
-ready_in_X
-
-Input
-
-1
-
-Ready Input
-
-Table 11: Signals of Router
-
-45
-
-Capstone Project 2
-
-Instructor: Assoc.Prof, PhD.Truong Quang Vinh
-
- Description:
-The Router implements a 5-port (North, East, South, West, Local) mesh network.
-Unlike standard NoCs that use packet switching, this router uses circuitswitched, statically scheduled routing. The data movement is deterministic and
-defined by the configuration bits, eliminating the overhead of packet headers and
-arbitration logic. This is crucial for maintaining the cycle-accurate timing
-required for the CGRA's compiler execution model.
-
-46
 
 Capstone Project 2
 
