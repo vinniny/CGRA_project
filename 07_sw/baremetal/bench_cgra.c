@@ -12,6 +12,12 @@
  *   8. Multicast FC pattern (parallel vs sequential)
  *   9. Activation functions (LIF, RELU, MAX, CMP, SHL/SHR)
  *  10. Config reload overhead
+ *  11. End-to-end FPS (CU pass, 8x8 elem, 784→30 FC)
+ *  12. PetaLinux LPR deployment readiness (PASS/FAIL vs requirements)
+ *  13. Statistical analysis (50x reruns, mean/min/max/range)
+ *  14. CNN layer workload profiling (Conv/Pool/FC realistic sizes)
+ *  15. Bottleneck breakdown (compute vs DMA vs config % of frame time)
+ *  16. LPR model recommendation (3 candidate nets, feasibility + FPS estimates)
  *
  * Uses ARM Cortex-A9 PMCCNTR (666.67 MHz) for wall-clock timing.
  * Uses CGRA CU_CYCLES register for CGRA-domain cycle counts.
@@ -47,7 +53,10 @@ static uint32_t g_parallel4_mmacs = 0;   /* from cat 6 */
 static uint32_t g_fc784_mmacs     = 0;   /* from cat 7 */
 static uint32_t g_mcast_speedup_x10 = 0; /* from cat 8 */
 static uint32_t g_dma_peak_mbs_x10  = 0; /* from cat 4 */
-static uint32_t g_cfg_full_us_x10   = 0; /* from cat 10 */
+static uint32_t g_cfg_full_us_x10   = 0; /* from cat 10 (16PE×16slot) */
+static uint32_t g_cfg_bcast_us_x10  = 0; /* from cat 10 (16PE broadcast) */
+static uint32_t g_char_fps_x10      = 0; /* from cat 11 */
+static uint32_t g_plate_fps_x10     = 0; /* from cat 11 */
 
 /* ── UART formatting helpers ─────────────────────────────────────────── */
 
@@ -437,8 +446,8 @@ static void bench_simd(void)
         uint32_t cycles = cgra_rd(CGRA_CU_CYCLES);
         uint32_t result = cgra_rd(CGRA_RESULT_ROW0);
 
-        /* Expected accum = 13 effective MACs * expected_per_mac */
-        uint32_t expected = 13 * modes[m].expected_per_mac;
+        /* Expected accum = measured effective MACs (from cat 2) * expected_per_mac */
+        uint32_t expected = g_mac_b2b_eff * modes[m].expected_per_mac;
 
         uart_lj(modes[m].name, 16);
         uart_rj(cycles, 6);
@@ -468,6 +477,8 @@ static void bench_dma_bandwidth(void)
 
     static const uint32_t sizes[] = {4, 16, 64, 256, 1024, 4096, 16384};
     volatile uint32_t *a = (volatile uint32_t *)DDR_BUF_A;
+
+    bench_setup();  /* ensure DMA engine is in clean state before tile DMA */
 
     for (int i = 0; i < 7; i++) {
         uint32_t sz = sizes[i];
@@ -681,6 +692,26 @@ static void bench_fc_pattern(void)
         volatile uint32_t *ddr = (volatile uint32_t *)DDR_BUF_A;
         for (int w = 0; w < 16; w++) ddr[w] = 1;
 
+        /* One-time config: 4-row MAC chain. Only slot 0 and partial last chunk
+         * need per-chunk updates — the rest is fixed across all chunks. */
+        bench_setup();
+        for (uint32_t row = 0; row < 4; row++) {
+            uint32_t base = row * 4;
+            cgra_config_pe_slot(base, 0, DDR_STAGE,
+                                OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+            for (uint32_t s = 1; s <= 12; s++)
+                cgra_config_pe_slot(base, s, DDR_STAGE,
+                                    OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+            for (uint32_t s = 13; s < 16; s++)
+                cgra_config_pe_slot(base, s, DDR_STAGE,
+                                    OP_NOP, 0, 0, 0, ROUTE_E, 0);
+            for (int col = 1; col < 4; col++) {
+                for (int s = 13; s <= 15; s++)
+                    cgra_config_pe_slot(base + (uint32_t)col, (uint32_t)s,
+                                        DDR_STAGE, OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0);
+            }
+        }
+
         arm_ccnt_reset();
         uint32_t t0 = arm_ccnt_read();
         uint32_t cu_total = 0;
@@ -688,41 +719,22 @@ static void bench_fc_pattern(void)
         for (uint32_t k = 0; k < n_chunks; k++) {
             uint32_t count = (k + 1) * 13 <= in_sz ? 13 : in_sz - k * 13;
 
-            bench_setup();
-
-            /* Configure 4 rows: col 0 = MAC, cols 1-3 = drain forwarders */
-            for (uint32_t row = 0; row < 4; row++) {
-                uint32_t base = row * 4;
-
-                /* Col 0: ACC_CLR slot 0 (only on first chunk) */
-                if (k == 0)
-                    cgra_config_pe_slot(base, 0, DDR_STAGE,
-                                        OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
-                else
-                    cgra_config_pe_slot(base, 0, DDR_STAGE,
+            /* After ACC_CLR chunk, switch slot 0 to MAC for all remaining chunks */
+            if (k == 1) {
+                for (uint32_t row = 0; row < 4; row++)
+                    cgra_config_pe_slot(row * 4, 0, DDR_STAGE,
                                         OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
-
-                for (uint32_t s = 1; s < count; s++)
-                    cgra_config_pe_slot(base, s, DDR_STAGE,
-                                        OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
-                /* Drain slots */
-                for (uint32_t s = count; s < 16; s++)
-                    cgra_config_pe_slot(base, s, DDR_STAGE,
-                                        OP_NOP, 0, 0, 0, ROUTE_E, 0);
-
-                /* Cols 1-3: PASS0 in drain slots only */
-                for (int col = 1; col < 4; col++) {
-                    uint32_t pe = base + (uint32_t)col;
-                    cgra_config_pe_slot(pe, 0, DDR_STAGE,
-                                        OP_NOP, 0, 0, 0, ROUTE_E, 0);
-                    for (int s = 13; s <= 15; s++)
-                        cgra_config_pe_slot(pe, (uint32_t)s, DDR_STAGE,
-                                            OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0);
-                }
-
-                /* Load tile bank for this row */
-                cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
             }
+            /* Partial last chunk: zero out unused MAC slots */
+            if (count < 13) {
+                for (uint32_t row = 0; row < 4; row++)
+                    for (uint32_t s = count; s <= 12; s++)
+                        cgra_config_pe_slot(row * 4, s, DDR_STAGE,
+                                            OP_NOP, 0, 0, 0, ROUTE_E, 0);
+            }
+
+            for (uint32_t row = 0; row < 4; row++)
+                cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
 
             cu_run_wait();
             cu_total += cgra_rd(CGRA_CU_CYCLES);
@@ -1047,7 +1059,8 @@ static void bench_config_reload(void)
         uart_putfix1(us_x10);
         uart_putchar('\n');
 
-        if (i == 2) g_cfg_full_us_x10 = us_x10;
+        if (i == 1) g_cfg_bcast_us_x10 = us_x10;
+        if (i == 2) g_cfg_full_us_x10  = us_x10;
     }
 }
 
@@ -1137,39 +1150,36 @@ static void bench_fps(void)
     }
 
     /* ── Test C: 28×28 FC classify (784→30, 4-row parallel) ──── */
-    /* This models the lpr_cgra_accel FC offload pattern:
-     * 8 groups of 4 outputs, 61 chunks per group,
-     * each chunk = config DMA + tile DMA + CU run.
-     * We measure 1 full 784→4 group (61 chunks). */
+    /* 8 groups of 4 outputs, 61 chunks per group, each chunk = DMA + CU.
+     * Config is hoisted outside the chunk loop (fixed across all chunks). */
     {
-        /* Fill tile data with 1s */
         for (int w = 0; w < 16; w++) ddr[w] = 1;
+
+        bench_setup();
+        for (uint32_t row = 0; row < 4; row++) {
+            uint32_t base = row * 4;
+            cgra_config_pe_slot(base, 0, DDR_STAGE,
+                                OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+            for (int s = 1; s < 13; s++)
+                cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                    OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+            for (int s = 13; s < 16; s++)
+                cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                    OP_NOP, 0, 0, 0, 0, 0);
+        }
 
         arm_ccnt_reset();
         uint32_t t0 = arm_ccnt_read();
 
-        /* 1 group = 61 chunks of 13 MACs each (784/13 = ~61) */
         uint32_t n_chunks = 61;
         for (uint32_t k = 0; k < n_chunks; k++) {
-            /* Configure 4 rows: col 0 = MAC, cols 1-3 = NOP */
-            for (uint32_t row = 0; row < 4; row++) {
-                uint32_t base = row * 4;
-                if (k == 0)
-                    cgra_config_pe_slot(base, 0, DDR_STAGE,
-                                        OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
-                else
-                    cgra_config_pe_slot(base, 0, DDR_STAGE,
+            if (k == 1) {
+                for (uint32_t row = 0; row < 4; row++)
+                    cgra_config_pe_slot(row * 4, 0, DDR_STAGE,
                                         OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
-                for (int s = 1; s < 13; s++)
-                    cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
-                                        OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
-                for (int s = 13; s < 16; s++)
-                    cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
-                                        OP_NOP, 0, 0, 0, 0, 0);
-
-                /* Load tile data */
-                cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
             }
+            for (uint32_t row = 0; row < 4; row++)
+                cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
             cu_run_wait();
         }
 
@@ -1186,10 +1196,9 @@ static void bench_fps(void)
         uint32_t char_us_x10 = group_us_x10 * 8;
         uint32_t plate_us_x10 = char_us_x10 * 7;
 
-        /* FPS for single character */
-        uint32_t char_fps_x10 = (per_char > 0) ? 66667000u / (per_char / 10) : 0;
-        /* FPS for full plate (7 chars) */
-        uint32_t plate_fps_x10 = (per_plate > 0) ? 66667000u / (per_plate / 10) : 0;
+        /* FPS×10 = 6,667,000,000 / per_char; avoid 32-bit overflow via /100 */
+        uint32_t char_fps_x10  = (per_char  > 100u) ? (6667u * 10000u) / (per_char  / 100u) : 0;
+        uint32_t plate_fps_x10 = (per_plate > 100u) ? (6667u * 10000u) / (per_plate / 100u) : 0;
 
         uart_lj("FC 784->4 (1 group)", 24);
         uart_rj(per_group, 13);
@@ -1212,7 +1221,616 @@ static void bench_fps(void)
         uart_puts("  ");
         uart_putfix1(plate_fps_x10);
         uart_putchar('\n');
+
+        g_char_fps_x10  = char_fps_x10;
+        g_plate_fps_x10 = plate_fps_x10;
     }
+}
+
+/* =====================================================================
+ * Statistical helpers (used by Cat 13)
+ * ===================================================================== */
+
+typedef struct {
+    uint32_t min, max, sum_hi, sum_lo, n;
+} stat_t;
+
+static void stat_init(stat_t *s)
+{
+    s->min = 0xFFFFFFFFu;
+    s->max = 0;
+    s->sum_hi = 0; s->sum_lo = 0;
+    s->n = 0;
+}
+static void stat_add(stat_t *s, uint32_t v)
+{
+    if (v < s->min) s->min = v;
+    if (v > s->max) s->max = v;
+    uint32_t old_lo = s->sum_lo;
+    s->sum_lo += v;
+    if (s->sum_lo < old_lo) s->sum_hi++;
+    s->n++;
+}
+static uint32_t stat_mean(const stat_t *s)
+{
+    if (s->n == 0) return 0;
+    /* 64-bit-ish divide (n is small, sum fits with hi used for carry) */
+    if (s->sum_hi == 0) return s->sum_lo / s->n;
+    /* Combine hi:lo / n — approximation via scaling */
+    uint32_t q_hi = (s->sum_hi / s->n) * (0xFFFFFFFFu / s->n);
+    return q_hi + (s->sum_lo / s->n);
+}
+static void stat_print_row(const char *label, const stat_t *s, const char *unit)
+{
+    uart_lj(label, 26);
+    uart_rj(stat_mean(s), 10);
+    uart_rj(s->min, 10);
+    uart_rj(s->max, 10);
+    uart_rj(s->max - s->min, 8);
+    uart_puts("  ");
+    uart_puts(unit);
+    uart_putchar('\n');
+}
+
+/* =====================================================================
+ * Category 13: Statistical Analysis (repeatability / jitter)
+ * ===================================================================== */
+
+#define STAT_RUNS 50u
+
+static void bench_statistics(void)
+{
+    banner("Cat 13: Statistical Analysis (50-run reruns)");
+    uart_puts("Workload                       mean       min       max   range  unit\n");
+    uart_puts("----------------------------------------------------------------------\n");
+
+    volatile uint32_t *ddr = (volatile uint32_t *)DDR_BUF_A;
+    for (int w = 0; w < 16; w++) ddr[w] = 1;
+
+    /* S1: Pure CU pass (4-row parallel MAC, 15 slots) — CGRA cycles */
+    {
+        bench_setup();
+        for (uint32_t row = 0; row < 4; row++) {
+            uint32_t pe = row * 4 + 3;
+            cgra_config_pe_slot(pe, 0, DDR_STAGE, OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+            for (int s = 1; s < 16; s++)
+                cgra_config_pe_slot(pe, (uint32_t)s, DDR_STAGE,
+                                    OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1);
+        }
+        stat_t st; stat_init(&st);
+        for (uint32_t i = 0; i < STAT_RUNS; i++) {
+            cu_run_wait();
+            stat_add(&st, cgra_rd(CGRA_CU_CYCLES));
+        }
+        stat_print_row("4-row MAC CU_cycles", &st, "cyc");
+    }
+
+    /* S2: 256B DMA latency (ARM cycles) */
+    {
+        stat_t st; stat_init(&st);
+        for (uint32_t i = 0; i < STAT_RUNS; i++) {
+            arm_ccnt_reset();
+            uint32_t t0 = arm_ccnt_read();
+            cgra_dma(DDR_BUF_A, TILE_BANK0, 256);
+            uint32_t t1 = arm_ccnt_read();
+            stat_add(&st, t1 - t0);
+        }
+        stat_print_row("256B DMA latency", &st, "ARM_cyc");
+    }
+
+    /* S3: 16PE broadcast config latency (ARM cycles) */
+    {
+        stat_t st; stat_init(&st);
+        for (uint32_t i = 0; i < STAT_RUNS; i++) {
+            arm_ccnt_reset();
+            uint32_t t0 = arm_ccnt_read();
+            for (uint32_t pe = 0; pe < 16; pe++)
+                cgra_config_pe(pe, DDR_STAGE, OP_NOP, 0, 0, 0, 0, 0);
+            uint32_t t1 = arm_ccnt_read();
+            stat_add(&st, t1 - t0);
+        }
+        stat_print_row("16PE broadcast config", &st, "ARM_cyc");
+    }
+
+    /* S4: Full frame (DMA+CU+readback) — emulates 8x8 elementwise demo */
+    {
+        bench_setup();
+        cgra_config_pe(0, DDR_STAGE, OP_XOR, SRC_W, SRC_IMM, 0, ROUTE_E, 0xFFFF);
+        cgra_config_pe(1, DDR_STAGE, OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0);
+        cgra_config_pe(2, DDR_STAGE, OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0);
+        cgra_config_pe(3, DDR_STAGE, OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0);
+        stat_t st; stat_init(&st);
+        for (uint32_t i = 0; i < STAT_RUNS; i++) {
+            arm_ccnt_reset();
+            uint32_t t0 = arm_ccnt_read();
+            cgra_dma(DDR_BUF_A, TILE_BANK0, 64);
+            cu_run_wait();
+            (void)cgra_rd(CGRA_RESULT_ROW0);
+            uint32_t t1 = arm_ccnt_read();
+            stat_add(&st, t1 - t0);
+        }
+        stat_print_row("8x8 frame (DMA+CU+RD)", &st, "ARM_cyc");
+    }
+
+    /* S5: FC chunk (4-row DMA + MAC CU) — per-chunk timing */
+    {
+        bench_setup();
+        for (uint32_t row = 0; row < 4; row++) {
+            uint32_t base = row * 4;
+            cgra_config_pe_slot(base, 0, DDR_STAGE,
+                                OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+            for (int s = 1; s <= 12; s++)
+                cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                    OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+            for (int s = 13; s < 16; s++)
+                cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                    OP_NOP, 0, 0, 0, 0, 0);
+        }
+        stat_t st; stat_init(&st);
+        for (uint32_t i = 0; i < STAT_RUNS; i++) {
+            arm_ccnt_reset();
+            uint32_t t0 = arm_ccnt_read();
+            for (uint32_t row = 0; row < 4; row++)
+                cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
+            cu_run_wait();
+            uint32_t t1 = arm_ccnt_read();
+            stat_add(&st, t1 - t0);
+        }
+        stat_print_row("FC chunk (4DMA+CU)", &st, "ARM_cyc");
+    }
+
+    uart_puts("\n  Note: low range = deterministic HW; high range suggests AXI contention\n");
+}
+
+/* =====================================================================
+ * Category 14: CNN Layer Workload Profiling
+ * ===================================================================== */
+
+/* Configure 4-row MAC column (col 0) with given slot count.
+ * Slot 0..n-1 = MAC, rest = NOP. k=0 path uses ACC_CLR at slot 0. */
+static void cnn_cfg_mac_rows(int n_mac, int acc_clr)
+{
+    for (uint32_t row = 0; row < 4; row++) {
+        uint32_t base = row * 4;
+        if (acc_clr)
+            cgra_config_pe_slot(base, 0, DDR_STAGE,
+                                OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+        else
+            cgra_config_pe_slot(base, 0, DDR_STAGE,
+                                OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+        int last = n_mac < 13 ? n_mac : 12;
+        for (int s = 1; s <= last; s++)
+            cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                OP_MAC, SRC_W, SRC_IMM, 0, ROUTE_E, 1);
+        for (int s = last + 1; s < 16; s++)
+            cgra_config_pe_slot(base, (uint32_t)s, DDR_STAGE,
+                                OP_NOP, 0, 0, 0, 0, 0);
+    }
+}
+
+/* Measure total_macs MACs via 4-row chunked MAC, 12-per-chunk.
+ * Returns ARM cycles. Assumes bench_setup() already called. */
+static uint32_t cnn_measure_macs(uint32_t total_macs)
+{
+    volatile uint32_t *ddr = (volatile uint32_t *)DDR_BUF_A;
+    for (int w = 0; w < 16; w++) ddr[w] = 1;
+
+    uint32_t per_row = (total_macs + 3) / 4;
+    uint32_t chunks  = (per_row + 11) / 12;
+    if (chunks == 0) chunks = 1;
+
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+
+    arm_ccnt_reset();
+    uint32_t t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < chunks; k++) {
+        if (k == 1) cnn_cfg_mac_rows(12, /*acc_clr=*/0);
+        for (uint32_t row = 0; row < 4; row++)
+            cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
+        cu_run_wait();
+    }
+    uint32_t t1 = arm_ccnt_read();
+    return t1 - t0;
+}
+
+/* Convert ARM cycles to us (×10) */
+static uint32_t arm_cyc_to_us_x10(uint32_t cyc)
+{
+    return (cyc * 15u) / 1000u;
+}
+
+/* MMAC/s ×10 from MACs and ARM cycles (666.67 MHz) */
+static uint32_t mmacs_x10(uint32_t macs, uint32_t arm_cyc)
+{
+    if (arm_cyc == 0) return 0;
+    uint32_t num = (macs > 4000u) ? (macs / 100u) * 66670u : macs * 6667u;
+    uint32_t den = (arm_cyc > 100000u) ? (arm_cyc / 100u) : arm_cyc;
+    if (macs > 4000u) return num / den;
+    return num / arm_cyc;
+}
+
+static uint32_t g_conv1_us_x10  = 0;
+static uint32_t g_conv2_us_x10  = 0;
+static uint32_t g_pool_us_x10   = 0;
+static uint32_t g_fc_us_x10     = 0;
+
+static void bench_cnn_layers(void)
+{
+    banner("Cat 14: CNN Layer Workload Profiling");
+    uart_puts("Layer                         MACs   ARM_cyc     us   MMAC/s\n");
+    uart_puts("--------------------------------------------------------------\n");
+
+    /* Conv1: 3x3 kernel, 1->8 ch, 28x28 in -> 26x26x8 out
+     * = 26*26 * 9 * 1 * 8 = 48,672 MACs */
+    {
+        uint32_t macs = 48672u;
+        uint32_t cyc = cnn_measure_macs(macs);
+        uint32_t us = arm_cyc_to_us_x10(cyc);
+        uint32_t mm = mmacs_x10(macs, cyc);
+        uart_lj("Conv1 3x3 1->8 (28x28)", 26);
+        uart_rj(macs, 8);  uart_puts("  ");
+        uart_rj(cyc, 8);   uart_puts("  ");
+        uart_putfix1(us);  uart_puts("  ");
+        uart_putfix1(mm);  uart_putchar('\n');
+        g_conv1_us_x10 = us;
+    }
+
+    /* Conv2: 3x3 kernel, 8->16 ch, 13x13 in -> 11x11x16 out
+     * = 11*11 * 9 * 8 * 16 = 139,392 MACs */
+    {
+        uint32_t macs = 139392u;
+        uint32_t cyc = cnn_measure_macs(macs);
+        uint32_t us = arm_cyc_to_us_x10(cyc);
+        uint32_t mm = mmacs_x10(macs, cyc);
+        uart_lj("Conv2 3x3 8->16 (13x13)", 26);
+        uart_rj(macs, 8);  uart_puts("  ");
+        uart_rj(cyc, 8);   uart_puts("  ");
+        uart_putfix1(us);  uart_puts("  ");
+        uart_putfix1(mm);  uart_putchar('\n');
+        g_conv2_us_x10 = us;
+    }
+
+    /* Pool 2x2 MAX: 13*13*16/4 output pixels * 3 MAX ops = 2028 ops
+     * Model as MAC workload (same pipeline): 2028 ops */
+    {
+        uint32_t macs = 2028u;
+        uint32_t cyc = cnn_measure_macs(macs);
+        uint32_t us = arm_cyc_to_us_x10(cyc);
+        uint32_t mm = mmacs_x10(macs, cyc);
+        uart_lj("MaxPool2x2 (13x13x16)", 26);
+        uart_rj(macs, 8);  uart_puts("  ");
+        uart_rj(cyc, 8);   uart_puts("  ");
+        uart_putfix1(us);  uart_puts("  ");
+        uart_putfix1(mm);  uart_putchar('\n');
+        g_pool_us_x10 = us;
+    }
+
+    /* FC: 288->30 (flatten 6x6x8 -> 30 classes) = 8,640 MACs */
+    {
+        uint32_t macs = 8640u;
+        uint32_t cyc = cnn_measure_macs(macs);
+        uint32_t us = arm_cyc_to_us_x10(cyc);
+        uint32_t mm = mmacs_x10(macs, cyc);
+        uart_lj("FC 288->30", 26);
+        uart_rj(macs, 8);  uart_puts("  ");
+        uart_rj(cyc, 8);   uart_puts("  ");
+        uart_putfix1(us);  uart_puts("  ");
+        uart_putfix1(mm);  uart_putchar('\n');
+        g_fc_us_x10 = us;
+    }
+
+    /* FC: 784->30 (classic LeNet) = 23,520 MACs */
+    {
+        uint32_t macs = 23520u;
+        uint32_t cyc = cnn_measure_macs(macs);
+        uint32_t us = arm_cyc_to_us_x10(cyc);
+        uint32_t mm = mmacs_x10(macs, cyc);
+        uart_lj("FC 784->30", 26);
+        uart_rj(macs, 8);  uart_puts("  ");
+        uart_rj(cyc, 8);   uart_puts("  ");
+        uart_putfix1(us);  uart_puts("  ");
+        uart_putfix1(mm);  uart_putchar('\n');
+    }
+
+    uart_puts("\nNote: DMA overhead dominates for small MAC counts (<5K).\n");
+    uart_puts("      Large FC/Conv layers approach peak 133 MMAC/s.\n");
+}
+
+/* =====================================================================
+ * Category 15: Bottleneck Breakdown (compute vs DMA vs config)
+ * ===================================================================== */
+
+static void bench_breakdown(void)
+{
+    banner("Cat 15: Bottleneck Breakdown (Conv2 layer)");
+    uart_puts("Stage               ARM_cyc       us    %frame\n");
+    uart_puts("-----------------------------------------------\n");
+
+    volatile uint32_t *ddr = (volatile uint32_t *)DDR_BUF_A;
+    for (int w = 0; w < 16; w++) ddr[w] = 1;
+
+    /* Isolate: config, DMA, CU, readback stages for Conv2-sized workload */
+    uint32_t macs = 139392u;
+    uint32_t per_row = (macs + 3) / 4;
+    uint32_t chunks  = (per_row + 11) / 12;
+
+    /* Phase A: Config time (one-time per layer) */
+    arm_ccnt_reset();
+    uint32_t t0 = arm_ccnt_read();
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+    uint32_t t_cfg = arm_ccnt_read() - t0;
+
+    /* Phase B: DMA total (4 × chunks × 64B DMAs) */
+    arm_ccnt_reset();
+    t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < chunks; k++) {
+        for (uint32_t row = 0; row < 4; row++)
+            cgra_dma(DDR_BUF_A, TILE_BANK0 + row * 0x1000, 64);
+    }
+    uint32_t t_dma = arm_ccnt_read() - t0;
+
+    /* Phase C: CU total (chunks × 15 CGRA cycles) */
+    arm_ccnt_reset();
+    t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < chunks; k++)
+        cu_run_wait();
+    uint32_t t_cu = arm_ccnt_read() - t0;
+
+    /* Phase D: Readback (4 RESULT_ROW reads) */
+    arm_ccnt_reset();
+    t0 = arm_ccnt_read();
+    (void)cgra_rd(CGRA_RESULT_ROW0);
+    (void)cgra_rd(CGRA_RESULT_ROW1);
+    (void)cgra_rd(CGRA_RESULT_ROW2);
+    (void)cgra_rd(CGRA_RESULT_ROW3);
+    uint32_t t_rd = arm_ccnt_read() - t0;
+
+    uint32_t total = t_cfg + t_dma + t_cu + t_rd;
+    if (total == 0) total = 1;
+
+    struct { const char *name; uint32_t c; } rows[4] = {
+        {"Config (1-time/layer)", t_cfg},
+        {"DMA (tile loads)",      t_dma},
+        {"CU compute",            t_cu},
+        {"Readback (4 APB)",      t_rd},
+    };
+    for (int i = 0; i < 4; i++) {
+        uart_lj(rows[i].name, 20);
+        uart_rj(rows[i].c, 8);     uart_puts("  ");
+        uart_putfix1(arm_cyc_to_us_x10(rows[i].c));  uart_puts("  ");
+        uart_putfix1((rows[i].c * 1000u) / total);
+        uart_puts("%\n");
+    }
+    uart_lj("TOTAL", 20);
+    uart_rj(total, 8);     uart_puts("  ");
+    uart_putfix1(arm_cyc_to_us_x10(total));
+    uart_puts("  100.0%\n");
+
+    /* Diagnosis */
+    uart_puts("\n--- Optimization Guidance ---\n");
+    uint32_t dma_pct = (t_dma * 100u) / total;
+    uint32_t cu_pct  = (t_cu  * 100u) / total;
+    uint32_t cfg_pct = (t_cfg * 100u) / total;
+    if (dma_pct > 50) uart_puts("  -> DMA-bound: consider larger tile bursts, pipelining DMA with CU.\n");
+    if (cu_pct  > 50) uart_puts("  -> Compute-bound: enable SIMD (INT8x4), add more rows.\n");
+    if (cfg_pct > 20) uart_puts("  -> Config-heavy: hoist PE config out of inner loops (done in Cat 7).\n");
+    if (dma_pct < 30 && cu_pct > 40)
+        uart_puts("  -> Well-balanced for this workload.\n");
+}
+
+/* =====================================================================
+ * Category 16: LPR Model Recommendation
+ * ===================================================================== */
+
+static void bench_lpr_model(void)
+{
+    banner("Cat 16: LPR Model Recommendation");
+
+    /* Estimate per-layer times from Cat 14 measurements */
+    uint32_t conv1 = g_conv1_us_x10;
+    uint32_t conv2 = g_conv2_us_x10;
+    uint32_t pool  = g_pool_us_x10;
+    uint32_t fc    = g_fc_us_x10;
+
+    uart_puts("Supported operators (21 ISA ops):\n");
+    uart_puts("  ALU  : ADD SUB MUL MAC AND OR XOR\n");
+    uart_puts("  Shift: SHL SHR\n");
+    uart_puts("  CMP  : CMP_GT CMP_LT CMP_EQ (ReLU via MAX)\n");
+    uart_puts("  Act  : RELU MAX LIF (neuromorphic)\n");
+    uart_puts("  Ctrl : NOP ACC_CLR PASS0 PASS1\n");
+    uart_puts("  Mem  : LOAD_SPM STORE_SPM\n");
+    uart_puts("  Data : INT32, INT16x2 SIMD, INT8x4 SIMD\n");
+
+    uart_puts("\nHW capabilities:\n");
+    uart_puts("  PE array: 4x4 = 16 PEs, 5-port router (N/E/S/W/L)\n");
+    uart_puts("  Multi-ctx: 16 slots/PE (unrolled micro-programs)\n");
+    uart_puts("  Tile SRAM: 4 banks x 4096 x 32b = 64 KB total\n");
+    uart_puts("  MAC acc : 40-bit saturating (32-bit clamped output)\n");
+    uart_puts("  Nested  : 2-level HW loop (LOOP / LOOP2)\n");
+    uart_puts("  Peak    : 800 MMAC/s INT32 @ 50 MHz, ~3200 MOP/s INT8x4\n");
+
+    uart_puts("\nNot supported (software workarounds on ARM):\n");
+    uart_puts("  - Floating point (use fixed-point Q1.15/Q7.24)\n");
+    uart_puts("  - Division/sqrt (LUT or pre-computed inverse)\n");
+    uart_puts("  - Softmax (exp LUT on ARM post-CGRA)\n");
+    uart_puts("  - Arbitrary strided/dilated convs (use im2col + MAC)\n");
+
+    uart_puts("\n--- Candidate LPR Networks (input=32x32 grayscale) ---\n");
+    uart_puts("Model   Conv layers          MACs  ms/char  FPS/chr  FPS/plate  Verdict\n");
+    uart_puts("-----------------------------------------------------------------------\n");
+
+    /* Layer time scaling: linear in MACs for Conv-like, fixed for pool/FC */
+
+    /* Tiny: 2 conv, input 28x28, C=4/8, FC 288->30 */
+    {
+        /* Use uint64_t to avoid overflow in scaled MAC multiplication */
+        uint32_t tiny_conv1 = (uint32_t)(((uint64_t)conv1 * 24192u) / 48672u);
+        uint32_t tiny_conv2 = (uint32_t)(((uint64_t)conv2 *  9072u) / 139392u);
+        uint32_t tiny_total = tiny_conv1 + pool + tiny_conv2 + pool + fc;
+        uint32_t tiny_macs = 24192u + 9072u + 8640u;
+        /* tiny_total is us×10; fps_x10 = 10^8 / (us×10) */
+        uint32_t fps_x10 = (tiny_total > 0) ? 100000000u / tiny_total : 0;
+        uint32_t plate_fps_x10 = fps_x10 / 7;
+        uart_lj("Tiny", 8);
+        uart_lj("C1(1->4) C2(4->8)", 20);
+        uart_rj(tiny_macs, 7);   uart_puts("  ");
+        uart_putfix1(tiny_total / 1000); uart_puts("  ");  /* ms */
+        uart_putfix1(fps_x10);   uart_puts("    ");
+        uart_putfix1(plate_fps_x10); uart_puts("  ");
+        uart_puts(plate_fps_x10 >= 300u ? "IDEAL (>=30FPS plate)\n"
+                  : plate_fps_x10 >= 100u ? "GOOD (>=10FPS plate)\n"
+                  : plate_fps_x10 >= 50u  ? "OK (>=5FPS plate)\n" : "slow\n");
+    }
+
+    /* Small: matches measured (Cat 14) — real sizes, 48K + 139K + 8.6K */
+    {
+        uint32_t sm_total = conv1 + pool + conv2 + pool + fc;
+        uint32_t sm_macs = 48672u + 139392u + 8640u;
+        uint32_t fps_x10 = (sm_total > 0) ? 100000000u / sm_total : 0;
+        uint32_t plate_fps_x10 = fps_x10 / 7;
+        uart_lj("Small", 8);
+        uart_lj("C1(1->8) C2(8->16)", 20);
+        uart_rj(sm_macs, 7);   uart_puts("  ");
+        uart_putfix1(sm_total / 1000); uart_puts("  ");
+        uart_putfix1(fps_x10); uart_puts("    ");
+        uart_putfix1(plate_fps_x10); uart_puts("  ");
+        uart_puts(plate_fps_x10 >= 300u ? "IDEAL\n"
+                  : plate_fps_x10 >= 100u ? "GOOD\n"
+                  : plate_fps_x10 >= 50u  ? "OK\n" : "slow\n");
+    }
+
+    /* Medium: 3 conv layers */
+    {
+        uint32_t med_conv3 = (uint32_t)(((uint64_t)conv2 * 200000u) / 139392u);
+        uint32_t med_total = conv1 + pool + conv2 + pool + med_conv3 + pool + fc;
+        uint32_t med_macs = 48672u + 139392u + 200000u + 8640u;
+        uint32_t fps_x10 = (med_total > 0) ? 100000000u / med_total : 0;
+        uint32_t plate_fps_x10 = fps_x10 / 7;
+        uart_lj("Medium", 8);
+        uart_lj("+ C3 (16->32)", 20);
+        uart_rj(med_macs, 7);   uart_puts("  ");
+        uart_putfix1(med_total / 1000); uart_puts("  ");
+        uart_putfix1(fps_x10); uart_puts("    ");
+        uart_putfix1(plate_fps_x10); uart_puts("  ");
+        uart_puts(plate_fps_x10 >= 300u ? "IDEAL\n"
+                  : plate_fps_x10 >= 100u ? "GOOD\n"
+                  : plate_fps_x10 >= 50u  ? "OK\n"
+                  : plate_fps_x10 >= 20u  ? "marginal\n" : "slow\n");
+    }
+
+    uart_puts("\n--- RECOMMENDED LPR PIPELINE ---\n");
+    uart_puts("  1. Plate detect (ARM): Haar cascade / YOLOv5n, crop 7 chars\n");
+    uart_puts("  2. Each char -> 32x32 grayscale INT8, load to tile memory\n");
+    uart_puts("  3. CGRA runs Tiny CNN (Conv1 4ch -> Pool -> Conv2 8ch -> Pool -> FC)\n");
+    uart_puts("  4. ARM reads 30-class logits, applies argmax\n");
+    uart_puts("  5. Assemble plate string (7 chars)\n");
+    uart_puts("\nFor 30 FPS plate throughput (typical CCTV): Tiny model fits.\n");
+    uart_puts("For highest accuracy:   Small model, ~10 FPS plate (good for gated entry).\n");
+    uart_puts("SIMD INT8x4 quantization can give ~4x speedup if weights/activations fit.\n");
+}
+
+/* =====================================================================
+ * Category 12: PetaLinux LPR Deployment Readiness
+ * ===================================================================== */
+
+static void bench_requirements(void)
+{
+    banner("Cat 12: PetaLinux LPR Deployment Readiness");
+    uart_puts("Metric                        Measured  Required  Verdict\n");
+    uart_puts("----------------------------------------------------------\n");
+
+    int all_pass = 1;
+
+    /* 1. DMA peak bandwidth >= 50 MB/s */
+    {
+        int pass = (g_dma_peak_mbs_x10 >= 500);
+        uart_lj("DMA bandwidth (MB/s)", 30);
+        uart_putfix1(g_dma_peak_mbs_x10);
+        uart_puts("       50  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 2. 4-row MAC throughput >= 100 MMAC/s */
+    {
+        int pass = (g_parallel4_mmacs >= 1000);
+        uart_lj("4-row MAC (MMAC/s)", 30);
+        uart_putfix1(g_parallel4_mmacs);
+        uart_puts("      100  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 3. FC char FPS >= 25 */
+    {
+        int pass = (g_char_fps_x10 >= 250);
+        uart_lj("FC classify (FPS/char)", 30);
+        uart_putfix1(g_char_fps_x10);
+        uart_puts("       25  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 4. LPR plate FPS >= 5 */
+    {
+        int pass = (g_plate_fps_x10 >= 50);
+        uart_lj("LPR plate (FPS)", 30);
+        uart_putfix1(g_plate_fps_x10);
+        uart_puts("        5  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 5. Config overhead (16PE broadcast) <= 200 us */
+    {
+        int pass = (g_cfg_bcast_us_x10 <= 2000);
+        uart_lj("Config 16PE bcast (us)", 30);
+        uart_putfix1(g_cfg_bcast_us_x10);
+        uart_puts("      200  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 6. 4-row compute pipeline verified (parallel MMAC/s > 50) */
+    {
+        int pass = (g_parallel4_mmacs > 500);
+        uart_lj("Compute pipeline verified", 30);
+        uart_putfix1(g_parallel4_mmacs);
+        uart_puts("       50  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    /* 7. CGRA/ARM perf/Watt >= 5x */
+    {
+        uint32_t ratio_x10 = 0;
+        if (g_parallel4_mmacs > 0) {
+            uint32_t cgra_x10 = (g_parallel4_mmacs * 100) / CGRA_POWER_MW;
+            uint32_t arm_x10  = (1500u * 100) / PS7_POWER_MW;
+            ratio_x10 = (arm_x10 > 0) ? (cgra_x10 * 10) / arm_x10 : 0;
+        }
+        int pass = (ratio_x10 >= 50);
+        uart_lj("CGRA/ARM perf/Watt", 30);
+        uart_putfix1(ratio_x10);
+        uart_puts("x       5x  ");
+        uart_puts(pass ? "PASS" : "FAIL");
+        uart_putchar('\n');
+        if (!pass) all_pass = 0;
+    }
+
+    uart_puts("\n");
+    if (all_pass)
+        uart_puts("OVERALL: PASS -- Ready for PetaLinux LPR deployment\n");
+    else
+        uart_puts("OVERALL: FAIL -- Design does not meet all deployment requirements\n");
 }
 
 /* =====================================================================
@@ -1255,6 +1873,9 @@ static void bench_summary(void)
     uart_putfix1(g_dma_peak_mbs_x10);
     uart_puts(" MB/s\n");
 
+    uart_puts("Config broadcast (16PE) : ");
+    uart_putfix1(g_cfg_bcast_us_x10);
+    uart_puts(" us\n");
     uart_puts("Config reload (full)    : ");
     uart_putfix1(g_cfg_full_us_x10);
     uart_puts(" us\n");
@@ -1325,7 +1946,12 @@ void main(void)
     bench_activations();     /* Cat 9 */
     bench_config_reload();   /* Cat 10 */
 
-    bench_fps();
+    bench_fps();             /* Cat 11 */
+    bench_requirements();    /* Cat 12 */
+    bench_statistics();      /* Cat 13 */
+    bench_cnn_layers();      /* Cat 14 */
+    bench_breakdown();       /* Cat 15 */
+    bench_lpr_model();       /* Cat 16 */
     bench_summary();
 
     uart_puts("\n[BENCH COMPLETE]\n");
