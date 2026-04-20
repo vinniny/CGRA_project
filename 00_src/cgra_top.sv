@@ -165,8 +165,9 @@ module cgra_top #(
     logic                  result_fifo_overflow;
     logic                  result_fifo_underflow;
     logic                  result_fifo_clear;
-    logic [3:0]            result_skip_count;
-    
+    logic [7:0]            result_skip_count;
+    logic [3:0]            cu_pc_end;
+
     // =========================================================================
     // Internal Wires: Control Unit → Array
     // =========================================================================
@@ -184,6 +185,14 @@ module cgra_top #(
     logic        dma_tile_re;     // DMA tile read enable (for tile-to-DDR read-back)
     logic [31:0] dma_tile_rdata;  // Read data from tile memory (1-cycle latent)
     logic        dma_tile_valid;  // Read data valid from tile memory
+
+    // Stall the CU only when the DMA is writing to the same tile half as the PE
+    // is reading. dma_tile_addr[11] is the MSB of the 10-bit word address (byte
+    // addr >> 2, bit 9), which matches bank_sel_i. Non-conflicting DMA writes
+    // (other half) allow the CU to run concurrently.
+    logic        dma_bank_conflict;
+    assign dma_bank_conflict = (dma_tile_we && (dma_tile_addr[11] == tile_bank_sel_csr))
+                             || result_fifo_full;
     
     // Row data from tile memory (1-cycle SRAM latency)
     logic [31:0] row_data [0:3];
@@ -328,6 +337,7 @@ module cgra_top #(
         .tile_bank_sel(tile_bank_sel_csr),
         .tile_auto_inc_en(tile_auto_inc_en),
         .result_skip_count(result_skip_count),
+        .cu_pc_end(cu_pc_end),
         .dma_desc_head(dma_desc_head),
         .dma_chain_start(dma_chain_start),
         .dma_chain_active_i(dma_chain_active),
@@ -440,7 +450,7 @@ module cgra_top #(
         .context_pc_o(context_pc),
         .next_context_pc_o(next_context_pc),
         .global_stall_o(global_stall),
-        .dma_busy_i(dma_busy || result_fifo_full),  // FIFO full also stalls CU
+        .dma_bank_conflict_i(dma_bank_conflict),
         
         // Configuration
         .max_cycles_i(cu_max_cycles),  // Programmable timeout from CSR @ 0x2C
@@ -589,9 +599,14 @@ module cgra_top #(
     // redirecting execution elsewhere. Without the branch guard, a branch
     // at context_pc=15 would be killed by premature array_done assertion.
     //
+    // pe_enable guard: pe_enable lags the RUN FSM state by 1 cycle. Without
+    // it, cu_pc_end=0 causes array_done to fire on the first RUN cycle before
+    // any PE execution (pe_enable=0, CU_CYCLES=0). The guard ensures at least
+    // one real execution cycle completes before array_done asserts.
     assign array_done = auto_stop_armed
                      && cu_loops_done
-                     && (context_pc == 4'(CONTEXT_DEPTH - 1))
+                     && pe_enable
+                     && (context_pc == cu_pc_end)
                      && !array_branch_taken_r;
     
     // =========================================================================
@@ -681,16 +696,26 @@ module cgra_top #(
     // Replaces the old cu_done-only latch. Pushes 4 × 32-bit per cycle
     // during CU execution. ARM pops via APB reads at 0x58-0x64.
 
-    // Push valid: PE output is valid when CU is running and not stalled
+    // Push path registered 1 cycle: aligns alu_result (clocked by global_stall_r)
+    // with the FIFO write so the FIFO captures post-update values.
     logic result_push_valid;
-    assign result_push_valid = pe_enable && !global_stall && !cu_soft_reset
-                               && cu_busy;  // cu_busy is high during STATE_RUN
+    logic [DATA_WIDTH-1:0] result_push_data [0:3];
 
     // FIFO clear: on CU start or soft-reset
     assign result_fifo_clear = cu_start || cu_soft_reset;
 
-    logic [DATA_WIDTH-1:0] result_push_data [0:3];
-    assign result_push_data = edge_out_e;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n || result_fifo_clear) begin
+            result_push_valid <= 1'b0;
+        end else begin
+            result_push_data[0] <= edge_out_e[0];
+            result_push_data[1] <= edge_out_e[1];
+            result_push_data[2] <= edge_out_e[2];
+            result_push_data[3] <= edge_out_e[3];
+            result_push_valid   <= pe_enable && !global_stall_r
+                                   && !cu_soft_reset && cu_busy;
+        end
+    end
 
     cgra_result_fifo #(
         .DATA_WIDTH(DATA_WIDTH),
