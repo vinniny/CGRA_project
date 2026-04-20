@@ -105,7 +105,7 @@ device to capture traces if any future test fails.
 
 ## Directory Layout
 
-- **00_src/** — RTL sources (SystemVerilog). Core modules: cgra_top, cgra_pe, cgra_router, cgra_array (parameterized N*M), cgra_dma_engine, cgra_control_unit, cgra_apb_csr, cgra_tile_memory, cgra_tile. Uses BSG memory library (bsg_mem/).
+- **00_src/** — RTL sources (SystemVerilog). Core modules: cgra_top, cgra_pe, cgra_array (parameterized N*M), cgra_dma_engine, cgra_control_unit, cgra_apb_csr, cgra_tile_memory, cgra_tile. Routing logic is inline in cgra_pe.sv (route_mask). Uses BSG memory library (bsg_mem/).
 - **01_bench/** — Testbench. tb_top.sv is the top-level. `include/` has layered components: tb_defs.svh (macros, address map, opcodes), tb_tasks.svh (APB/AXI/DMA driver tasks + clocking-block variants), tb_scenario_gen.svh (constrained-random classes + generators), tb_coverage.svh (4 covergroups + manual counters), tb_protocol_checkers.svh (AXI4/APB monitors), and 20+ test suite files (tb_suite_*.svh, tb_isa_regression.svh, tb_test_suites.svh).
 - **02_log/** — Simulation logs (compile.log, elaborate.log, sim.log)
 - **03_sim/** — Xcelium working directory (generated)
@@ -120,7 +120,7 @@ device to capture traces if any future test fails.
 ## Architecture
 
 ```
-Host CPU (APB) -> APB CSR (29 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
+Host CPU (APB) -> APB CSR (30 regs) -> Control Unit (IDLE->RUN->FINISH FSM, nested loops, timeout)
                                      -> DMA Engine (AXI4 master, 32-word FIFO, 2D strided) <-> AXI RAM
                                      -> Tile Memory (4 banks * 4096 * 32b, double-buffered)
                                      -> 4x4 PE Array (parameterized mesh, broadcast routing)
@@ -141,17 +141,20 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 - The MAC accumulator update has the **same pipeline hazard** — only ~1/3 of back-to-back MACs contribute. Use enough cycles (the saturation test runs 512 to peg MAX_POS_40 = 0x7F_FFFF_FFFF, with 32-bit output clamped to 0x7FFFFFFF).
 - `IRQ_STATUS[2]` is W1C and clears immediately. The latched `DMA_ERROR` register is sticky until the next `DMA_CTRL[0]` start, not on IRQ W1C.
 
-## APB Register Map (29 registers, 0x00-0x78)
+## APB Register Map (30 registers, 0x00-0x80)
 
 DMA: DMA_CTRL(0x00 RW), DMA_STATUS(0x04 RO), DMA_SRC(0x08 RW), DMA_DST(0x0C RW), DMA_SIZE(0x10 RW), DMA_SRC_STRIDE(0x14 RW), DMA_ROWS(0x18 RW), DMA_COLS(0x1C RW).
 CU: CU_CTRL(0x20 RW), CU_STATUS(0x24 RO), CU_CYCLES(0x28 RO), CU_TIMEOUT(0x2C RW).
 IRQ: IRQ_STATUS(0x30 W1C — [0] DMA Done, [1] CU Done, [2] DMA Error), IRQ_MASK(0x34 RW).
+Error/PC: DMA_ERROR(0x38 RO), CU_PC_END(0x3C RW — [3:0] last PC slot before array_done, default 15).
 Result: RESULT_DATA(0x40 RO), RESULT_STATUS(0x44 RO).
 Loop L1: LOOP_START(0x48 RW), LOOP_END(0x4C RW), LOOP_COUNT(0x50 RW).
+Result FIFO: RESULT_SKIP(0x54 RW — [7:0] warmup skip count, default 12).
 Row Results: RESULT_ROW0-3(0x58-0x64 RO).
 Loop L2: LOOP2_START(0x68 RW), LOOP2_END(0x6C RW), LOOP2_COUNT(0x70 RW).
 Double-Buffer: TILE_BANK_SEL(0x74 RW).
 Tile Auto-Inc: TILE_AUTO_INC(0x78 RW — [0] enable tile addr auto-advance by 16/loop iter).
+SG-DMA: DMA_DESC_HEAD(0x7C RW), DMA_DESC_STATUS(0x80 RO).
 
 Error: DMA_ERROR(0x38 RO) — [0] error_flag, [2:1] error_code (W1C via IRQ_STATUS[2]).
 

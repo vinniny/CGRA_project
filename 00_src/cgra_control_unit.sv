@@ -45,7 +45,7 @@ module cgra_control_unit #(
     output logic [PC_WIDTH-1:0] context_pc_o,   // Current context slot (0-15)
     output logic [PC_WIDTH-1:0] next_context_pc_o, // Next PC (for tile prefetch, accounts for loops)
     output logic                global_stall_o, // Freeze PE array
-    input  logic                dma_busy_i,     // DMA is active
+    input  logic                dma_bank_conflict_i, // DMA is writing to same tile half as CU (or FIFO full)
     
     // =========================================================================
     // Configuration
@@ -300,7 +300,9 @@ module cgra_control_unit #(
     // Global Stall Logic
     // =========================================================================
     // Stall the PE array when:
-    //   1. DMA is active (prevent data hazards during load)
+    //   1. DMA is writing to the same tile half as the CU (bank conflict), or
+    //      result FIFO is full — conveyed via dma_bank_conflict_i. Non-conflicting
+    //      DMA (writing to the other tile half) does NOT stall the CU.
     //   2. PE is not enabled (prevent spurious execution before/after run)
     //   3. FSM is not in RUN state (prevent extra execution during FINISH)
     //      pe_enable is registered and lags FSM by 1 cycle, so during FINISH
@@ -309,7 +311,7 @@ module cgra_control_unit #(
     //   4. Array done (prevent 17th execution: counter reaches 16 one cycle
     //      before the FSM transitions to FINISH, allowing the PE to execute
     //      context 0 a second time if not gated here)
-    assign global_stall_o = dma_busy_i || !pe_enable || (state != STATE_RUN)
+    assign global_stall_o = dma_bank_conflict_i || !pe_enable || (state != STATE_RUN)
                           || array_done_i;
     
     // =========================================================================

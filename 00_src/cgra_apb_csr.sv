@@ -81,7 +81,8 @@ module cgra_apb_csr #(
     output logic                  tile_auto_inc_en,
 
     // Result FIFO
-    output logic [3:0]            result_skip_count,    // warmup skip (default 13)
+    output logic [7:0]            result_skip_count,    // warmup skip (default 13)
+    output logic [3:0]            cu_pc_end,            // last PC slot before array_done (default 15)
 
     // Scatter-Gather DMA
     output logic [31:0]           dma_desc_head,        // descriptor chain head pointer
@@ -117,6 +118,7 @@ module cgra_apb_csr #(
     localparam ADDR_IRQ_STATUS = 8'h30;  // W1C: [0] DMA Done, [1] CU Done, [2] DMA Error
     localparam ADDR_IRQ_MASK   = 8'h34;  // RW: IRQ enable mask
     localparam ADDR_DMA_ERROR  = 8'h38;  // RO: [0] Error flag, [2:1] Error code (BRESP/RRESP)
+    localparam ADDR_CU_PC_END  = 8'h3C; // RW: [3:0] last PC to execute before array_done (default 15)
     
     // Hardware Loop Region (NEW - LPR)
     localparam ADDR_LOOP_START = 8'h48;  // RW: Loop start PC
@@ -169,6 +171,7 @@ module cgra_apb_csr #(
     logic [31:0] reg_tile_bank_sel;
     logic [31:0] reg_tile_auto_inc;
     logic [31:0] reg_result_skip;
+    logic [31:0] reg_cu_pc_end;
     logic [31:0] reg_dma_desc_head;
 
     logic        dma_done_latch;
@@ -267,7 +270,8 @@ module cgra_apb_csr #(
             reg_loop2_count    <= 32'd0;
             reg_tile_bank_sel  <= 32'd0;
             reg_tile_auto_inc  <= 32'd0;
-            reg_result_skip    <= 32'd13;  // 3-stage PE x 3 hops + router pipeline warmup
+            reg_result_skip    <= 32'd12;  // 3-stage PE x 3 hops + router pipeline warmup (registered push adds 1 cycle)
+            reg_cu_pc_end      <= 32'hF;  // default: run through PC=15 (full context)
             reg_dma_desc_head  <= 32'd0;
         end else begin
             if (apb_write) begin
@@ -291,6 +295,7 @@ module cgra_apb_csr #(
                     ADDR_TILE_BANK_SEL:  if (tile_wr_ok) reg_tile_bank_sel  <= pwdata;
                     ADDR_TILE_AUTO_INC:  if (cu_wr_ok)   reg_tile_auto_inc  <= pwdata;
                     ADDR_RESULT_SKIP:    if (cu_wr_ok)   reg_result_skip    <= pwdata;
+                    ADDR_CU_PC_END:      if (cu_wr_ok)   reg_cu_pc_end      <= pwdata;
                     ADDR_DMA_DESC_HEAD:  if (dma_wr_ok)  reg_dma_desc_head  <= pwdata;
                     default: ;
                 endcase
@@ -324,6 +329,7 @@ module cgra_apb_csr #(
             ADDR_IRQ_STATUS: prdata = reg_irq_status;
             ADDR_IRQ_MASK:   prdata = reg_irq_mask;
             ADDR_DMA_ERROR:  prdata = {29'd0, dma_error_latch, dma_error_code_latch};
+            ADDR_CU_PC_END:  prdata = reg_cu_pc_end;
             ADDR_LOOP_START: prdata = reg_loop_start;
             ADDR_LOOP_END:   prdata = reg_loop_end;
             ADDR_LOOP_COUNT:  prdata = reg_loop_count;
@@ -363,7 +369,8 @@ module cgra_apb_csr #(
     assign loop2_count      = reg_loop2_count[15:0];
     assign tile_bank_sel    = reg_tile_bank_sel[0];
     assign tile_auto_inc_en = reg_tile_auto_inc[0];
-    assign result_skip_count = reg_result_skip[3:0];
+    assign result_skip_count = reg_result_skip[7:0];
+    assign cu_pc_end         = reg_cu_pc_end[3:0];
     assign dma_desc_head    = reg_dma_desc_head;
     assign dma_chain_start  = reg_dma_ctrl[1];
 

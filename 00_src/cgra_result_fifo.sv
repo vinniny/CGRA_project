@@ -35,7 +35,7 @@ module cgra_result_fifo #(
 
     // ── Control ──────────────────────────────────────────────────────
     input  logic                    fifo_clear,      // assert on CU start / soft-reset
-    input  logic [3:0]              skip_count,      // warmup values to suppress (default 11)
+    input  logic [7:0]              skip_count,      // warmup values to suppress (default 12)
 
     // ── Status ───────────────────────────────────────────────────────
     output logic [ADDR_BITS:0]      count,           // entries in FIFO (0 to DEPTH)
@@ -63,7 +63,7 @@ module cgra_result_fifo #(
     // =========================================================================
     // Warmup Skip Counter
     // =========================================================================
-    logic [3:0] warmup_counter;
+    logic [7:0] warmup_counter;
     logic warmup_done;
     assign warmup_done = (warmup_counter >= skip_count);
 
@@ -169,11 +169,11 @@ module cgra_result_fifo #(
             wr_ptr         <= '0;
             rd_ptr         <= '0;
             fifo_count     <= '0;
-            warmup_counter <= 4'd0;
+            warmup_counter <= 8'd0;
         end else begin
             // Warmup counter
             if (push_valid && !warmup_done)
-                warmup_counter <= warmup_counter + 4'd1;
+                warmup_counter <= warmup_counter + 8'd1;
 
             // Write pointer
             if (do_push)
