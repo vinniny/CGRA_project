@@ -17,7 +17,9 @@ module cgra_tile_memory #(
     input  logic bank_sel_i,
 
     // Per-bank PE-facing ports (flat — kept for backward compatibility)
-    input  logic [ADDR_WIDTH-1:0] bank0_addr, bank1_addr, bank2_addr, bank3_addr,
+    // MSB of the internal bank address is bank_sel_i; these ports carry the
+    // half-bank offset only, so width is ADDR_WIDTH-1 (one bit narrower).
+    input  logic [ADDR_WIDTH-2:0] bank0_addr, bank1_addr, bank2_addr, bank3_addr,
     input  logic                  bank0_read, bank1_read, bank2_read, bank3_read,
     input  logic                  bank0_write, bank1_write, bank2_write, bank3_write,
     input  logic [DATA_WIDTH-1:0] bank0_wdata, bank1_wdata, bank2_wdata, bank3_wdata,
@@ -37,7 +39,7 @@ module cgra_tile_memory #(
     localparam BANK_ADDR_W = $clog2(BANK_DEPTH);
 
     // Pack per-bank flat ports into arrays
-    logic [ADDR_WIDTH-1:0] bank_addr  [0:NUM_BANKS-1];
+    logic [ADDR_WIDTH-2:0] bank_addr  [0:NUM_BANKS-1];
     logic                  bank_read  [0:NUM_BANKS-1];
     logic                  bank_write [0:NUM_BANKS-1];
     logic [DATA_WIDTH-1:0] bank_wdata [0:NUM_BANKS-1];
@@ -75,7 +77,7 @@ module cgra_tile_memory #(
             b0_wr_data = ext_wdata;
             b0_wr_en   = 1'b1;
         end else begin
-            b0_wr_addr = {bank_sel_i, bank_addr[0][BANK_ADDR_W-2:0]};
+            b0_wr_addr = {bank_sel_i, bank_addr[0]};
             b0_wr_data = bank_wdata[0];
             b0_wr_en   = bank_write[0];
         end
@@ -83,7 +85,7 @@ module cgra_tile_memory #(
             b0_rd_addr = ext_addr[BANK_ADDR_W-1:0];
             b0_rd_en   = 1'b1;
         end else begin
-            b0_rd_addr = {bank_sel_i, bank_addr[0][BANK_ADDR_W-2:0]};
+            b0_rd_addr = {bank_sel_i, bank_addr[0]};
             b0_rd_en   = bank_read[0];
         end
     end
@@ -114,7 +116,7 @@ module cgra_tile_memory #(
             b1_wr_data = ext_wdata;
             b1_wr_en   = 1'b1;
         end else begin
-            b1_wr_addr = {bank_sel_i, bank_addr[1][BANK_ADDR_W-2:0]};
+            b1_wr_addr = {bank_sel_i, bank_addr[1]};
             b1_wr_data = bank_wdata[1];
             b1_wr_en   = bank_write[1];
         end
@@ -122,7 +124,7 @@ module cgra_tile_memory #(
             b1_rd_addr = ext_addr[BANK_ADDR_W-1:0];
             b1_rd_en   = 1'b1;
         end else begin
-            b1_rd_addr = {bank_sel_i, bank_addr[1][BANK_ADDR_W-2:0]};
+            b1_rd_addr = {bank_sel_i, bank_addr[1]};
             b1_rd_en   = bank_read[1];
         end
     end
@@ -153,7 +155,7 @@ module cgra_tile_memory #(
             b2_wr_data = ext_wdata;
             b2_wr_en   = 1'b1;
         end else begin
-            b2_wr_addr = {bank_sel_i, bank_addr[2][BANK_ADDR_W-2:0]};
+            b2_wr_addr = {bank_sel_i, bank_addr[2]};
             b2_wr_data = bank_wdata[2];
             b2_wr_en   = bank_write[2];
         end
@@ -161,7 +163,7 @@ module cgra_tile_memory #(
             b2_rd_addr = ext_addr[BANK_ADDR_W-1:0];
             b2_rd_en   = 1'b1;
         end else begin
-            b2_rd_addr = {bank_sel_i, bank_addr[2][BANK_ADDR_W-2:0]};
+            b2_rd_addr = {bank_sel_i, bank_addr[2]};
             b2_rd_en   = bank_read[2];
         end
     end
@@ -192,7 +194,7 @@ module cgra_tile_memory #(
             b3_wr_data = ext_wdata;
             b3_wr_en   = 1'b1;
         end else begin
-            b3_wr_addr = {bank_sel_i, bank_addr[3][BANK_ADDR_W-2:0]};
+            b3_wr_addr = {bank_sel_i, bank_addr[3]};
             b3_wr_data = bank_wdata[3];
             b3_wr_en   = bank_write[3];
         end
@@ -200,7 +202,7 @@ module cgra_tile_memory #(
             b3_rd_addr = ext_addr[BANK_ADDR_W-1:0];
             b3_rd_en   = 1'b1;
         end else begin
-            b3_rd_addr = {bank_sel_i, bank_addr[3][BANK_ADDR_W-2:0]};
+            b3_rd_addr = {bank_sel_i, bank_addr[3]};
             b3_rd_en   = bank_read[3];
         end
     end

@@ -55,14 +55,14 @@ module cgra_control_unit #(
     // =========================================================================
     // Hardware Loop Configuration (Zero-Overhead Loops)
     // =========================================================================
-    input  logic [15:0] loop_start_pc_i, // Loop start address (context PC)
-    input  logic [15:0] loop_end_pc_i,   // Loop end address (inclusive)
-    input  logic [15:0] loop_count_i,    // Loop iteration count (0 = disabled)
+    input  logic [PC_WIDTH-1:0] loop_start_pc_i, // Loop start address (context PC)
+    input  logic [PC_WIDTH-1:0] loop_end_pc_i,   // Loop end address (inclusive)
+    input  logic [15:0]         loop_count_i,    // Loop iteration count (0 = disabled)
 
     // Nested Loop (Level 2) — B3
-    input  logic [15:0] loop2_start_pc_i,
-    input  logic [15:0] loop2_end_pc_i,
-    input  logic [15:0] loop2_count_i,
+    input  logic [PC_WIDTH-1:0] loop2_start_pc_i,
+    input  logic [PC_WIDTH-1:0] loop2_end_pc_i,
+    input  logic [15:0]         loop2_count_i,
 
     // B4: Dynamic branch from PE array
     input  logic [PC_WIDTH-1:0] branch_target_i,
@@ -362,16 +362,9 @@ module cgra_control_unit #(
                 $error("[CU] loop_count_reg underflow: 0 -> 65535 @ %0t", $time);
 
             if (state == STATE_IDLE && start_i && !soft_reset_i) begin
-                if (loop_start_pc_i[15:PC_WIDTH] != '0)
-                    $warning("[CU] loop_start_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d",
-                             loop_start_pc_i, CONTEXT_DEPTH);
-                if (loop_end_pc_i[15:PC_WIDTH] != '0)
-                    $warning("[CU] loop_end_pc_i=0x%04h exceeds CONTEXT_DEPTH=%0d",
-                             loop_end_pc_i, CONTEXT_DEPTH);
-                if (loop_count_i > 16'd0 &&
-                    loop_start_pc_i[PC_WIDTH-1:0] > loop_end_pc_i[PC_WIDTH-1:0])
+                if (loop_count_i > 16'd0 && loop_start_pc_i > loop_end_pc_i)
                     $warning("[CU] Invalid loop bounds: start(%0d) > end(%0d) — infinite loop",
-                             loop_start_pc_i[PC_WIDTH-1:0], loop_end_pc_i[PC_WIDTH-1:0]);
+                             loop_start_pc_i, loop_end_pc_i);
             end
         end
     end

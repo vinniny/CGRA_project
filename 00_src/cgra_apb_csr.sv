@@ -65,13 +65,13 @@ module cgra_apb_csr #(
     // =========================================================================
     // Hardware Loop Configuration (NEW - for LPR multi-tile execution)
     // =========================================================================
-    output logic [15:0]           loop_start_pc,
-    output logic [15:0]           loop_end_pc,
+    output logic [3:0]            loop_start_pc,
+    output logic [3:0]            loop_end_pc,
     output logic [15:0]           loop_count,
 
     // Nested Loop (Level 2) — B3
-    output logic [15:0]           loop2_start_pc,
-    output logic [15:0]           loop2_end_pc,
+    output logic [3:0]            loop2_start_pc,
+    output logic [3:0]            loop2_end_pc,
     output logic [15:0]           loop2_count,
 
     // Double-Buffering — C2
@@ -361,11 +361,11 @@ module cgra_apb_csr #(
     assign cu_soft_reset    = reg_cu_ctrl[1];
     assign cu_max_cycles    = reg_cu_timeout;
 
-    assign loop_start_pc    = reg_loop_start[15:0];
-    assign loop_end_pc      = reg_loop_end[15:0];
+    assign loop_start_pc    = reg_loop_start[3:0];
+    assign loop_end_pc      = reg_loop_end[3:0];
     assign loop_count       = reg_loop_count[15:0];
-    assign loop2_start_pc   = reg_loop2_start[15:0];
-    assign loop2_end_pc     = reg_loop2_end[15:0];
+    assign loop2_start_pc   = reg_loop2_start[3:0];
+    assign loop2_end_pc     = reg_loop2_end[3:0];
     assign loop2_count      = reg_loop2_count[15:0];
     assign tile_bank_sel    = reg_tile_bank_sel[0];
     assign tile_auto_inc_en = reg_tile_auto_inc[0];
