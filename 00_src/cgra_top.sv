@@ -138,11 +138,11 @@ module cgra_top #(
     logic [31:0] cu_cycles;
     
     // Hardware Loop Configuration (from CSR)
-    logic [15:0] cu_loop_start_pc;
-    logic [15:0] cu_loop_end_pc;
+    logic [3:0]  cu_loop_start_pc;
+    logic [3:0]  cu_loop_end_pc;
     logic [15:0] cu_loop_count;
-    logic [15:0] cu_loop2_start_pc;
-    logic [15:0] cu_loop2_end_pc;
+    logic [3:0]  cu_loop2_start_pc;
+    logic [3:0]  cu_loop2_end_pc;
     logic [15:0] cu_loop2_count;
     logic        tile_bank_sel_csr;
     logic        tile_auto_inc_en;
@@ -488,8 +488,8 @@ module cgra_top #(
 
         // Bank addresses: auto-inc concatenates {offset[6:0], pc[3:0]};
         // legacy mode uses only the low 4 bits (16-word stream).
-        .bank0_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
-                                     : {8'd0, next_context_pc}),
+        .bank0_addr(tile_auto_inc_en ? {cu_next_tile_offset[6:0], next_context_pc}
+                                     : {7'd0, next_context_pc}),
         .bank0_read(!dma_tile_re),       // Suppress during DMA tile read (PEs stalled anyway)
         .bank0_write(1'b0),              // Array doesn't write
         .bank0_wdata(32'd0),
@@ -497,8 +497,8 @@ module cgra_top #(
         .bank0_valid(row_valid[0]),
 
         // Bank 1 (Row 1) - Read port to array
-        .bank1_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
-                                     : {8'd0, next_context_pc}),
+        .bank1_addr(tile_auto_inc_en ? {cu_next_tile_offset[6:0], next_context_pc}
+                                     : {7'd0, next_context_pc}),
         .bank1_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank1_write(1'b0),
         .bank1_wdata(32'd0),
@@ -506,8 +506,8 @@ module cgra_top #(
         .bank1_valid(row_valid[1]),
 
         // Bank 2 (Row 2) - Read port to array
-        .bank2_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
-                                     : {8'd0, next_context_pc}),
+        .bank2_addr(tile_auto_inc_en ? {cu_next_tile_offset[6:0], next_context_pc}
+                                     : {7'd0, next_context_pc}),
         .bank2_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank2_write(1'b0),
         .bank2_wdata(32'd0),
@@ -515,8 +515,8 @@ module cgra_top #(
         .bank2_valid(row_valid[2]),
 
         // Bank 3 (Row 3) - Read port to array
-        .bank3_addr(tile_auto_inc_en ? {1'b0, cu_next_tile_offset[6:0], next_context_pc}
-                                     : {8'd0, next_context_pc}),
+        .bank3_addr(tile_auto_inc_en ? {cu_next_tile_offset[6:0], next_context_pc}
+                                     : {7'd0, next_context_pc}),
         .bank3_read(!dma_tile_re),       // Suppress during DMA tile read
         .bank3_write(1'b0),
         .bank3_wdata(32'd0),
