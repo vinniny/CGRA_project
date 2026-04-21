@@ -1264,7 +1264,7 @@ static void test_bank_pingpong(void)
     cfg_row_pass0_east(0, 0xD00D);
     cgra_wr(CGRA_LOOP_START, 0);
     cgra_wr(CGRA_LOOP_END,   0xF);
-    cgra_wr(CGRA_LOOP_COUNT, 50);   /* 51 passes → long CU run */
+    cgra_wr(CGRA_LOOP_COUNT, 10);   /* 11 passes × 16 slots = 176 pushes; stays under FIFO DEPTH=256 with SKIP=12 */
     cgra_wr(CGRA_TILE_BANK_SEL, 0); /* CU reads lower half (addr[11]=0) */
     cgra_cu_reset();
 
