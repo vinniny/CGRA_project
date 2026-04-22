@@ -86,7 +86,7 @@ LPR_CFLAGS  := -O1 -Wall -ffreestanding -nostdlib \
 
 LPR_LDFLAGS := -T linker_lpr.ld -nostdlib -Wl,--gc-sections
 
-LPR_SRCS    := start.s demo_lpr.c demo_lpr_weights.S ../lib/lpr_golden.c
+LPR_SRCS    := start.s demo_lpr.c demo_lpr_weights.S demo_lpr_images.S ../lib/lpr_golden.c
 
 DEMO_LPR_TARGET := demo_lpr.elf
 
@@ -132,7 +132,7 @@ $(DEMO_TARGET): $(DEMO_SRCS) xparameters.h bspconfig.h linker.ld
 run_demo_lpr: $(DEMO_LPR_TARGET)
 	@echo "Load $(DEMO_LPR_TARGET) with: make run_elf ELF=$(BAREMETAL_DIR)/$(DEMO_LPR_TARGET) BIT=..."
 
-$(DEMO_LPR_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h cgra_kernels_lpr.h
+$(DEMO_LPR_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h demo_lpr_test_images.bin cgra_kernels_lpr.h
 	$(CC) $(LPR_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(DEMO_LPR_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
