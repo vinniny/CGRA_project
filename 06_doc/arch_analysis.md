@@ -139,8 +139,13 @@ to 64 words gives a proportionally larger tolerance window.
   into buffer B. Toggle TILE_BANK_SEL after each chunk. Expected speedup per chunk:
   max(DMA, CU) / (DMA + CU) ≈ 9881/10672 = **1.08×** (8% per chunk).
   Buffer B addresses = buffer A addresses + 0x800 (bit 11 of AXI addr = 1).
-- Implementation: `bench_dma_cu_overlap()` in `bench_cgra.c` (Cat 18). Literature cites
-  95% data-movement energy share for CGRAs; hiding DMA latency is the primary lever.
+- Silicon result (Cat 18, 2026-04-22): serial 47,409 µs → overlap 46,840 µs = **570 µs saved
+  (1.2%)**. Overlap limited to CU execution window (213 ARM cycles = 2.0% of chunk). CU
+  finishes before DMA_r0 completes, so only single-row-DMA overlap is achieved.
+- Next step: use SG-DMA (DMA_DESC_HEAD 0x7C) to chain all 4 row-DMAs into one descriptor,
+  making the full ~4× DMA transfer overlap with CU → expected ~8% gain.
+- Literature cites 95% data-movement energy share for CGRAs; hiding DMA latency is the
+  primary lever.
 
 ### Medium (area/energy inefficiency)
 
@@ -230,11 +235,11 @@ Halves routing PE waste for long-distance transfers. ~8% area increase.
 
 | ID | Fix | Status | Measured result | Risk |
 |---|---|---|---|---|
-| R1 | CU_PC_END per kernel | **DONE** — RTL at `cgra_top.sv:606-610`; `cgra_set_pc_end()` in `cgra.h:153`; `bench_setup()` resets to 15 | Cat 17a: up to 4× fewer CU cycles for short kernels | Zero |
-| R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354`; bitstream rebuilt 2026-04-22 | DMA peak 85.9 MB/s; no regression in 8957-test sim suite | Zero |
-| S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+` | Cat 17b: 263,480 → 155,501 ARM cyc = **1.7× speedup** (16 PE × 4 slots) | Zero |
+| R1 | CU_PC_END per kernel | **DONE** — RTL at `cgra_top.sv:606-610`; `cgra_set_pc_end()` in `cgra.h:153`; `bench_setup()` resets to 15 | Cat 17a: 4-slot kernel 5.0× speedup (3 CU cycles vs 15 baseline) | Zero |
+| R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354`; bitstream rebuilt 2026-04-22 | DMA peak 86.0 MB/s; 9063/9063 sim pass (0 failures) | Zero |
+| S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+` | Cat 17b: 262,808 → 155,372 ARM cyc = **1.7× speedup** (16 PE × 4 slots) | Zero |
 | R2 | MAC bypass RTL | **DEFERRED** — measured 66.6% b2b throughput; CU = 7.4% of frame → max 2.5% total gain per Amdahl; 2-NOP spacing gives 80% as SW workaround | 66.6% MAC rate on silicon (Cat 2) | Medium (timing) |
-| B9 | DMA-CU overlap | **IN PROGRESS** — Cat 18 `bench_dma_cu_overlap()` added; awaiting silicon run | Expected ~8% frame speedup (theory: max(DMA,CU)/(DMA+CU) per chunk) | Zero (SW only) |
+| B9 | DMA-CU overlap | **MEASURED** — Cat 18 ping-pong via TILE_BANK_SEL: 570 µs/frame saved (1.2%). CU execution = 213 ARM cycles (2.0% of 10,880 chunk); overlap limited to CU+DMA_r0 window. To reach 8% requires SG-DMA chaining all 4 row-DMAs into one descriptor. | Serial 47,409 µs → overlap 46,840 µs (Cat 18, 2026-04-22) | Zero (SW only) |
 | S1 | Threaded IRQ kernel module | Deferred — no PetaLinux project yet | — | Requires `.ko` |
 | S2 | Zero-copy mmap | Deferred | — | Requires `.ko` |
 | A1 | RF address decoupling | Deferred — breaking ISA change | — | High |
