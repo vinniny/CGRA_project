@@ -237,4 +237,102 @@ static const cgra_kernel_t KERN_FC_TILE_TEMPLATE = {
     .last_pc = 15,
 };
 
+/* =========================================================================
+ * FC layer CGRA kernels (M2: 784→30 INT16 weight-stationary dot product)
+ *
+ * Mapping: 4 PE rows in col=0 accumulate one group of 4 output neurons.
+ * 8 groups × 49 chunks of 16 inputs = 784 MACs per neuron.
+ * Readout: col0 PASS0(SRC_RF)→col1→col2→col3 east chain, read RESULT_ROW.
+ *
+ * FC layer constants:
+ * ========================================================================= */
+#define LPR_FC_N_INPUTS   784
+#define LPR_FC_N_CLASSES   30
+#define LPR_FC_N_GROUPS     8   /* ceil(30/4) */
+#define LPR_FC_N_CHUNKS    49   /* ceil(784/16) */
+
+/* PE IDs for col=0 of each row (the MAC accumulator PEs) */
+static const uint8_t lpr_fc_col0_ids[4] = {0, 4, 8, 12};
+
+/* ── lpr_fc_init_chain ────────────────────────────────────────────────
+ * Program col=1,2,3 of all 4 rows with PASS0(SRC_W, ROUTE_E) for all
+ * slots.  This east-chain forwards col0's output to RESULT_ROW at readout.
+ * Call once before any group processing. */
+static inline int lpr_fc_init_chain(uint32_t staging_ddr)
+{
+    for (int r = 0; r < 4; r++) {
+        for (int c = 1; c < 4; c++) {
+            uint32_t pe = (uint32_t)r * 4u + (uint32_t)c;
+            if (cgra_config_pe(pe, staging_ddr,
+                               OP_PASS0, SRC_W, 0, 0, ROUTE_E, 0)) return -1;
+        }
+    }
+    return 0;
+}
+
+/* ── lpr_fc_acc_clr ──────────────────────────────────────────────────
+ * Clear the 40-bit accumulator in col=0 of all 4 rows, then run the CU
+ * (PC_END=0, single slot).  Call once per 4-neuron group. */
+static inline int lpr_fc_acc_clr(uint32_t staging_ddr)
+{
+    for (int r = 0; r < 4; r++) {
+        if (cgra_config_pe(lpr_fc_col0_ids[r], staging_ddr,
+                           OP_ACC_CLR, 0, 0, 0, 0, 0)) return -1;
+    }
+    cgra_wr(CGRA_CU_PC_END, 0u);
+    cgra_cu_start();
+    return cgra_cu_wait(1000000u);
+}
+
+/* ── lpr_fc_program_chunk ────────────────────────────────────────────
+ * Build and load a 16-MAC kernel for col=0 of 4 rows.
+ * fc_w_q: INT16 weight array [LPR_FC_N_INPUTS][LPR_FC_N_CLASSES] row-major.
+ * chunk:  0..LPR_FC_N_CHUNKS-1  (selects which 16 inputs to bind to IMM).
+ * group:  0..LPR_FC_N_GROUPS-1  (selects 4-neuron block; rows 0-3 → neurons).
+ * Does NOT start the CU — caller must DMA tile banks then cu_start/wait. */
+static inline int lpr_fc_program_chunk(const int16_t *fc_w_q,
+                                        int chunk, int group,
+                                        uint32_t staging_ddr)
+{
+    int base_input  = chunk * 16;
+    int base_neuron = group * 4;
+
+    for (int r = 0; r < 4; r++) {
+        int neuron = base_neuron + r;
+        uint64_t words[16];
+        for (int j = 0; j < 16; j++) {
+            int input_idx = base_input + j;
+            /* Clamp out-of-range accesses (last chunk may reference past end) */
+            uint16_t w = 0u;
+            if (neuron < LPR_FC_N_CLASSES && input_idx < LPR_FC_N_INPUTS)
+                w = (uint16_t)fc_w_q[input_idx * LPR_FC_N_CLASSES + neuron];
+            words[j] = CFGW(OP_MAC, SRC_W, SRC_IMM, 0, 0, w);
+        }
+        if (cgra_config_pe_bulk(lpr_fc_col0_ids[r], words, staging_ddr)) return -1;
+    }
+    cgra_wr(CGRA_CU_PC_END, 15u);
+    return 0;
+}
+
+/* ── lpr_fc_readout ──────────────────────────────────────────────────
+ * Route the final accumulated dot product from RF[0] (col=0) east through
+ * col=1→2→3 and capture in RESULT_ROW.  Runs a single 16-slot CU pass.
+ * result[4] receives the signed 32-bit accumulator for each row. */
+static inline int lpr_fc_readout(uint32_t staging_ddr, int32_t result[4])
+{
+    for (int r = 0; r < 4; r++) {
+        if (cgra_config_pe(lpr_fc_col0_ids[r], staging_ddr,
+                           OP_PASS0, SRC_RF, 0, 0, ROUTE_E, 0)) return -1;
+    }
+    cgra_wr(CGRA_CU_PC_END, 15u);
+    cgra_cu_start();
+    if (cgra_cu_wait(1000000u)) return -1;
+
+    result[0] = (int32_t)cgra_rd(CGRA_RESULT_ROW0);
+    result[1] = (int32_t)cgra_rd(CGRA_RESULT_ROW1);
+    result[2] = (int32_t)cgra_rd(CGRA_RESULT_ROW2);
+    result[3] = (int32_t)cgra_rd(CGRA_RESULT_ROW3);
+    return 0;
+}
+
 #endif /* CGRA_KERNELS_LPR_H */

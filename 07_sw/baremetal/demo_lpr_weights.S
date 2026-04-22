@@ -13,3 +13,13 @@
 lpr_weights_start:
     .incbin "../lprnet_eval/golden_weights.bin"
 lpr_weights_end:
+
+#ifdef USE_CGRA_INFER
+    .section .lpr_weights_int16, "a"
+    .global lpr_weights_int16_start
+    .global lpr_weights_int16_end
+
+lpr_weights_int16_start:
+    .incbin "../lprnet_eval/golden_weights_int16.bin"
+lpr_weights_int16_end:
+#endif

@@ -90,13 +90,19 @@ LPR_SRCS    := start.s demo_lpr.c demo_lpr_weights.S demo_lpr_images.S ../lib/lp
 
 DEMO_LPR_TARGET := demo_lpr.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr
+# ── demo_lpr_cgra: CGRA-accelerated FC variant ──────────────────────────────
+LPR_CGRA_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER
+DEMO_LPR_CGRA_TARGET := demo_lpr_cgra.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra
 
 all: $(TARGET)
 
 demo: $(DEMO_TARGET)
 
 demo_lpr: $(DEMO_LPR_TARGET)
+
+demo_lpr_cgra: $(DEMO_LPR_CGRA_TARGET)
 
 bench: $(BENCH_TARGET)
 
@@ -137,8 +143,13 @@ $(DEMO_LPR_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images
 	@echo "[BUILD] $(DEMO_LPR_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
+$(DEMO_LPR_CGRA_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h demo_lpr_test_images.bin cgra_kernels_lpr.h ../lprnet_eval/golden_weights_int16.bin
+	$(CC) $(LPR_CGRA_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(DEMO_LPR_CGRA_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
 dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) *.o

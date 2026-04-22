@@ -337,6 +337,9 @@ xcelium.args
 # Project Specific
 # ==============================================================================
 .claude/
+
+# INT16 weight blob is small (50 KB) and needed for demo_lpr_cgra build
+!07_sw/lprnet_eval/golden_weights_int16.bin
 CGRA_opencores/
 # Ensure empty output directories are tracked
 !03_sim/.gitkeep

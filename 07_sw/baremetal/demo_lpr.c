@@ -29,8 +29,11 @@
                                        lpr_test_class_idx[], LPR_TEST_IMG_PIXELS */
 
 /* ── DDR sections ─────────────────────────────────────────────────────── */
-extern const uint8_t  lpr_weights_start[];   /* 0x800000 — GoldenWeights struct */
-extern const int32_t  lpr_images_start[];    /* 0x900000 — flat image bank */
+extern const uint8_t  lpr_weights_start[];        /* 0x800000 — GoldenWeights struct */
+extern const int32_t  lpr_images_start[];          /* 0x900000 — flat image bank */
+#ifdef USE_CGRA_INFER
+extern const uint8_t  lpr_weights_int16_start[];  /* 0x820000 — INT16 weight blob */
+#endif
 
 /* ── DMA staging ──────────────────────────────────────────────────────── */
 #define DDR_STAGE  0x00100000UL
@@ -90,7 +93,11 @@ int main(void)
     uart_puts("\n");
     uart_puts("============================================\n");
     uart_puts("  CGRA LPR Demo — Vietnamese Plate OCR\n");
+#ifdef USE_CGRA_INFER
+    uart_puts("  ARM VFP Conv/Pool + CGRA INT16 FC\n");
+#else
     uart_puts("  ARM Cortex-A9 VFP + CGRA DMA staging\n");
+#endif
     uart_puts("  28x28 -> Conv1->Pool->Conv2->Pool->FC\n");
     uart_puts("  30 VN classes  |  99.87% trained acc\n");
     uart_puts("============================================\n");
@@ -126,7 +133,11 @@ int main(void)
 
         uint32_t t0 = arm_ccnt_read();
         int cls; char pred_ch;
+#ifdef USE_CGRA_INFER
+        golden_infer_cgra(img, w, &g_ctx, lpr_weights_int16_start, &cls, &pred_ch);
+#else
         golden_infer(img, w, &g_ctx, &cls, &pred_ch);
+#endif
         uint32_t infer_cyc = arm_ccnt_read() - t0;
         infer_cyc_total += infer_cyc;
 

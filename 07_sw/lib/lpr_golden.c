@@ -267,3 +267,141 @@ const float *golden_get_fc_output(const GoldenContext *ctx)
 {
     return ctx ? ctx->fc_out : NULL;
 }
+
+/* =========================================================================
+ * CGRA-accelerated FC layer (M2: 784→30, weight-stationary INT16)
+ *
+ * Compiled only when -DUSE_CGRA_INFER is passed (baremetal demo_lpr_cgra).
+ * Includes cgra.h and cgra_kernels_lpr.h from the baremetal directory
+ * (reachable via -I. which is set in LPR_CFLAGS).
+ * ========================================================================= */
+#ifdef USE_CGRA_INFER
+
+#include "cgra.h"
+#include "cgra_kernels_lpr.h"
+
+/* DDR addresses used by the CGRA FC path — above the existing DDR_STAGE. */
+#define LPR_CGRA_POOL2_Q_DDR  0x00110000UL   /* pool2 quantised: 784 × 4B = 3136 B */
+#define LPR_CGRA_STAGING_DDR  0x00112000UL   /* PE-config DMA scratch:  128 B       */
+
+/* Pool2 activations are scaled by this integer before passing to the CGRA.
+ * Pool2 float values after ReLU are in [0, ~3.5]; ×8 → [0, ~28] → fits int16.
+ * Max accumulator = 784 × 28 × 32767 ≈ 0.72B  <  INT32_MAX (2.15B).  No saturation. */
+#define LPR_POOL2_ACT_SCALE   8
+
+/* Byte offsets in golden_weights_int16.bin:
+ * Layout (int16): conv1_w(72)+conv1_b(8)+conv2_w(1152)+conv2_b(16)+fc_w(23520)+fc_b(30) */
+#define LPR_INT16_FC_W_BOFF  ((72u+8u+1152u+16u)*2u)             /* 2496 B */
+#define LPR_INT16_FC_B_BOFF  ((72u+8u+1152u+16u+23520u)*2u)      /* 49536 B */
+
+/* ── golden_fc_cgra ────────────────────────────────────────────────────
+ * Run the FC layer (784→30) on the CGRA.
+ * pool2_q_ddr: DDR address holding 784 int32 quantised activations.
+ * logits_raw:  output array [30] receiving raw INT32 accumulators.
+ * fc_w_q:      [784][30] INT16 weights row-major (from int16 blob).
+ * staging_ddr: 128 B DDR scratch for PE-config DMA.
+ */
+static void golden_fc_cgra(uint32_t pool2_q_ddr,
+                            int32_t logits_raw[LPR_FC_N_CLASSES],
+                            const int16_t *fc_w_q,
+                            uint32_t staging_ddr)
+{
+    /* One-time: wire col=1,2,3 of every row as east-chain forwarders. */
+    lpr_fc_init_chain(staging_ddr);
+
+    for (int g = 0; g < LPR_FC_N_GROUPS; g++) {
+        /* Clear the 40-bit accumulator in col=0 of all 4 rows. */
+        lpr_fc_acc_clr(staging_ddr);
+
+        /* 49 chunks of 16 inputs each (784 = 49 × 16). */
+        for (int c = 0; c < LPR_FC_N_CHUNKS; c++) {
+            uint32_t src = pool2_q_ddr + (uint32_t)(c * 16) * 4u;
+
+            /* Bake weights for this (chunk, group) into col=0 MAC slots. */
+            lpr_fc_program_chunk(fc_w_q, c, g, staging_ddr);
+
+            /* Same 16 inputs broadcast to all 4 tile banks (one per row). */
+            cgra_dma(src, CGRA_PFX_TILE + 0x0000u, 64u);  /* bank 0 → row 0 */
+            cgra_dma(src, CGRA_PFX_TILE + 0x1000u, 64u);  /* bank 1 → row 1 */
+            cgra_dma(src, CGRA_PFX_TILE + 0x2000u, 64u);  /* bank 2 → row 2 */
+            cgra_dma(src, CGRA_PFX_TILE + 0x3000u, 64u);  /* bank 3 → row 3 */
+
+            cgra_cu_start();
+            cgra_cu_wait(1000000u);
+        }
+
+        /* Route accumulated RF[0] east → RESULT_ROW capture. */
+        int32_t result[4];
+        lpr_fc_readout(staging_ddr, result);
+
+        for (int r = 0; r < 4; r++) {
+            int n = g * 4 + r;
+            if (n < LPR_FC_N_CLASSES)
+                logits_raw[n] = result[r];
+        }
+    }
+}
+
+/* ── golden_infer_cgra ─────────────────────────────────────────────────── */
+int golden_infer_cgra(const int32_t *input,
+                      const GoldenWeights *w_f,
+                      GoldenContext *ctx,
+                      const void *w_int16_base,
+                      int *out_class,
+                      char *out_char)
+{
+    if (!input || !w_f || !ctx || !w_int16_base) return -1;
+
+    /* ── ARM float: Conv1 + Pool1 + Conv2 + Pool2 ───────────────────────── */
+    float input_f[GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C];
+    for (int i = 0; i < GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C; i++)
+        input_f[i] = (float)input[i];
+
+    golden_conv2d_relu(input_f, ctx->conv1_out,
+                       w_f->conv1_w, w_f->conv1_b,
+                       GOLDEN_IN_H, GOLDEN_IN_W,
+                       GOLDEN_IN_C, GOLDEN_CONV1_OUT_CH,
+                       GOLDEN_CONV1_KH, GOLDEN_CONV1_KW,
+                       GOLDEN_CONV1_PAD, GOLDEN_CONV1_STRIDE);
+
+    golden_maxpool_2x2(ctx->conv1_out, ctx->pool1_out,
+                       GOLDEN_IN_H, GOLDEN_IN_W, GOLDEN_CONV1_OUT_CH);
+
+    golden_conv2d_relu(ctx->pool1_out, ctx->conv2_out,
+                       w_f->conv2_w, w_f->conv2_b,
+                       GOLDEN_POOL1_H, GOLDEN_POOL1_W,
+                       GOLDEN_CONV2_IN_CH, GOLDEN_CONV2_OUT_CH,
+                       GOLDEN_CONV2_KH, GOLDEN_CONV2_KW,
+                       GOLDEN_CONV2_PAD, GOLDEN_CONV2_STRIDE);
+
+    golden_maxpool_2x2(ctx->conv2_out, ctx->pool2_out,
+                       GOLDEN_POOL1_H, GOLDEN_POOL1_W, GOLDEN_CONV2_OUT_CH);
+
+    /* ── Quantise pool2_out to int32 and write to DDR for CGRA DMA ──────── */
+    volatile int32_t *pool2_q = (volatile int32_t *)LPR_CGRA_POOL2_Q_DDR;
+    for (int i = 0; i < GOLDEN_FC_IN; i++)
+        pool2_q[i] = (int32_t)(ctx->pool2_out[i] * (float)LPR_POOL2_ACT_SCALE);
+
+    /* ── CGRA FC ──────────────────────────────────────────────────────────── */
+    const int16_t *fc_w_q = (const int16_t *)((const uint8_t *)w_int16_base
+                                              + LPR_INT16_FC_W_BOFF);
+    const int16_t *fc_b_q = (const int16_t *)((const uint8_t *)w_int16_base
+                                              + LPR_INT16_FC_B_BOFF);
+
+    int32_t logits_raw[LPR_FC_N_CLASSES];
+    golden_fc_cgra(LPR_CGRA_POOL2_Q_DDR, logits_raw, fc_w_q, LPR_CGRA_STAGING_DDR);
+
+    /* ── Argmax: add bias (in accumulator units) then find best class ────── */
+    int best = 0;
+    int32_t best_val = logits_raw[0] + (int32_t)fc_b_q[0];
+    for (int j = 1; j < LPR_FC_N_CLASSES; j++) {
+        int32_t val = logits_raw[j] + (int32_t)fc_b_q[j];
+        if (val > best_val) { best_val = val; best = j; }
+    }
+
+    if (out_class) *out_class = best;
+    if (out_char)  *out_char  = VN_CHAR_MAP[best];
+    return 0;
+}
+
+#endif /* USE_CGRA_INFER */

@@ -189,6 +189,25 @@ void golden_fc(const float *input, float *output,
 
 int golden_argmax(const float *vec, int len);
 
+#ifdef USE_CGRA_INFER
+/**
+ * golden_infer_cgra - Run Conv1+Pool1+Conv2+Pool2 on ARM float, FC on CGRA.
+ * @input:       28×28 grayscale image, int32 pixel values [0-255].
+ * @w_f:         Float model weights (used for Conv/Pool layers).
+ * @ctx:         Inference context (holds intermediate buffers).
+ * @w_int16_base: Base pointer of golden_weights_int16.bin blob (in DDR).
+ * @out_class:   Output: predicted class index [0-29].
+ * @out_char:    Output: predicted character.
+ * Returns 0 on success, -1 on CGRA error.
+ */
+int golden_infer_cgra(const int32_t *input,
+                      const GoldenWeights *w_f,
+                      GoldenContext *ctx,
+                      const void *w_int16_base,
+                      int *out_class,
+                      char *out_char);
+#endif /* USE_CGRA_INFER */
+
 #ifdef __cplusplus
 }
 #endif
