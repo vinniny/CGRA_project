@@ -389,10 +389,15 @@ board_cam.sh
 board_info.sh
 
 # ==============================================================================
-# LPRNet Evaluation (Python venvs, ONNX binaries)
+# LPRNet Evaluation (Python venvs, ONNX binaries, large datasets)
 # ==============================================================================
 07_sw/lprnet_eval/.venv/
 07_sw/lprnet_eval/*.onnx
+07_sw/lprnet_eval/datasets/
+07_sw/lprnet_eval/debug_extracted.png
+
+# Generated bare-metal test image binary (14 MB, regenerate with gen_test_images.py)
+07_sw/baremetal/demo_lpr_test_images.bin
 
 # ==============================================================================
 # FPGA Bitstreams (generated, large binaries)
