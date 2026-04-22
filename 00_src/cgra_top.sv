@@ -351,7 +351,7 @@ module cgra_top #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(ADDR_WIDTH),
         .AXI_ID_WIDTH(AXI_ID_WIDTH),
-        .FIFO_DEPTH(32)
+        .FIFO_DEPTH(64)
     ) u_dma (
         .clk(clk),
         .rst_n(rst_n),

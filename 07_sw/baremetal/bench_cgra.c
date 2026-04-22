@@ -130,6 +130,7 @@ static void bench_setup(void)
     cgra_wr(CGRA_LOOP2_END, 0);
     cgra_wr(CGRA_LOOP2_COUNT, 0);
     cgra_wr(CGRA_TILE_BANK_SEL, 0);
+    cgra_wr(CGRA_CU_PC_END, 15u);   /* explicit reset — override per kernel */
     cfg_all_nop();
 }
 
@@ -1915,6 +1916,137 @@ static void bench_summary(void)
 }
 
 /* =====================================================================
+ * Category 17: Optimization Benchmarks
+ *   17a: CU_PC_END speedup — 4-slot kernel, PC_END=15 vs PC_END=3
+ *   17b: Config reload speedup — per-slot vs cgra_program_kernel bulk API
+ *   17c: MAC pipeline measurement summary (interpret Cat 2 results here)
+ * ===================================================================== */
+
+static void bench_optimizations(void)
+{
+    banner("Cat 17: Optimization Benchmarks");
+
+    /* ── 17a: CU_PC_END speedup ─────────────────────────────────────── */
+    uart_puts("17a: CU_PC_END speedup (4-slot kernel)\n");
+    uart_puts("  PC_END  CU_CYCLES  speedup\n");
+
+    uint32_t cyc_full, cyc_opt;
+
+    /* Baseline: PC_END=15 (default) — CU runs all 16 slots */
+    {
+        bench_setup();  /* resets CU_PC_END to 15 */
+        /* 4-slot kernel: ACC_CLR, MAC(1,1), MAC(1,1), NOP route east */
+        cgra_config_pe_slot(3, 0, DDR_STAGE, OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+        cgra_config_pe_slot(3, 1, DDR_STAGE, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1);
+        cgra_config_pe_slot(3, 2, DDR_STAGE, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1);
+        cgra_config_pe_slot(3, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0);
+        /* slots 4-15 = NOP from bench_setup cfg_all_nop */
+        cu_run_wait();
+        cyc_full = cgra_rd(CGRA_CU_CYCLES);
+        uart_puts("     15  ");
+        uart_rj(cyc_full, 9);
+        uart_puts("    1.0x (baseline)\n");
+    }
+
+    /* Optimised: PC_END=3 — CU stops after slot 3 */
+    {
+        bench_setup();
+        cgra_config_pe_slot(3, 0, DDR_STAGE, OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);
+        cgra_config_pe_slot(3, 1, DDR_STAGE, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1);
+        cgra_config_pe_slot(3, 2, DDR_STAGE, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1);
+        cgra_config_pe_slot(3, 3, DDR_STAGE, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0);
+        cgra_set_pc_end(3);
+        cu_run_wait();
+        cyc_opt = cgra_rd(CGRA_CU_CYCLES);
+        uint32_t speedup_x10 = (cyc_opt > 0) ? (cyc_full * 10) / cyc_opt : 0;
+        uart_puts("      3  ");
+        uart_rj(cyc_opt, 9);
+        uart_puts("    ");
+        uart_putfix1(speedup_x10);
+        uart_puts("x\n");
+    }
+
+    /* ── 17b: Config reload speedup ─────────────────────────────────── */
+    uart_puts("\n17b: Config reload overhead (16 PEs x 4 slots)\n");
+    uart_puts("  Method        ARM_cycles   us\n");
+
+    /* Build 4 config words to use across all 16 PEs */
+    uint64_t kw[4];
+    {
+        uint64_t w;
+        cgra_pe_build(&w, OP_ACC_CLR, 0, 0, 0, ROUTE_E, 0);  kw[0] = w;
+        cgra_pe_build(&w, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1); kw[1] = w;
+        cgra_pe_build(&w, OP_MAC, SRC_IMM, SRC_IMM, 0, ROUTE_E, 1); kw[2] = w;
+        cgra_pe_build(&w, OP_PASS0, SRC_IMM, 0, 0, ROUTE_E, 0);      kw[3] = w;
+    }
+
+    /* Baseline: per-slot individual DMAs (current approach) */
+    {
+        arm_ccnt_reset();
+        for (uint32_t pe = 0; pe < 16; pe++) {
+            for (uint32_t s = 0; s < 4; s++) {
+                volatile uint32_t *st = (volatile uint32_t *)DDR_STAGE;
+                uint32_t cfg_base = CGRA_PFX_CONFIG | (pe << 7) | (s << 3);
+                *st = (uint32_t)(kw[s] >> 32);
+                cgra_dma(DDR_STAGE, cfg_base, 4u);
+                *st = (uint32_t)(kw[s] & 0xFFFFFFFFuL);
+                cgra_dma(DDR_STAGE, cfg_base | 0x4u, 4u);
+            }
+        }
+        uint32_t cyc = arm_ccnt_read();
+        uint32_t us_x10 = arm_cyc_to_us_x10(cyc);
+        uart_puts("  per-slot      ");
+        uart_rj(cyc, 10);
+        uart_puts("  ");
+        uart_putfix1(us_x10);
+        uart_puts("\n");
+    }
+
+    /* Optimised: cgra_program_kernel bulk API */
+    {
+        /* Build kernel descriptor: 16 PEs × 4 slots */
+        static cgra_pe_prog_t pes[16];
+        for (uint32_t pe = 0; pe < 16; pe++) {
+            pes[pe].pe_id   = (uint8_t)pe;
+            pes[pe].n_slots = 4;
+            pes[pe].words[0] = kw[0];
+            pes[pe].words[1] = kw[1];
+            pes[pe].words[2] = kw[2];
+            pes[pe].words[3] = kw[3];
+        }
+        static const cgra_kernel_t k = { pes, 16, 3 };
+
+        arm_ccnt_reset();
+        cgra_program_kernel(&k, DDR_STAGE);
+        uint32_t cyc = arm_ccnt_read();
+        uint32_t us_x10 = arm_cyc_to_us_x10(cyc);
+        uart_puts("  bulk API      ");
+        uart_rj(cyc, 10);
+        uart_puts("  ");
+        uart_putfix1(us_x10);
+        uart_puts("\n");
+    }
+
+    /* ── 17c: MAC pipeline summary ───────────────────────────────────── */
+    uart_puts("\n17c: MAC pipeline rate (from Cat 2 bench_mac_hazard)\n");
+    if (g_mac_b2b_eff > 0) {
+        uart_puts("  15x back-to-back MACs: accumulated=");
+        uart_putdec(g_mac_b2b_eff);
+        uart_puts("/15 (");
+        uart_putdec(g_mac_b2b_eff * 100 / 15);
+        uart_puts("%)");
+        if (g_mac_b2b_eff >= 13)
+            uart_puts(" — pipeline CLEAN, no bypass needed\n");
+        else if (g_mac_b2b_eff >= 8)
+            uart_puts(" — partial hazard, verify with NOP spacing\n");
+        else
+            uart_puts(" — HAZARD CONFIRMED, bypass RTL fix warranted\n");
+    } else {
+        uart_puts("  (run Cat 2 bench_mac_hazard first)\n");
+    }
+}
+
+/* =====================================================================
  * Entry point
  * ===================================================================== */
 
@@ -1952,6 +2084,7 @@ void main(void)
     bench_cnn_layers();      /* Cat 14 */
     bench_breakdown();       /* Cat 15 */
     bench_lpr_model();       /* Cat 16 */
+    bench_optimizations();   /* Cat 17 */
     bench_summary();
 
     uart_puts("\n[BENCH COMPLETE]\n");
