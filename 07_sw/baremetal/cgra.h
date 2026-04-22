@@ -55,6 +55,7 @@
 #define CGRA_LOOP2_COUNT     0x70
 #define CGRA_TILE_BANK_SEL   0x74
 #define CGRA_TILE_AUTO_INC   0x78
+#define CGRA_RESULT_SKIP     0x54
 
 /* ── ISA opcodes ──────────────────────────────────────────────────────── */
 #define OP_NOP        0u
