@@ -209,14 +209,14 @@ Halves routing PE waste for long-distance transfers. ~8% area increase.
 
 ## 4. Summary Priority Table
 
-| ID | Fix | Effort | Gain | Risk |
+| ID | Fix | Status | Gain | Risk |
 |---|---|---|---|---|
-| S3 | Pre-program config at open() | 1 day | 10× per-call latency | Zero |
-| S1 | Threaded IRQ | 0.5 day | Real-time jitter | Zero |
-| S5 / R3 | FIFO_DEPTH 32→64 | 1 hour | DMA stall reduction | Zero |
-| R1 | CU_PC_END enforcement | 2 hours RTL | 4× CU efficiency | Low |
-| R2 | MAC bypass | 1 day RTL | 3× MAC throughput | Medium |
-| S2 | Zero-copy mmap | 2 days | Copy elimination | Low |
-| A1 | RF address decoupling | 3 days | Full RF usability | High (ISA break) |
-| A2 | Background Config DMA | 1 week | Config hiding | Medium |
-| A3 | Express routing | 3 days RTL | Routing PE recovery | Low |
+| R1 | CU_PC_END per kernel | **DONE** — already in RTL (`cgra_top.sv:606`); `cgra_set_pc_end()` in `cgra.h:153`; `bench_setup()` now explicitly resets to 15; Cat 17a measures the speedup | Up to 4× CU efficiency for short kernels | Zero |
+| R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354` changed; rebuild bitstream needed | Fewer AXI stall events | Zero |
+| S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+`; Cat 17b measures the speedup | ~10× fewer DMAs for 16-PE kernel | Zero |
+| R2 | MAC pipeline verify | **PENDING silicon run** — Cat 2 `bench_mac_hazard` D3 + patterns table measure D3 result; Cat 17c summarizes decision; bypass RTL only if D3 result < 8/15 | 3× MAC throughput (if bypass needed) | Medium (timing) |
+| S1 | Threaded IRQ kernel driver | Deferred — no PetaLinux project yet | Real-time jitter | Requires `.ko` |
+| S2 | Zero-copy mmap | Deferred | Copy elimination | Requires `.ko` |
+| A1 | RF address decoupling | Deferred — breaking ISA change | Full RF usability | High |
+| A2 | Background Config RAM DMA | Deferred — thesis extension | Config hiding | Medium |
+| A3 | Express routing links | Deferred — thesis extension | Routing PE recovery | Low |

@@ -361,4 +361,68 @@ static inline int cgra_config_pe_slot_ex(uint32_t pe_id, uint32_t slot_idx,
     return 0;
 }
 
+/* ── Bulk PE config programming ───────────────────────────────────────────
+ * Programs all 16 slots of one PE with 3 DMAs instead of 32:
+ *   1. Slot 0 hi32+lo32 individually (triggers broadcast to fill slots 1-15)
+ *   2. Slots 1-15 staged contiguously in DDR, sent as a single 120-byte DMA
+ *      that overwrites the broadcast values with the actual kernel instructions.
+ *
+ * 'words[16]' — config words for slots 0-15; set unused slots to 0 (NOP).
+ * 'staging_ddr' — must point to ≥128 bytes of DDR scratch space.
+ *
+ * For a 16-PE × 4-slot kernel: 16 × 3 = 48 DMAs vs 16 × 32 = 512 DMAs. */
+static inline int cgra_config_pe_bulk(uint32_t pe_id,
+                                       const uint64_t *words,
+                                       uint32_t staging_ddr)
+{
+    volatile uint32_t *stage = (volatile uint32_t *)staging_ddr;
+    uint32_t cfg_base = CGRA_PFX_CONFIG | ((pe_id & 0xFu) << 7);
+
+    stage[0] = (uint32_t)(words[0] >> 32);
+    if (cgra_dma(staging_ddr, cfg_base, 4u)) return -1;
+    stage[0] = (uint32_t)(words[0] & 0xFFFFFFFFuL);
+    if (cgra_dma(staging_ddr, cfg_base | 0x4u, 4u)) return -1;
+
+    for (uint32_t s = 1; s < 16; s++) {
+        stage[(s - 1) * 2]     = (uint32_t)(words[s] >> 32);
+        stage[(s - 1) * 2 + 1] = (uint32_t)(words[s] & 0xFFFFFFFFuL);
+    }
+    return cgra_dma(staging_ddr, cfg_base + 8u, 120u);
+}
+
+/* ── Kernel descriptor types ──────────────────────────────────────────── */
+
+/* One PE's program: n_slots config words (unused slots implicitly NOP). */
+typedef struct {
+    uint8_t  pe_id;       /* 0-15 (row*4 + col) */
+    uint8_t  n_slots;     /* 1-16 */
+    uint64_t words[16];   /* slots 0..n_slots-1; rest treated as NOP */
+} cgra_pe_prog_t;
+
+/* Full kernel: all active PEs + CU_PC_END. */
+typedef struct {
+    const cgra_pe_prog_t *pes;
+    uint32_t              n_pes;
+    uint8_t               last_pc; /* value for CU_PC_END (0-15) */
+} cgra_kernel_t;
+
+/* Program all PEs in the kernel, then set CU_PC_END.
+ * 'staging_ddr' must have ≥128 bytes of DDR workspace.
+ * Returns 0 on success, -1 on DMA timeout. */
+static inline int cgra_program_kernel(const cgra_kernel_t *k,
+                                       uint32_t staging_ddr)
+{
+    for (uint32_t i = 0; i < k->n_pes; i++) {
+        const cgra_pe_prog_t *pe = &k->pes[i];
+        uint64_t words[16];
+        uint32_t n = (pe->n_slots > 16u) ? 16u : pe->n_slots;
+        uint32_t s;
+        for (s = 0;  s < n;  s++) words[s] = pe->words[s];
+        for (       ; s < 16; s++) words[s] = 0uLL;  /* NOP fill */
+        if (cgra_config_pe_bulk(pe->pe_id, words, staging_ddr)) return -1;
+    }
+    cgra_set_pc_end(k->last_pc);
+    return 0;
+}
+
 #endif /* CGRA_H */
