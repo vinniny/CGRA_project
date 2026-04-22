@@ -50,7 +50,7 @@ typedef struct {
     int image_index;
 } DumpCtx;
 
-static void dump_layer(const char *layer_name, const int32_t *data,
+static void dump_layer(const char *layer_name, const float *data,
                        int size, void *user_data)
 {
     DumpCtx *dctx = (DumpCtx *)user_data;
@@ -61,7 +61,7 @@ static void dump_layer(const char *layer_name, const int32_t *data,
 
     FILE *f = fopen(path, "wb");
     if (f) {
-        fwrite(data, sizeof(int32_t), (size_t)size, f);
+        fwrite(data, sizeof(float), (size_t)size, f);
         fclose(f);
         printf("  [dump] %s (%d values)\n", path, size);
     } else {
@@ -113,8 +113,8 @@ int main(int argc, char *argv[])
     printf("  Pool2:  2x2 max → %dx%dx%d\n",
            GOLDEN_POOL2_H, GOLDEN_POOL2_W, GOLDEN_CONV2_OUT_CH);
     printf("  FC:     %d → %d\n", GOLDEN_FC_IN, GOLDEN_FC_OUT);
-    printf("  Total weights: %zu int32 values (%zu bytes)\n",
-           sizeof(GoldenWeights) / sizeof(int32_t),
+    printf("  Total weights: %zu float values (%zu bytes)\n",
+           sizeof(GoldenWeights) / sizeof(float),
            sizeof(GoldenWeights));
     printf("\n");
 
@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
                    i, cls, ch, ms);
 
             /* Print top-3 logits for debugging */
-            const int32_t *logits = golden_get_fc_output(&ctx);
+            const float *logits = golden_get_fc_output(&ctx);
             int top[3] = {0, 0, 0};
             for (int j = 0; j < GOLDEN_FC_OUT; j++) {
                 if (logits[j] > logits[top[0]]) {
@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
                     top[2] = j;
                 }
             }
-            printf("         top3: '%c'(%d) '%c'(%d) '%c'(%d)\n",
+            printf("         top3: '%c'(%.2f) '%c'(%.2f) '%c'(%.2f)\n",
                    VN_CHAR_MAP[top[0]], logits[top[0]],
                    VN_CHAR_MAP[top[1]], logits[top[1]],
                    VN_CHAR_MAP[top[2]], logits[top[2]]);
