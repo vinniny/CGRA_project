@@ -136,7 +136,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
         hw_server_start hw_server_stop hw_server_check \
         program fpga_status run_elf reg_read reg_write reg_dump \
         pull_bit pull_ps7 pull_hwh pull_all deploy vivado_reports \
-        baremetal run_baremetal demo run_demo bench bench_res bench_tai
+        baremetal run_baremetal demo run_demo bench bench_res bench_tai demo_lpr run_demo_lpr
 
 # ==============================================================================
 # Default Target
@@ -877,6 +877,19 @@ bench_tai:
 	@echo " [BENCH_TAI] Building bench_tile_autoinc.elf (tile auto-inc verification)"
 	@echo "=========================================================================="
 	$(MAKE) -C $(BAREMETAL_DIR) bench_tai
+
+demo_lpr:
+	@echo "=========================================================================="
+	@echo " [DEMO_LPR] Building demo_lpr.elf (VN plate OCR demo, ARM+CGRA DMA)"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) demo_lpr
+
+run_demo_lpr: demo_lpr program
+	@echo "=========================================================================="
+	@echo " [RUN_DEMO_LPR] Loading demo_lpr.elf + UART monitor"
+	@echo "=========================================================================="
+	$(MAKE) -C $(BAREMETAL_DIR) run_demo_lpr 2>/dev/null || \
+	    $(MAKE) run_elf ELF=$(BAREMETAL_DIR)/demo_lpr.elf BIT=$(BIT)
 
 # ------------------------------------------------------------------------------
 # One-command deploy: pull bitstream + program FPGA
