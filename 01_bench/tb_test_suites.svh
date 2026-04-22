@@ -2467,11 +2467,17 @@ task automatic run_suite_W_dma_hang;
             apb_write(ADDR_CU_CTRL, 32'h0000_0002);  // Soft reset
             #100;
             apb_write(ADDR_CU_CTRL, 32'h0000_0000);  // Clear
-            
-            #200;
-            apb_read(ADDR_DMA_STATUS, dma_status);
-            
-            if ((dma_status & 32'h1) != 0) begin
+
+            // Poll until DMA busy clears — drain can take up to FIFO_DEPTH
+            // read-burst beats + write-burst beats, so use a generous timeout.
+            timeout_cnt = 0;
+            do begin
+                #100;
+                apb_read(ADDR_DMA_STATUS, dma_status);
+                timeout_cnt = timeout_cnt + 1;
+            end while (((dma_status & 32'h1) != 0) && timeout_cnt < 500);
+
+            if (timeout_cnt >= 500) begin
                 fail("W02: Soft Reset Failed", "DMA still busy after abort");
             end else begin
                 pass("W02: Soft Reset Cleared DMA Busy");
