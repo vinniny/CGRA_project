@@ -2,8 +2,9 @@
  *  lpr_golden.c – Pure-C Golden Model for Vietnamese License Plate
  *                 Character Recognition
  *
- *  All layers use int32 arithmetic to match CGRA execution exactly.
- *  No floating point, no external dependencies.
+ *  Weights and activations use IEEE 754 single-precision float.
+ *  sizeof(float)==sizeof(int32_t)==4, so the GoldenWeights binary
+ *  format is 99,192 bytes regardless of the element type.
  * =================================================================== */
 
 #include "lpr_golden.h"
@@ -32,13 +33,10 @@ void golden_weights_init_synthetic(GoldenWeights *w, uint32_t seed)
 
     uint32_t rng = seed ? seed : 0xCAFEBABE;
 
-    /* Small random weights in [-4, +3] to avoid int32 overflow
-     * through the network: max accumulation per conv output is
-     * 3×3×C_in × 255 × 4 which stays well within int32 range. */
-    int32_t *all = (int32_t *)w;
-    size_t total = sizeof(*w) / sizeof(int32_t);
+    float *all = (float *)w;
+    size_t total = sizeof(*w) / sizeof(float);
     for (size_t i = 0; i < total; i++) {
-        all[i] = (int32_t)(xorshift32(&rng) % 8) - 4;
+        all[i] = (float)((int32_t)(xorshift32(&rng) % 8) - 4);
     }
 }
 
@@ -76,8 +74,8 @@ void golden_context_init(GoldenContext *ctx,
 
 /* ── Conv2D + ReLU (multi-channel in, multi-channel out) ────────── */
 
-void golden_conv2d_relu(const int32_t *input, int32_t *output,
-                        const int32_t *weights, const int32_t *bias,
+void golden_conv2d_relu(const float *input, float *output,
+                        const float *weights, const float *bias,
                         int H, int W, int C_in, int C_out,
                         int KH, int KW, int pad, int stride)
 {
@@ -90,12 +88,12 @@ void golden_conv2d_relu(const int32_t *input, int32_t *output,
     int out_w = (W + 2 * pad - KW) / stride + 1;
 
     for (int oc = 0; oc < C_out; oc++) {
-        const int32_t *kern = weights + oc * (KH * KW * C_in);
-        int32_t b = bias ? bias[oc] : 0;
+        const float *kern = weights + oc * (KH * KW * C_in);
+        float b = bias ? bias[oc] : 0.0f;
 
         for (int oh = 0; oh < out_h; oh++) {
             for (int ow = 0; ow < out_w; ow++) {
-                int32_t sum = b;
+                float acc = b;
 
                 for (int kh = 0; kh < KH; kh++) {
                     int ih = oh * stride - pad + kh;
@@ -106,16 +104,13 @@ void golden_conv2d_relu(const int32_t *input, int32_t *output,
                         if (iw < 0 || iw >= W) continue;
 
                         for (int ic = 0; ic < C_in; ic++) {
-                            sum += input[(ih * W + iw) * C_in + ic]
+                            acc += input[(ih * W + iw) * C_in + ic]
                                  * kern[(kh * KW + kw) * C_in + ic];
                         }
                     }
                 }
 
-                /* ReLU */
-                if (sum < 0) sum = 0;
-
-                output[(oh * out_w + ow) * C_out + oc] = sum;
+                output[(oh * out_w + ow) * C_out + oc] = acc > 0.0f ? acc : 0.0f;
             }
         }
     }
@@ -123,7 +118,7 @@ void golden_conv2d_relu(const int32_t *input, int32_t *output,
 
 /* ── MaxPool 2×2 (multi-channel) ────────────────────────────────── */
 
-void golden_maxpool_2x2(const int32_t *input, int32_t *output,
+void golden_maxpool_2x2(const float *input, float *output,
                         int H, int W, int C)
 {
     /*
@@ -139,12 +134,12 @@ void golden_maxpool_2x2(const int32_t *input, int32_t *output,
             int iw = ow * 2;
 
             for (int c = 0; c < C; c++) {
-                int32_t v00 = input[(ih * W + iw) * C + c];
-                int32_t v01 = input[(ih * W + iw + 1) * C + c];
-                int32_t v10 = input[((ih + 1) * W + iw) * C + c];
-                int32_t v11 = input[((ih + 1) * W + iw + 1) * C + c];
+                float v00 = input[(ih * W + iw) * C + c];
+                float v01 = input[(ih * W + iw + 1) * C + c];
+                float v10 = input[((ih + 1) * W + iw) * C + c];
+                float v11 = input[((ih + 1) * W + iw + 1) * C + c];
 
-                int32_t mx = v00;
+                float mx = v00;
                 if (v01 > mx) mx = v01;
                 if (v10 > mx) mx = v10;
                 if (v11 > mx) mx = v11;
@@ -157,8 +152,8 @@ void golden_maxpool_2x2(const int32_t *input, int32_t *output,
 
 /* ── Fully Connected ────────────────────────────────────────────── */
 
-void golden_fc(const int32_t *input, int32_t *output,
-               const int32_t *weights, const int32_t *bias,
+void golden_fc(const float *input, float *output,
+               const float *weights, const float *bias,
                int in_features, int out_features)
 {
     /*
@@ -166,17 +161,17 @@ void golden_fc(const int32_t *input, int32_t *output,
      * output[j] = sum_i(input[i] * weights[i * out_features + j]) + bias[j]
      */
     for (int j = 0; j < out_features; j++) {
-        int32_t sum = bias ? bias[j] : 0;
+        float acc = bias ? bias[j] : 0.0f;
         for (int i = 0; i < in_features; i++) {
-            sum += input[i] * weights[i * out_features + j];
+            acc += input[i] * weights[i * out_features + j];
         }
-        output[j] = sum;
+        output[j] = acc;
     }
 }
 
 /* ── Argmax ─────────────────────────────────────────────────────── */
 
-int golden_argmax(const int32_t *vec, int len)
+int golden_argmax(const float *vec, int len)
 {
     int best = 0;
     for (int i = 1; i < len; i++) {
@@ -196,8 +191,13 @@ int golden_infer(const int32_t *input,
 {
     if (!input || !w || !ctx) return -1;
 
+    /* Convert int32 pixel input [0-255] to float */
+    float input_f[GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C];
+    for (int i = 0; i < GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C; i++)
+        input_f[i] = (float)input[i];
+
     /* ── Conv1: [28][28][1] → [28][28][8] + ReLU ──────────────── */
-    golden_conv2d_relu(input, ctx->conv1_out,
+    golden_conv2d_relu(input_f, ctx->conv1_out,
                        w->conv1_w, w->conv1_b,
                        GOLDEN_IN_H, GOLDEN_IN_W,
                        GOLDEN_IN_C, GOLDEN_CONV1_OUT_CH,
@@ -243,7 +243,6 @@ int golden_infer(const int32_t *input,
                      ctx->dump_user_data);
 
     /* ── Flatten + FC: [784] → [30] ───────────────────────────── */
-    /* pool2_out is already contiguous in HWC order = 784 elements */
     golden_fc(ctx->pool2_out, ctx->fc_out,
               w->fc_w, w->fc_b,
               GOLDEN_FC_IN, GOLDEN_FC_OUT);
@@ -264,7 +263,7 @@ int golden_infer(const int32_t *input,
 
 /* ── Accessor ───────────────────────────────────────────────────── */
 
-const int32_t *golden_get_fc_output(const GoldenContext *ctx)
+const float *golden_get_fc_output(const GoldenContext *ctx)
 {
     return ctx ? ctx->fc_out : NULL;
 }

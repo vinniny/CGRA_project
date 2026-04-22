@@ -86,22 +86,25 @@ static const char VN_CHAR_MAP[VN_NUM_CLASSES] = {
 #define GOLDEN_FC_BIAS_SIZE       GOLDEN_FC_OUT
 
 /* ── Model weights container ────────────────────────────────────── */
+/* Fields use float (IEEE 754 single) stored as raw bytes.
+ * sizeof(float)==sizeof(int32_t)==4, so total size is unchanged (99192 B).
+ * The ARM Cortex-A9 VFP unit handles float arithmetic natively.       */
 
 typedef struct {
-    int32_t conv1_w[GOLDEN_CONV1_WEIGHT_SIZE];  /* [OUT_CH][KH][KW][IN_C] */
-    int32_t conv1_b[GOLDEN_CONV1_BIAS_SIZE];
-    int32_t conv2_w[GOLDEN_CONV2_WEIGHT_SIZE];  /* [OUT_CH][KH][KW][IN_CH] */
-    int32_t conv2_b[GOLDEN_CONV2_BIAS_SIZE];
-    int32_t fc_w[GOLDEN_FC_WEIGHT_SIZE];        /* [FC_IN][FC_OUT] row-major */
-    int32_t fc_b[GOLDEN_FC_BIAS_SIZE];
+    float conv1_w[GOLDEN_CONV1_WEIGHT_SIZE];  /* [OUT_CH][KH][KW][IN_C] */
+    float conv1_b[GOLDEN_CONV1_BIAS_SIZE];
+    float conv2_w[GOLDEN_CONV2_WEIGHT_SIZE];  /* [OUT_CH][KH][KW][IN_CH] */
+    float conv2_b[GOLDEN_CONV2_BIAS_SIZE];
+    float fc_w[GOLDEN_FC_WEIGHT_SIZE];        /* [FC_IN][FC_OUT] row-major */
+    float fc_b[GOLDEN_FC_BIAS_SIZE];
 } GoldenWeights;
 
 /* ── Per-layer dump callback (for comparison against CGRA) ──────── */
 
 typedef void (*golden_layer_dump_fn)(
     const char *layer_name,   /* e.g. "conv1", "pool1", "fc" */
-    const int32_t *data,      /* layer output buffer */
-    int size,                 /* number of int32 elements */
+    const float *data,        /* layer output buffer */
+    int size,                 /* number of float elements */
     void *user_data           /* caller context */
 );
 
@@ -109,11 +112,11 @@ typedef void (*golden_layer_dump_fn)(
 
 typedef struct {
     /* Intermediate buffers (pre-allocated) */
-    int32_t conv1_out[GOLDEN_CONV1_OUT_CH * GOLDEN_IN_H * GOLDEN_IN_W];
-    int32_t pool1_out[GOLDEN_CONV1_OUT_CH * GOLDEN_POOL1_H * GOLDEN_POOL1_W];
-    int32_t conv2_out[GOLDEN_CONV2_OUT_CH * GOLDEN_POOL1_H * GOLDEN_POOL1_W];
-    int32_t pool2_out[GOLDEN_CONV2_OUT_CH * GOLDEN_POOL2_H * GOLDEN_POOL2_W];
-    int32_t fc_out[GOLDEN_FC_OUT];
+    float conv1_out[GOLDEN_CONV1_OUT_CH * GOLDEN_IN_H * GOLDEN_IN_W];
+    float pool1_out[GOLDEN_CONV1_OUT_CH * GOLDEN_POOL1_H * GOLDEN_POOL1_W];
+    float conv2_out[GOLDEN_CONV2_OUT_CH * GOLDEN_POOL1_H * GOLDEN_POOL1_W];
+    float pool2_out[GOLDEN_CONV2_OUT_CH * GOLDEN_POOL2_H * GOLDEN_POOL2_W];
+    float fc_out[GOLDEN_FC_OUT];
 
     /* Optional dump hook */
     golden_layer_dump_fn dump_fn;
@@ -168,23 +171,23 @@ int golden_infer(const int32_t *input,
  * golden_get_fc_output - Get raw FC logits after inference.
  * Useful for detailed comparison against CGRA output.
  */
-const int32_t *golden_get_fc_output(const GoldenContext *ctx);
+const float *golden_get_fc_output(const GoldenContext *ctx);
 
 /* ── Layer-level functions (exposed for individual testing) ──────── */
 
-void golden_conv2d_relu(const int32_t *input, int32_t *output,
-                        const int32_t *weights, const int32_t *bias,
+void golden_conv2d_relu(const float *input, float *output,
+                        const float *weights, const float *bias,
                         int H, int W, int C_in, int C_out,
                         int KH, int KW, int pad, int stride);
 
-void golden_maxpool_2x2(const int32_t *input, int32_t *output,
+void golden_maxpool_2x2(const float *input, float *output,
                         int H, int W, int C);
 
-void golden_fc(const int32_t *input, int32_t *output,
-               const int32_t *weights, const int32_t *bias,
+void golden_fc(const float *input, float *output,
+               const float *weights, const float *bias,
                int in_features, int out_features);
 
-int golden_argmax(const int32_t *vec, int len);
+int golden_argmax(const float *vec, int len);
 
 #ifdef __cplusplus
 }
