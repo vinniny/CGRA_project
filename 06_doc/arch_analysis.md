@@ -88,19 +88,24 @@ to 64 words gives a proportionally larger tolerance window.
   (bits currently unused could be repurposed). This is a breaking ISA change but
   only affects the toolchain/testbench config generation.
 
-**B2: MAC accumulator pipeline hazard (~1/3 throughput)**
-- Root cause: 3-stage pipeline, alu_result not fed back into operand mux until _r2
-- Effect: Conv3×3 kernel (9 MACs) only gets ~3 effective accumulations per iteration
-- Fix: Add an accumulator bypass — feed `alu_result_r2` directly back to operand mux
-  when the previous instruction was MAC and the current instruction reads ACC.
-  This is a 1-cycle registered path, fits timing at 50 MHz.
+**B2: MAC accumulator pipeline hazard (measured: 66.6% throughput)**
+- Root cause: 3-stage pipeline (decode→_r→_r2), 2-cycle hazard window before accumulator
+  result is visible to the next MAC. Only 10 out of 15 back-to-back MACs accumulate.
+- Silicon measurement (Cat 2, 2026-04-22 Haoyue 7020): 15×MAC b2b → 10 effective = **66.6%**;
+  with 2-NOP spacing → 80%; with 1-NOP spacing → 62.5% (worse — pipeline alignment effect).
+- **Status: Deferred — not worth fixing at current bottleneck profile.**
+  Amdahl's law: CU compute is only 7.4% of Conv2 frame time (Cat 15). Even perfect 100%
+  MAC rate saves at most 2.5% of total frame time. DMA-CU overlap (B9) is the priority.
+  Software workaround: 2-NOP spacing between dependent MACs restores 80% throughput.
+  Revisit if a future workload pushes CU-compute share above 30%.
 
 **B3: CU dead slots (NOP cycles at PC LOOP_END+1..15)**
 - Root cause: CU FSM always advances to PC=15 before asserting `done`
 - Effect: 4-instruction kernel → 75% wasted CU cycles
-- Fix (in RTL): Make `done` assertion conditional on PC reaching CU_PC_END (already
-  in reg map at 0x3C) rather than always reaching 15. Verify that the CU
-  FSM already uses CU_PC_END — if not, this is a 5-line RTL fix in `cgra_control_unit.sv`.
+- **Status: FIXED** — `CU_PC_END` register (0x3C) already gates `array_done` at
+  `cgra_top.sv:606-610`. The fix was software-only: `bench_setup()` now explicitly
+  resets CU_PC_END to 15, and each kernel sets it via `cgra_set_pc_end()` in `cgra.h:153`.
+  Cat 17a measures the per-kernel speedup (≤16 slots → up to 4× fewer CU cycles).
 
 ### High (degrades real-time performance on PetaLinux)
 
@@ -124,6 +129,18 @@ to 64 words gives a proportionally larger tolerance window.
 - Fix: Add an AXI slave port to Config RAM so DMA can pre-load the next context
   while CU is running the current one. TILE_BANK_SEL double-buffer is already
   doing this for data — the same pattern should apply to Config RAM.
+
+**B9: DMA dominates frame time (91.5%) — NEW top priority**
+- Root cause: current driver serialises each chunk as (4×DMA load) → (CU run) → (readback).
+  The tile memory already has a double-buffer (TILE_BANK_SEL, 0x74). DMA can write to the
+  INACTIVE half while CU reads from the ACTIVE half with zero hardware conflict.
+- Silicon measurement (Cat 15, 2026-04-22): Config 1.0%, **DMA 91.5%**, CU 7.4%, Readback 0.0%.
+- Fix: ping-pong pattern — while CU processes tile N from buffer A, DMA fetches tile N+1
+  into buffer B. Toggle TILE_BANK_SEL after each chunk. Expected speedup per chunk:
+  max(DMA, CU) / (DMA + CU) ≈ 9881/10672 = **1.08×** (8% per chunk).
+  Buffer B addresses = buffer A addresses + 0x800 (bit 11 of AXI addr = 1).
+- Implementation: `bench_dma_cu_overlap()` in `bench_cgra.c` (Cat 18). Literature cites
+  95% data-movement energy share for CGRAs; hiding DMA latency is the primary lever.
 
 ### Medium (area/energy inefficiency)
 
@@ -209,14 +226,17 @@ Halves routing PE waste for long-distance transfers. ~8% area increase.
 
 ## 4. Summary Priority Table
 
-| ID | Fix | Status | Gain | Risk |
+*(Updated 2026-04-22 with silicon measurements from Haoyue 7020 @ 50 MHz)*
+
+| ID | Fix | Status | Measured result | Risk |
 |---|---|---|---|---|
-| R1 | CU_PC_END per kernel | **DONE** — already in RTL (`cgra_top.sv:606`); `cgra_set_pc_end()` in `cgra.h:153`; `bench_setup()` now explicitly resets to 15; Cat 17a measures the speedup | Up to 4× CU efficiency for short kernels | Zero |
-| R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354` changed; rebuild bitstream needed | Fewer AXI stall events | Zero |
-| S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+`; Cat 17b measures the speedup | ~10× fewer DMAs for 16-PE kernel | Zero |
-| R2 | MAC pipeline verify | **PENDING silicon run** — Cat 2 `bench_mac_hazard` D3 + patterns table measure D3 result; Cat 17c summarizes decision; bypass RTL only if D3 result < 8/15 | 3× MAC throughput (if bypass needed) | Medium (timing) |
-| S1 | Threaded IRQ kernel driver | Deferred — no PetaLinux project yet | Real-time jitter | Requires `.ko` |
-| S2 | Zero-copy mmap | Deferred | Copy elimination | Requires `.ko` |
-| A1 | RF address decoupling | Deferred — breaking ISA change | Full RF usability | High |
-| A2 | Background Config RAM DMA | Deferred — thesis extension | Config hiding | Medium |
-| A3 | Express routing links | Deferred — thesis extension | Routing PE recovery | Low |
+| R1 | CU_PC_END per kernel | **DONE** — RTL at `cgra_top.sv:606-610`; `cgra_set_pc_end()` in `cgra.h:153`; `bench_setup()` resets to 15 | Cat 17a: up to 4× fewer CU cycles for short kernels | Zero |
+| R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354`; bitstream rebuilt 2026-04-22 | DMA peak 85.9 MB/s; no regression in 8957-test sim suite | Zero |
+| S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+` | Cat 17b: 263,480 → 155,501 ARM cyc = **1.7× speedup** (16 PE × 4 slots) | Zero |
+| R2 | MAC bypass RTL | **DEFERRED** — measured 66.6% b2b throughput; CU = 7.4% of frame → max 2.5% total gain per Amdahl; 2-NOP spacing gives 80% as SW workaround | 66.6% MAC rate on silicon (Cat 2) | Medium (timing) |
+| B9 | DMA-CU overlap | **IN PROGRESS** — Cat 18 `bench_dma_cu_overlap()` added; awaiting silicon run | Expected ~8% frame speedup (theory: max(DMA,CU)/(DMA+CU) per chunk) | Zero (SW only) |
+| S1 | Threaded IRQ kernel module | Deferred — no PetaLinux project yet | — | Requires `.ko` |
+| S2 | Zero-copy mmap | Deferred | — | Requires `.ko` |
+| A1 | RF address decoupling | Deferred — breaking ISA change | — | High |
+| A2 | Background Config RAM DMA | Deferred — thesis extension | — | Medium |
+| A3 | Express routing links | Deferred — thesis extension | — | Low |

@@ -39,6 +39,11 @@
 #define TILE_BANK1      0x10001000UL
 #define TILE_BANK2      0x10002000UL
 #define TILE_BANK3      0x10003000UL
+/* Buffer B (inactive bank) — bit 11 of AXI addr = 1, no conflict when TILE_BANK_SEL=0 */
+#define TILE_BANK0_B    0x10000800UL
+#define TILE_BANK1_B    0x10001800UL
+#define TILE_BANK2_B    0x10002800UL
+#define TILE_BANK3_B    0x10003800UL
 
 /* ── Power constants (Vivado report, routed, 2026-04-10) ─────────────── */
 #define CGRA_POWER_MW   217u    /* 0.217 W */
@@ -57,6 +62,7 @@ static uint32_t g_cfg_full_us_x10   = 0; /* from cat 10 (16PE×16slot) */
 static uint32_t g_cfg_bcast_us_x10  = 0; /* from cat 10 (16PE broadcast) */
 static uint32_t g_char_fps_x10      = 0; /* from cat 11 */
 static uint32_t g_plate_fps_x10     = 0; /* from cat 11 */
+static uint32_t g_overlap_speedup_x10 = 0; /* from cat 18 */
 
 /* ── UART formatting helpers ─────────────────────────────────────────── */
 
@@ -1601,7 +1607,7 @@ static void bench_breakdown(void)
         uart_lj(rows[i].name, 20);
         uart_rj(rows[i].c, 8);     uart_puts("  ");
         uart_putfix1(arm_cyc_to_us_x10(rows[i].c));  uart_puts("  ");
-        uart_putfix1((rows[i].c * 1000u) / total);
+        uart_putfix1((uint32_t)((uint64_t)rows[i].c * 1000u / total));
         uart_puts("%\n");
     }
     uart_lj("TOTAL", 20);
@@ -1838,6 +1844,121 @@ static void bench_requirements(void)
  * Summary
  * ===================================================================== */
 
+/* =====================================================================
+ * Category 18: DMA-CU Overlap (ping-pong double-buffer)
+ *
+ * Tile memory has two half-banks per row. When TILE_BANK_SEL=0 the CU
+ * reads the lower half (DMA addresses bit-11=0). The upper half (bit-11=1,
+ * addresses +0x800 per row) has no conflict when TILE_BANK_SEL=0.
+ *
+ * Pattern:
+ *   serial:  N × (4-row DMA to buf-A → CU run on buf-A)
+ *   overlap: bootstrap DMA to buf-A → for each chunk: CU start on active buf +
+ *            4-row DMA to inactive buf + cu_wait → toggle TILE_BANK_SEL
+ *
+ * Expected speedup: max(DMA, CU) / (DMA + CU) per chunk.
+ * With DMA=9880 cyc and CU=790 cyc per chunk, theoretical speedup ≈ 1.08×.
+ * ===================================================================== */
+
+/* Tile-row DMA helpers for buffer A and buffer B */
+static const uint32_t tile_buf_a[4] = {
+    TILE_BANK0, TILE_BANK1, TILE_BANK2, TILE_BANK3
+};
+static const uint32_t tile_buf_b[4] = {
+    TILE_BANK0_B, TILE_BANK1_B, TILE_BANK2_B, TILE_BANK3_B
+};
+
+static void bench_dma_cu_overlap(void)
+{
+    banner("Cat 18: DMA-CU Overlap (ping-pong double-buffer)");
+
+    /* Use same Conv2 workload as Cat 15 for apples-to-apples comparison */
+    uint32_t macs    = 139392u;
+    uint32_t per_row = (macs + 3) / 4;
+    uint32_t N       = (per_row + 11) / 12;   /* same chunks as Cat 15 */
+    if (N == 0) N = 1;
+
+    /* Ensure a clean DMA + CU state before each measurement */
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+
+    /* ── Serial baseline ──────────────────────────────────────────────── */
+    arm_ccnt_reset();
+    uint32_t t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < N; k++) {
+        if (k == 1) cnn_cfg_mac_rows(12, /*acc_clr=*/0);
+        for (uint32_t r = 0; r < 4; r++)
+            cgra_dma(DDR_BUF_A, tile_buf_a[r], 64);
+        cu_run_wait();
+    }
+    uint32_t t_serial = arm_ccnt_read() - t0;
+
+    /* ── Overlap (ping-pong) ──────────────────────────────────────────── */
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+
+    /* Bootstrap: fill buffer A before the first CU run */
+    cgra_wr(CGRA_TILE_BANK_SEL, 0u);
+    for (uint32_t r = 0; r < 4; r++)
+        cgra_dma(DDR_BUF_A, tile_buf_a[r], 64);
+
+    uint32_t bank = 0;   /* current active buffer: 0=buf_a, 1=buf_b */
+
+    arm_ccnt_reset();
+    t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < N; k++) {
+        if (k == 1) cnn_cfg_mac_rows(12, /*acc_clr=*/0);
+
+        /* CU starts on active buffer (no DMA conflict: different buffer half) */
+        cgra_cu_start();
+
+        /* While CU runs, load INACTIVE buffer with next-chunk data.
+         * On the last iteration skip the prefetch — no next chunk needed. */
+        if (k < N - 1u) {
+            const uint32_t *next = (bank == 0) ? tile_buf_b : tile_buf_a;
+            for (uint32_t r = 0; r < 4; r++)
+                cgra_dma(DDR_BUF_A, next[r], 64);   /* blocking per row */
+        }
+
+        /* Wait for CU (will already be done if DMA dominates) */
+        cgra_cu_wait(1000000u);
+
+        /* Toggle active buffer */
+        bank ^= 1u;
+        cgra_wr(CGRA_TILE_BANK_SEL, bank);
+    }
+    uint32_t t_overlap = arm_ccnt_read() - t0;
+
+    /* Compute speedup (×10) */
+    uint32_t speedup_x10 = (t_overlap > 0) ? (t_serial * 10u) / t_overlap : 0u;
+    g_overlap_speedup_x10 = speedup_x10;
+
+    /* Print results */
+    uart_puts("Method      ARM_cyc       us  speedup\n");
+    uart_puts("-----------------------------------------\n");
+    uart_lj("Serial",  10);
+    uart_rj(t_serial, 10);  uart_puts("  ");
+    uart_putfix1(arm_cyc_to_us_x10(t_serial));
+    uart_puts("    1.0x (baseline)\n");
+
+    uart_lj("Overlap", 10);
+    uart_rj(t_overlap, 10);  uart_puts("  ");
+    uart_putfix1(arm_cyc_to_us_x10(t_overlap));
+    uart_puts("    ");
+    uart_putfix1(speedup_x10);
+    uart_puts("x\n");
+
+    uart_puts("\n--- Analysis ---\n");
+    uart_puts("  DMA (91.5% of frame) now overlaps with CU compute.\n");
+    uint32_t saved_us = (t_serial > t_overlap)
+                      ? arm_cyc_to_us_x10(t_serial - t_overlap) : 0;
+    uart_puts("  Saved: ");
+    uart_putfix1(saved_us);
+    uart_puts(" us/frame (");
+    uart_putfix1(N > 0 ? saved_us / N : 0);
+    uart_puts(" us/chunk on average).\n");
+}
+
 static void bench_summary(void)
 {
     banner("CGRA Capability Summary");
@@ -1886,6 +2007,10 @@ static void bench_summary(void)
     uart_puts("MAC pipeline util (b2b) : ");
     uart_putfix1(util_x10);
     uart_puts(" %\n");
+
+    uart_puts("DMA-CU overlap speedup  : ");
+    uart_putfix1(g_overlap_speedup_x10);
+    uart_puts("x\n");
 
     /* GOPS/W comparison */
     uart_puts("\n--- Power Efficiency (Vivado routed) ---\n");
@@ -2085,6 +2210,7 @@ void main(void)
     bench_breakdown();       /* Cat 15 */
     bench_lpr_model();       /* Cat 16 */
     bench_optimizations();   /* Cat 17 */
+    bench_dma_cu_overlap();  /* Cat 18 */
     bench_summary();
 
     uart_puts("\n[BENCH COMPLETE]\n");
