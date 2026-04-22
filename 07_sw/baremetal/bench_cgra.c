@@ -44,6 +44,8 @@
 #define TILE_BANK1_B    0x10001800UL
 #define TILE_BANK2_B    0x10002800UL
 #define TILE_BANK3_B    0x10003800UL
+/* SG-DMA descriptor array — 4 × 16 bytes, must not overlap DDR_BUF_A/B */
+#define DDR_DESC_SG     0x00108000UL
 
 /* ── Power constants (Vivado report, routed, 2026-04-10) ─────────────── */
 #define CGRA_POWER_MW   217u    /* 0.217 W */
@@ -62,7 +64,8 @@ static uint32_t g_cfg_full_us_x10   = 0; /* from cat 10 (16PE×16slot) */
 static uint32_t g_cfg_bcast_us_x10  = 0; /* from cat 10 (16PE broadcast) */
 static uint32_t g_char_fps_x10      = 0; /* from cat 11 */
 static uint32_t g_plate_fps_x10     = 0; /* from cat 11 */
-static uint32_t g_overlap_speedup_x10 = 0; /* from cat 18 */
+static uint32_t g_overlap_speedup_x10    = 0; /* from cat 18 */
+static uint32_t g_sg_overlap_speedup_x10 = 0; /* from cat 19 */
 
 /* ── UART formatting helpers ─────────────────────────────────────────── */
 
@@ -1959,6 +1962,103 @@ static void bench_dma_cu_overlap(void)
     uart_puts(" us/chunk on average).\n");
 }
 
+/* =====================================================================
+ * Category 19: SG-DMA chaining — all 4 row-transfers as one descriptor chain
+ *
+ * Cat 18 overlap was limited to ~1.2% because each cgra_dma() call blocks
+ * the ARM between rows, so only the first row overlaps with the CU start-up.
+ * Here a single cgra_sg_dma_start() chains all 4 descriptors autonomously;
+ * ARM only polls DMA_DESC_STATUS[0] once, giving CU full overlap with the
+ * entire 4-row DMA burst.  Theoretical speedup: max(DMA,CU)/(DMA+CU) ≈ 8%.
+ * ===================================================================== */
+static void bench_dma_cu_overlap_sg(void)
+{
+    banner("Cat 19: DMA-CU Overlap (SG-DMA chained 4-row descriptor)");
+
+    uint32_t macs    = 139392u;
+    uint32_t per_row = (macs + 3u) / 4u;
+    uint32_t N       = (per_row + 11u) / 12u;
+    if (N == 0u) N = 1u;
+
+    volatile cgra_sg_dma_descriptor_t *descs =
+        (volatile cgra_sg_dma_descriptor_t *)DDR_DESC_SG;
+
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+
+    /* ── Serial baseline (same workload as Cat 18) ────────────────────── */
+    arm_ccnt_reset();
+    uint32_t t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < N; k++) {
+        if (k == 1u) cnn_cfg_mac_rows(12, /*acc_clr=*/0);
+        for (uint32_t r = 0; r < 4u; r++)
+            cgra_dma(DDR_BUF_A, tile_buf_a[r], 64u);
+        cu_run_wait();
+    }
+    uint32_t t_serial = arm_ccnt_read() - t0;
+
+    /* ── SG-DMA overlap ───────────────────────────────────────────────── */
+    bench_setup();
+    cnn_cfg_mac_rows(12, /*acc_clr=*/1);
+    cgra_wr(CGRA_TILE_BANK_SEL, 0u);
+
+    /* Bootstrap: load buffer A with a 4-descriptor chain before the first CU run */
+    cgra_sg_dma_build_row_chain(descs, 4u, DDR_BUF_A, tile_buf_a, 64u);
+    cgra_sg_dma_start(DDR_DESC_SG);
+    cgra_sg_dma_wait(1000000u);
+
+    uint32_t bank = 0u;
+
+    arm_ccnt_reset();
+    t0 = arm_ccnt_read();
+    for (uint32_t k = 0; k < N; k++) {
+        if (k == 1u) cnn_cfg_mac_rows(12, /*acc_clr=*/0);
+
+        cgra_cu_start();
+
+        /* While CU runs, chain all 4 row-DMAs to the INACTIVE buffer. */
+        if (k < N - 1u) {
+            const uint32_t *next = (bank == 0u) ? tile_buf_b : tile_buf_a;
+            cgra_sg_dma_build_row_chain(descs, 4u, DDR_BUF_A, next, 64u);
+            cgra_sg_dma_start(DDR_DESC_SG);
+            cgra_sg_dma_wait(1000000u);
+        }
+
+        cgra_cu_wait(1000000u);
+        bank ^= 1u;
+        cgra_wr(CGRA_TILE_BANK_SEL, bank);
+    }
+    uint32_t t_sg = arm_ccnt_read() - t0;
+
+    uint32_t speedup_x10 = (t_sg > 0u) ? (t_serial * 10u) / t_sg : 0u;
+    g_sg_overlap_speedup_x10 = speedup_x10;
+
+    uart_puts("Method           ARM_cyc       us  speedup\n");
+    uart_puts("-------------------------------------------\n");
+    uart_lj("Serial",         15); uart_rj(t_serial, 10); uart_puts("  ");
+    uart_putfix1(arm_cyc_to_us_x10(t_serial));
+    uart_puts("    1.0x (baseline)\n");
+
+    uart_lj("SG-DMA overlap", 15); uart_rj(t_sg, 10); uart_puts("  ");
+    uart_putfix1(arm_cyc_to_us_x10(t_sg));
+    uart_puts("    ");
+    uart_putfix1(speedup_x10);
+    uart_puts("x\n");
+
+    uart_puts("\n--- Analysis ---\n");
+    uart_puts("  SG-DMA chains all 4 row-DMAs into one descriptor.\n");
+    uart_puts("  CU overlaps with the full 4-row DMA burst (vs single row in Cat 18).\n");
+    if (t_serial > t_sg) {
+        uart_puts("  Saved: ");
+        uart_putfix1(arm_cyc_to_us_x10(t_serial - t_sg));
+        uart_puts(" us/frame (");
+        uart_putfix1(N > 0u ? arm_cyc_to_us_x10(t_serial - t_sg) / N : 0u);
+        uart_puts(" us/chunk avg).\n");
+    } else {
+        uart_puts("  No time saved — CU completes before SG-DMA chain finishes.\n");
+    }
+}
+
 static void bench_summary(void)
 {
     banner("CGRA Capability Summary");
@@ -2008,8 +2108,11 @@ static void bench_summary(void)
     uart_putfix1(util_x10);
     uart_puts(" %\n");
 
-    uart_puts("DMA-CU overlap speedup  : ");
+    uart_puts("DMA-CU overlap (Cat 18) : ");
     uart_putfix1(g_overlap_speedup_x10);
+    uart_puts("x\n");
+    uart_puts("SG-DMA overlap (Cat 19) : ");
+    uart_putfix1(g_sg_overlap_speedup_x10);
     uart_puts("x\n");
 
     /* GOPS/W comparison */
@@ -2210,7 +2313,8 @@ void main(void)
     bench_breakdown();       /* Cat 15 */
     bench_lpr_model();       /* Cat 16 */
     bench_optimizations();   /* Cat 17 */
-    bench_dma_cu_overlap();  /* Cat 18 */
+    bench_dma_cu_overlap();     /* Cat 18 */
+    bench_dma_cu_overlap_sg(); /* Cat 19 */
     bench_summary();
 
     uart_puts("\n[BENCH COMPLETE]\n");

@@ -142,8 +142,10 @@ to 64 words gives a proportionally larger tolerance window.
 - Silicon result (Cat 18, 2026-04-22): serial 47,409 µs → overlap 46,840 µs = **570 µs saved
   (1.2%)**. Overlap limited to CU execution window (213 ARM cycles = 2.0% of chunk). CU
   finishes before DMA_r0 completes, so only single-row-DMA overlap is achieved.
-- Next step: use SG-DMA (DMA_DESC_HEAD 0x7C) to chain all 4 row-DMAs into one descriptor,
-  making the full ~4× DMA transfer overlap with CU → expected ~8% gain.
+- **Cat 19 implemented** (2026-04-22): SG-DMA helper `cgra_sg_dma_build_row_chain()` +
+  `cgra_sg_dma_start()` added to `cgra.h`. `bench_dma_cu_overlap_sg()` chains all 4 row-DMAs
+  into one descriptor (DMA_DESC_HEAD 0x7C → DMA_CTRL[1]=1), letting CU overlap the full burst.
+  Silicon result: TBD (pending next FPGA run).
 - Literature cites 95% data-movement energy share for CGRAs; hiding DMA latency is the
   primary lever.
 
@@ -239,7 +241,7 @@ Halves routing PE waste for long-distance transfers. ~8% area increase.
 | R3 | FIFO_DEPTH 32→64 | **DONE** — `cgra_top.sv:354`; bitstream rebuilt 2026-04-22 | DMA peak 86.0 MB/s; 9063/9063 sim pass (0 failures) | Zero |
 | S3 | Bulk config programming | **DONE** — `cgra_config_pe_bulk()` + `cgra_program_kernel()` in `cgra.h:363+` | Cat 17b: 262,808 → 155,372 ARM cyc = **1.7× speedup** (16 PE × 4 slots) | Zero |
 | R2 | MAC bypass RTL | **DEFERRED** — measured 66.6% b2b throughput; CU = 7.4% of frame → max 2.5% total gain per Amdahl; 2-NOP spacing gives 80% as SW workaround | 66.6% MAC rate on silicon (Cat 2) | Medium (timing) |
-| B9 | DMA-CU overlap | **MEASURED** — Cat 18 ping-pong via TILE_BANK_SEL: 570 µs/frame saved (1.2%). CU execution = 213 ARM cycles (2.0% of 10,880 chunk); overlap limited to CU+DMA_r0 window. To reach 8% requires SG-DMA chaining all 4 row-DMAs into one descriptor. | Serial 47,409 µs → overlap 46,840 µs (Cat 18, 2026-04-22) | Zero (SW only) |
+| B9 | DMA-CU overlap | **Cat 19 implemented** — `cgra_sg_dma_build_row_chain()` + `cgra_sg_dma_start()` in `cgra.h`. Cat 18 (blocking): 570 µs/1.2% saved. Cat 19 (SG-DMA chain): silicon result TBD — theory 8% when DMA≫CU. | Cat 18: 47,409 µs → 46,840 µs (1.2%). Cat 19: pending FPGA run | Zero (SW only) |
 | S1 | Threaded IRQ kernel module | Deferred — no PetaLinux project yet | — | Requires `.ko` |
 | S2 | Zero-copy mmap | Deferred | — | Requires `.ko` |
 | A1 | RF address decoupling | Deferred — breaking ISA change | — | High |
