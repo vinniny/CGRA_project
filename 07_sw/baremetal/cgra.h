@@ -425,4 +425,60 @@ static inline int cgra_program_kernel(const cgra_kernel_t *k,
     return 0;
 }
 
+/* ── Scatter-Gather DMA ────────────────────────────────────────────────── */
+#define CGRA_DMA_DESC_HEAD   0x7C
+#define CGRA_DMA_DESC_STATUS 0x80
+
+/* Descriptor layout matches cgra_dma_chain_ctrl.sv FETCH order: word0=src,
+ * word1=dst, word2=size, word3=next_ptr. next_ptr=0 terminates the chain. */
+typedef struct {
+    uint32_t src;
+    uint32_t dst;
+    uint32_t size;
+    uint32_t next_ptr;
+} cgra_sg_dma_descriptor_t;
+
+/* Build a chain of n descriptors into 'descs' (must be in DDR, not OCM).
+ * Each descriptor transfers row_bytes bytes from src to dst_addrs[i].
+ * Issues a DSB to ensure all writes reach DDR before the DMA engine fetches. */
+static inline void cgra_sg_dma_build_row_chain(
+        volatile cgra_sg_dma_descriptor_t *descs,
+        uint32_t n,
+        uint32_t src,
+        const uint32_t *dst_addrs,
+        uint32_t row_bytes)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        descs[i].src      = src;
+        descs[i].dst      = dst_addrs[i];
+        descs[i].size     = row_bytes;
+        descs[i].next_ptr = (i < n - 1u)
+                          ? (uint32_t)(uintptr_t)(&descs[i + 1u]) : 0u;
+    }
+    asm volatile("dsb" ::: "memory");
+}
+
+/* Kick the SG-DMA chain controller.  head_ptr is the DDR physical address of
+ * the first cgra_sg_dma_descriptor_t.  DMA_CTRL[1] auto-clears after 1 cycle. */
+static inline void cgra_sg_dma_start(uint32_t head_ptr)
+{
+    cgra_wr(CGRA_DMA_DESC_HEAD, head_ptr);
+    cgra_wr(CGRA_DMA_CTRL, 2u);   /* bit 1 = dma_chain_start */
+}
+
+/* Returns non-zero while the chain is active (DMA_DESC_STATUS[0]). */
+static inline int cgra_sg_dma_busy(void)
+{
+    return (cgra_rd(CGRA_DMA_DESC_STATUS) & 0x1u) != 0;
+}
+
+static inline int cgra_sg_dma_wait(uint32_t timeout)
+{
+    while (timeout--) {
+        if (!cgra_sg_dma_busy()) return 0;
+    }
+    return -1;
+}
+
 #endif /* CGRA_H */
