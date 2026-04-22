@@ -76,11 +76,27 @@ BENCH_RES_TARGET := bench_resolution.elf
 BENCH_TAI_SRCS   := start.s bench_tile_autoinc.c gic.c
 BENCH_TAI_TARGET := bench_tile_autoinc.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai
+# ── demo_lpr: VN plate OCR demo (ARM golden inference + CGRA DMA staging) ──
+# Weights embedded via .incbin at DDR 0x800000 (linker_lpr.ld).
+# Use -ffunction-sections + --gc-sections to drop lpr_golden's fopen/fread.
+LPR_CFLAGS  := -O1 -Wall -ffreestanding -nostdlib \
+               -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
+               -ffunction-sections -fdata-sections \
+               -I. -I../lib
+
+LPR_LDFLAGS := -T linker_lpr.ld -nostdlib -Wl,--gc-sections
+
+LPR_SRCS    := start.s demo_lpr.c demo_lpr_weights.S ../lib/lpr_golden.c
+
+DEMO_LPR_TARGET := demo_lpr.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr
 
 all: $(TARGET)
 
 demo: $(DEMO_TARGET)
+
+demo_lpr: $(DEMO_LPR_TARGET)
 
 bench: $(BENCH_TARGET)
 
@@ -113,8 +129,16 @@ $(DEMO_TARGET): $(DEMO_SRCS) xparameters.h bspconfig.h linker.ld
 	@echo "[BUILD] $(DEMO_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
+run_demo_lpr: $(DEMO_LPR_TARGET)
+	@echo "Load $(DEMO_LPR_TARGET) with: make run_elf ELF=$(BAREMETAL_DIR)/$(DEMO_LPR_TARGET) BIT=..."
+
+$(DEMO_LPR_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h cgra_kernels_lpr.h
+	$(CC) $(LPR_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(DEMO_LPR_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
 dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) *.o
