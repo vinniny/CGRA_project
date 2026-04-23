@@ -90,12 +90,17 @@ LPR_SRCS    := start.s demo_lpr.c demo_lpr_weights.S demo_lpr_images.S ../lib/lp
 
 DEMO_LPR_TARGET := demo_lpr.elf
 
-# ── demo_lpr_cgra: CGRA-accelerated FC variant ──────────────────────────────
+# ── demo_lpr_cgra: CGRA-accelerated FC variant (v1 — IMM weight-stationary) ─
 LPR_CGRA_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER
 # Profile build: make demo_lpr_cgra LPR_CGRA_CFLAGS='$(LPR_CFLAGS) -DUSE_CGRA_INFER -DLPR_CGRA_PROFILE'
 DEMO_LPR_CGRA_TARGET := demo_lpr_cgra.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra
+# ── demo_lpr_cgra_v2: CGRA FC v2 — SPM weight preload (R1/R2/R3 required) ──
+LPR_CGRA_V2_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2
+# Profile build: make demo_lpr_cgra_v2 LPR_CGRA_V2_CFLAGS='$(LPR_CFLAGS) -DUSE_CGRA_INFER_V2 -DLPR_CGRA_PROFILE'
+DEMO_LPR_CGRA_V2_TARGET := demo_lpr_cgra_v2.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2
 
 all: $(TARGET)
 
@@ -104,6 +109,8 @@ demo: $(DEMO_TARGET)
 demo_lpr: $(DEMO_LPR_TARGET)
 
 demo_lpr_cgra: $(DEMO_LPR_CGRA_TARGET)
+
+demo_lpr_cgra_v2: $(DEMO_LPR_CGRA_V2_TARGET)
 
 bench: $(BENCH_TARGET)
 
@@ -149,8 +156,13 @@ $(DEMO_LPR_CGRA_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_i
 	@echo "[BUILD] $(DEMO_LPR_CGRA_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
+$(DEMO_LPR_CGRA_V2_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h demo_lpr_test_images.bin cgra_kernels_lpr.h ../lprnet_eval/golden_weights_int16.bin ../lprnet_eval/golden_weights_spm.bin
+	$(CC) $(LPR_CGRA_V2_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(DEMO_LPR_CGRA_V2_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
 dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) *.o

@@ -41,13 +41,6 @@
 #define CGRA_SPM_PE_ADDR(pe, word) \
     (CGRA_PFX_SPM | (((uint32_t)(pe) & 0xFu) << 12) | (((uint32_t)(word) & 0x3FFu) << 2))
 
-/* DMA one PE's SPM slice from DDR.  src = DDR word-aligned pointer,
- * pe = PE index 0-15, n_words = number of 32-bit words (≤ 1024).          */
-static inline void cgra_dma_to_spm(uint32_t src, unsigned pe, unsigned n_words)
-{
-    cgra_dma(src, CGRA_SPM_PE_ADDR(pe, 0), n_words * 4u);
-}
-
 /* ── Register offsets (mirrors cgra_driver.h) ─────────────────────────── */
 #define CGRA_DMA_CTRL        0x00
 #define CGRA_DMA_STATUS      0x04
@@ -217,6 +210,13 @@ static inline int cgra_dma(uint32_t src, uint32_t dst, uint32_t bytes)
 {
     cgra_dma_start(src, dst, bytes);
     return cgra_dma_wait(1000000u);
+}
+
+/* DMA one PE's SPM slice from DDR.  src = DDR word-aligned pointer,
+ * pe = PE index 0-15, n_words = number of 32-bit words (≤ 1024).          */
+static inline void cgra_dma_to_spm(uint32_t src, unsigned pe, unsigned n_words)
+{
+    cgra_dma(src, CGRA_SPM_PE_ADDR(pe, 0), n_words * 4u);
 }
 
 /* ── Async CU control ────────────────────────────────────────────────── */

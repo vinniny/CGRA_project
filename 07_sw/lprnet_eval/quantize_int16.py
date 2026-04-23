@@ -285,6 +285,7 @@ def main():
     parser.add_argument('--checkpoint',  default='vn_char_best.pt')
     parser.add_argument('--out_bin',     default='golden_weights_int16.bin')
     parser.add_argument('--out_scale',   default='golden_weights_scale.h')
+    parser.add_argument('--out_spm',     default='golden_weights_spm.bin')
     parser.add_argument('--data_dir',    default='datasets/processed')
     parser.add_argument('--skip_verify', action='store_true')
     args = parser.parse_args()
@@ -347,11 +348,22 @@ def main():
     write_int16_bin(q_fields, args.out_bin)
     write_scale_header(scales, args.out_scale)
 
+    # SPM-layout FC weights: fc_w_q transposed to [30, 784] and sign-extended
+    # to int32 so each word is directly DMA-able to PE SPM.
+    # Format: 30 neurons × 784 words × 4 bytes = 92,160 bytes.
+    # neuron n's weights occupy byte range [n*784*4 .. (n+1)*784*4).
+    fc_w_spm = fc_wq.reshape(784, 30).T.astype(np.int32)  # [30, 784]
+    fc_w_spm.tofile(args.out_spm)
+    print(f"\n[quant] SPM-layout FC weights written to {args.out_spm}")
+    print(f"  Shape: {fc_w_spm.shape}  ({fc_w_spm.nbytes} bytes)")
+    print(f"  Layout: fc_w_spm[neuron][input_idx] as int32 (30 × 784 × 4 B)")
+
     if not args.skip_verify:
         verify_int16_accuracy(model, q_fields, scales, args.data_dir)
 
     print(f"\n[quant] Done.")
     print(f"  INT16 weights: {args.out_bin}  (49,596 bytes)")
+    print(f"  SPM weights:   {args.out_spm}  (92,160 bytes)")
     print(f"  Scale header:  {args.out_scale}")
     print(f"  CONV1_SHIFT={sh1}, CONV2_SHIFT={sh2}, FC_SHIFT=0")
 

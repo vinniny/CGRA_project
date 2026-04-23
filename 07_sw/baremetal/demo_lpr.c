@@ -31,8 +31,11 @@
 /* ── DDR sections ─────────────────────────────────────────────────────── */
 extern const uint8_t  lpr_weights_start[];        /* 0x800000 — GoldenWeights struct */
 extern const int32_t  lpr_images_start[];          /* 0x900000 — flat image bank */
-#ifdef USE_CGRA_INFER
-extern const uint8_t  lpr_weights_int16_start[];  /* 0x820000 — INT16 weight blob */
+#if defined(USE_CGRA_INFER) || defined(USE_CGRA_INFER_V2)
+extern const uint8_t  lpr_weights_int16_start[];  /* 0x820000 — INT16 weight/bias blob */
+#endif
+#ifdef USE_CGRA_INFER_V2
+extern const int32_t  lpr_weights_spm_start[];    /* 0x830000 — SPM layout weights */
 #endif
 
 /* ── DMA staging ──────────────────────────────────────────────────────── */
@@ -93,7 +96,9 @@ int main(void)
     uart_puts("\n");
     uart_puts("============================================\n");
     uart_puts("  CGRA LPR Demo — Vietnamese Plate OCR\n");
-#ifdef USE_CGRA_INFER
+#if defined(USE_CGRA_INFER_V2)
+    uart_puts("  ARM VFP Conv/Pool + CGRA SPM-FC v2\n");
+#elif defined(USE_CGRA_INFER)
     uart_puts("  ARM VFP Conv/Pool + CGRA INT16 FC\n");
 #else
     uart_puts("  ARM Cortex-A9 VFP + CGRA DMA staging\n");
@@ -140,7 +145,10 @@ int main(void)
 
         uint32_t t0 = arm_ccnt_read();
         int cls; char pred_ch;
-#ifdef USE_CGRA_INFER
+#if defined(USE_CGRA_INFER_V2)
+        golden_infer_cgra_v2(img, w, &g_ctx, lpr_weights_int16_start,
+                             lpr_weights_spm_start, &cls, &pred_ch);
+#elif defined(USE_CGRA_INFER)
         golden_infer_cgra(img, w, &g_ctx, lpr_weights_int16_start, &cls, &pred_ch);
 #else
         golden_infer(img, w, &g_ctx, &cls, &pred_ch);

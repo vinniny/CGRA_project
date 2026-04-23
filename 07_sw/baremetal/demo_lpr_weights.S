@@ -14,7 +14,7 @@ lpr_weights_start:
     .incbin "../lprnet_eval/golden_weights.bin"
 lpr_weights_end:
 
-#ifdef USE_CGRA_INFER
+#if defined(USE_CGRA_INFER) || defined(USE_CGRA_INFER_V2)
     .section .lpr_weights_int16, "a"
     .global lpr_weights_int16_start
     .global lpr_weights_int16_end
@@ -22,4 +22,14 @@ lpr_weights_end:
 lpr_weights_int16_start:
     .incbin "../lprnet_eval/golden_weights_int16.bin"
 lpr_weights_int16_end:
+#endif
+
+#ifdef USE_CGRA_INFER_V2
+    .section .lpr_weights_spm, "a"
+    .global lpr_weights_spm_start
+    .global lpr_weights_spm_end
+
+lpr_weights_spm_start:
+    .incbin "../lprnet_eval/golden_weights_spm.bin"
+lpr_weights_spm_end:
 #endif

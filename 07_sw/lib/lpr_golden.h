@@ -208,6 +208,22 @@ int golden_infer_cgra(const int32_t *input,
                       char *out_char);
 #endif /* USE_CGRA_INFER */
 
+#ifdef USE_CGRA_INFER_V2
+/**
+ * golden_infer_cgra_v2 - Conv1+Pool1+Conv2+Pool2 on ARM; FC on CGRA with
+ * SPM weight preload (R1/R2/R3 features: DMA→SPM, auto-inc, broadcast).
+ * @w_spm_base: Base pointer of golden_weights_spm.bin blob (in DDR).
+ *              Layout: [N_CLASSES][N_INPUTS] int32 (92,160 bytes).
+ */
+int golden_infer_cgra_v2(const int32_t *input,
+                          const GoldenWeights *w_f,
+                          GoldenContext *ctx,
+                          const void *w_int16_base,
+                          const void *w_spm_base,
+                          int *out_class,
+                          char *out_char);
+#endif /* USE_CGRA_INFER_V2 */
+
 #ifdef __cplusplus
 }
 #endif
