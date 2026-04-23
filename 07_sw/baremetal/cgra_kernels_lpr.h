@@ -271,15 +271,21 @@ static inline int lpr_fc_init_chain(uint32_t staging_ddr)
 }
 
 /* ── lpr_fc_acc_clr ──────────────────────────────────────────────────
- * Clear the 40-bit accumulator in col=0 of all 4 rows, then run the CU
- * (PC_END=0, single slot).  Call once per 4-neuron group. */
+ * Clear the 40-bit accumulator in col=0 of all 4 rows, then run the CU.
+ * PC_END=2 (3 slots): the 3-stage PE pipeline needs exactly 3 cycles with
+ * global_stall_r=0 before the accumulator write lands.  PC_END=0 fires
+ * array_done on cycle 0, global_stall_r goes high on cycle 1, freezing
+ * stages 2+3 — the accumulator is never cleared.  With PC_END=2,
+ * array_done fires on cycle 2, global_stall_r goes high on cycle 3, so
+ * stages 1/2/3 all execute while global_stall_r=0.
+ * Call once per 4-neuron group. */
 static inline int lpr_fc_acc_clr(uint32_t staging_ddr)
 {
     for (int r = 0; r < 4; r++) {
         if (cgra_config_pe(lpr_fc_col0_ids[r], staging_ddr,
                            OP_ACC_CLR, 0, 0, 0, 0, 0)) return -1;
     }
-    cgra_wr(CGRA_CU_PC_END, 0u);
+    cgra_wr(CGRA_CU_PC_END, 2u);  /* 3 cycles to drain the 3-stage pipeline */
     cgra_cu_start();
     return cgra_cu_wait(1000000u);
 }

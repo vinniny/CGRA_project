@@ -294,6 +294,19 @@ const float *golden_get_fc_output(const GoldenContext *ctx)
 #define LPR_INT16_FC_W_BOFF  ((72u+8u+1152u+16u)*2u)             /* 2496 B */
 #define LPR_INT16_FC_B_BOFF  ((72u+8u+1152u+16u+23520u)*2u)      /* 49536 B */
 
+/* ── FC overhead profiling counters (global, accumulated across all chars)
+ * Populated when LPR_CGRA_PROFILE is defined at build time. Used by the
+ * bare-metal demo to print a per-operation breakdown at the end of the run.
+ */
+#ifdef LPR_CGRA_PROFILE
+uint64_t g_fc_prof_program_cyc = 0;   /* cgra_config_pe_bulk × 4 rows per chunk */
+uint64_t g_fc_prof_dma_cyc     = 0;   /* 4 × cgra_dma to tile banks per chunk   */
+uint64_t g_fc_prof_cu_cyc      = 0;   /* cgra_cu_start + cgra_cu_wait per chunk */
+uint64_t g_fc_prof_readout_cyc = 0;   /* lpr_fc_readout per group                */
+uint64_t g_fc_prof_accclr_cyc  = 0;   /* lpr_fc_acc_clr per group                */
+uint32_t g_fc_prof_chunk_cnt   = 0;   /* # chunks timed (incremented per run)    */
+#endif
+
 /* ── golden_fc_cgra ────────────────────────────────────────────────────
  * Run the FC layer (784→30) on the CGRA.
  * pool2_q_ddr: DDR address holding 784 int32 quantised activations.
@@ -310,29 +323,56 @@ static void golden_fc_cgra(uint32_t pool2_q_ddr,
     lpr_fc_init_chain(staging_ddr);
 
     for (int g = 0; g < LPR_FC_N_GROUPS; g++) {
+#ifdef LPR_CGRA_PROFILE
+        uint32_t _t0 = arm_ccnt_read();
+#endif
         /* Clear the 40-bit accumulator in col=0 of all 4 rows. */
         lpr_fc_acc_clr(staging_ddr);
+#ifdef LPR_CGRA_PROFILE
+        g_fc_prof_accclr_cyc += (arm_ccnt_read() - _t0);
+#endif
 
         /* 49 chunks of 16 inputs each (784 = 49 × 16). */
         for (int c = 0; c < LPR_FC_N_CHUNKS; c++) {
             uint32_t src = pool2_q_ddr + (uint32_t)(c * 16) * 4u;
 
+#ifdef LPR_CGRA_PROFILE
+            uint32_t _tp = arm_ccnt_read();
+#endif
             /* Bake weights for this (chunk, group) into col=0 MAC slots. */
             lpr_fc_program_chunk(fc_w_q, c, g, staging_ddr);
+#ifdef LPR_CGRA_PROFILE
+            g_fc_prof_program_cyc += (arm_ccnt_read() - _tp);
+            uint32_t _td = arm_ccnt_read();
+#endif
 
-            /* Same 16 inputs broadcast to all 4 tile banks (one per row). */
-            cgra_dma(src, CGRA_PFX_TILE + 0x0000u, 64u);  /* bank 0 → row 0 */
-            cgra_dma(src, CGRA_PFX_TILE + 0x1000u, 64u);  /* bank 1 → row 1 */
-            cgra_dma(src, CGRA_PFX_TILE + 0x2000u, 64u);  /* bank 2 → row 2 */
-            cgra_dma(src, CGRA_PFX_TILE + 0x3000u, 64u);  /* bank 3 → row 3 */
+            /* Same 16 inputs broadcast to all 4 tile banks in one DMA.
+             * CGRA_TILE_BCAST sets dst[31] which tells the DMA engine to
+             * replicate each word to banks 0,1,2,3 sequentially (cgra_dma
+             * _engine.sv:597-618).  Saves 3 DMA setup overheads per chunk. */
+            cgra_dma(src, CGRA_TILE_BCAST, 64u);
+#ifdef LPR_CGRA_PROFILE
+            g_fc_prof_dma_cyc += (arm_ccnt_read() - _td);
+            uint32_t _tc = arm_ccnt_read();
+#endif
 
             cgra_cu_start();
             cgra_cu_wait(1000000u);
+#ifdef LPR_CGRA_PROFILE
+            g_fc_prof_cu_cyc += (arm_ccnt_read() - _tc);
+            g_fc_prof_chunk_cnt++;
+#endif
         }
 
+#ifdef LPR_CGRA_PROFILE
+        uint32_t _tr = arm_ccnt_read();
+#endif
         /* Route accumulated RF[0] east → RESULT_ROW capture. */
         int32_t result[4];
         lpr_fc_readout(staging_ddr, result);
+#ifdef LPR_CGRA_PROFILE
+        g_fc_prof_readout_cyc += (arm_ccnt_read() - _tr);
+#endif
 
         for (int r = 0; r < 4; r++) {
             int n = g * 4 + r;

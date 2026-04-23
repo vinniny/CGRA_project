@@ -92,6 +92,7 @@ DEMO_LPR_TARGET := demo_lpr.elf
 
 # ── demo_lpr_cgra: CGRA-accelerated FC variant ──────────────────────────────
 LPR_CGRA_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER
+# Profile build: make demo_lpr_cgra LPR_CGRA_CFLAGS='$(LPR_CFLAGS) -DUSE_CGRA_INFER -DLPR_CGRA_PROFILE'
 DEMO_LPR_CGRA_TARGET := demo_lpr_cgra.elf
 
 .PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra
