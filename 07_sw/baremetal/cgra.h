@@ -24,6 +24,11 @@
 #define CGRA_PFX_TILE       0x10000000UL   /* Tile memory */
 #define CGRA_PFX_CONFIG     0x20000000UL   /* PE config RAM */
 #define CGRA_PFX_SPM        0x40000000UL   /* PE scratchpad (DMA→SPM path) */
+/* Config broadcast flag: ORing 0x4000 into a config destination address
+ * (CGRA_PFX_CONFIG | 0x4000 | slot<<3) writes the same kernel to all 16 PEs.
+ * cgra_array decodes dma_cfg_addr[14] == 1 → cfg_wr_pe_bcast.              */
+#define CGRA_CFG_BCAST_FLAG  (1u << 14)
+
 /* Tile broadcast mode: ORing 0x80000000 into a tile destination address
  * replicates every written word to all 4 tile banks in a single DMA
  * (cgra_dma_engine.sv:597-618).  Usage: cgra_dma(src, CGRA_TILE_BCAST, bytes)
@@ -407,6 +412,33 @@ static inline int cgra_config_pe_bulk(uint32_t pe_id,
      * slots 1-15 with the real instructions.  Using one 8-byte DMA instead
      * of two 4-byte DMAs saves one round-trip of APB register-program +
      * start + poll overhead per PE program (measured ~15 μs/PE in M2). */
+    stage[0] = (uint32_t)(words[0] >> 32);
+    stage[1] = (uint32_t)(words[0] & 0xFFFFFFFFuL);
+    if (cgra_dma(staging_ddr, cfg_base, 8u)) return -1;
+
+    for (uint32_t s = 1; s < 16; s++) {
+        stage[2 + (s - 1) * 2]     = (uint32_t)(words[s] >> 32);
+        stage[2 + (s - 1) * 2 + 1] = (uint32_t)(words[s] & 0xFFFFFFFFuL);
+    }
+    return cgra_dma(staging_ddr + 8u, cfg_base + 8u, 120u);
+}
+
+/* Program all 16 PEs identically with a single kernel using PE-broadcast.
+ *
+ * addr[14]=1 in the config destination address enables cfg_wr_pe_bcast in
+ * the array, so every PE receives the write regardless of the pe_sel field.
+ * Slot-0 triggers the broadcaster's 1→15 slot replay.  Total: 2 DMAs (8 B
+ * + 120 B) vs 16 × 2 = 32 DMAs for individual per-PE writes.
+ *
+ * 'words[16]' — config words for slots 0-15; unused slots should be NOP.
+ * 'staging_ddr' — must point to ≥128 bytes of DDR scratch space. */
+static inline int cgra_config_bcast_all_pes(const uint64_t *words,
+                                             uint32_t staging_ddr)
+{
+    volatile uint32_t *stage = (volatile uint32_t *)staging_ddr;
+    uint32_t cfg_base = CGRA_PFX_CONFIG | CGRA_CFG_BCAST_FLAG;
+
+    /* Slot 0: triggers broadcaster slot-fill + broadcasts to all PEs. */
     stage[0] = (uint32_t)(words[0] >> 32);
     stage[1] = (uint32_t)(words[0] & 0xFFFFFFFFuL);
     if (cgra_dma(staging_ddr, cfg_base, 8u)) return -1;

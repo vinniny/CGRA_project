@@ -36,10 +36,11 @@ module cgra_array #(
     input  logic [3:0] context_pc,                  // [PC_WIDTH-1:0]
     input  logic       global_stall,
 
-    // Config write interface (targeted per-PE)
+    // Config write interface (targeted per-PE or broadcast)
     input  logic [3:0]  cfg_wr_addr,                // [PC_WIDTH-1:0]
     input  logic [63:0] cfg_wr_data,
     input  logic [3:0]  cfg_wr_pe_sel,              // [PE_SEL_W-1:0]
+    input  logic        cfg_wr_pe_bcast,             // 1 = write to all PEs
     input  logic        cfg_wr_en,
 
     // Edge inputs — North/South/East (tied off at top level; West from Tile Memory)
@@ -108,7 +109,7 @@ module cgra_array #(
                 localparam int PE_ID = y * COLS + x;
                 logic cfg_wr_en_tile;
                 assign cfg_wr_en_tile = cfg_wr_en &&
-                    (cfg_wr_pe_sel == PE_ID[PE_SEL_W-1:0]);
+                    ((cfg_wr_pe_sel == PE_ID[PE_SEL_W-1:0]) || cfg_wr_pe_bcast);
 
                 // ── Determine input signals for each direction ──
 
