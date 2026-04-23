@@ -419,11 +419,8 @@ static inline int lpr_fc_preload_spm_v2(int g,
 }
 
 /* ── lpr_fc_run_group_v2 ──────────────────────────────────────────────
- * Run one 4-neuron group using SPM-backed MAC:
- *   - Assumes lpr_build_fc_kernel_v2() has been called.
- *   - Assumes tile banks already loaded with 784 input activations
- *     packed as int32 across 49 × 16-word pages (use lpr_fc_tile_preload_v2).
- *   - Fills result[r] with int32 dot product for neuron g*4+r.        */
+ * Run one 4-neuron group using SPM-backed MAC.
+ * Fills result[r] with int32 dot product for neuron g*4+r.           */
 static inline int lpr_fc_run_group_v2(int g,
                                        const int32_t *fc_w_spm,
                                        uint32_t staging_ddr,
@@ -432,8 +429,16 @@ static inline int lpr_fc_run_group_v2(int g,
     /* Step 1: preload SPM for this group */
     if (lpr_fc_preload_spm_v2(g, fc_w_spm, staging_ddr)) return -1;
 
-    /* Step 2: clear accumulators in col=0 PEs */
+    /* Step 2: clear accumulators in col=0 PEs.
+     * lpr_fc_acc_clr writes OP_ACC_CLR to slot 0, triggering the per-PE
+     * broadcaster which fills all 16 slots with ACC_CLR.  We must restore
+     * the MAC kernel immediately after. */
     if (lpr_fc_acc_clr(staging_ddr)) return -1;
+
+    /* Step 2b: restore MAC kernel (acc_clr clobbered all col=0 slots).
+     * lpr_build_fc_kernel_v2 broadcasts OP_MAC(W,SPM) to all 16 PEs then
+     * restores col=1,2,3 as east-chain forwarders. */
+    if (lpr_build_fc_kernel_v2(staging_ddr)) return -1;
 
     /* Step 3: MAC loop — 784 MACs via 49 loop passes of 16 slots each */
     cgra_wr(CGRA_LOOP_START,    0u);
