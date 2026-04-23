@@ -213,6 +213,7 @@ module tb_top;
     `include "include/tb_suite_bank_overlap.svh"  // Suite BOV: Bank-Overlap / DMA-CU Stall
     `include "include/tb_suite_spm_dma.svh"      // Suite SPM_DMA: DMA→SPM Write Path
     `include "include/tb_suite_spm_auto_inc.svh" // Suite SAI: SPM Address Auto-Increment
+    `include "include/tb_suite_cfg_bcast.svh"    // Suite CBR: PE-Broadcast Config Write
 
     // ── OpenCores golden reference models (combinational, Q=0 integer mode) ──
     qadd  #(.Q(0), .N(32)) u_ref_qadd (
@@ -764,6 +765,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_SAI_spm_auto_inc();
+
+        // =====================================================================
+        // Suite CBR: PE-Broadcast Config Write
+        // =====================================================================
+        reset_dut(5);
+        run_suite_CBR_cfg_bcast();
 
         // Print functional coverage before finishing
         print_functional_coverage();

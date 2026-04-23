@@ -252,19 +252,22 @@ module cgra_top #(
     logic [3:0]  cfg_wr_addr_mux;
     logic [63:0] cfg_wr_data_mux;
     logic [3:0]  cfg_wr_pe_sel_mux;
+    logic        cfg_wr_pe_bcast_mux;
     logic        cfg_wr_en_mux;
 
     cgra_config_broadcaster u_bcast (
-        .clk        (clk),
-        .rst_n      (rst_n),
-        .in_addr    (dma_cfg_addr[6:3]),
-        .in_data    (config_full_word),
-        .in_pe_sel  (dma_cfg_pe_sel),
-        .in_we      (config_commit_en),
-        .out_addr   (cfg_wr_addr_mux),
-        .out_data   (cfg_wr_data_mux),
-        .out_pe_sel (cfg_wr_pe_sel_mux),
-        .out_we     (cfg_wr_en_mux)
+        .clk          (clk),
+        .rst_n        (rst_n),
+        .in_addr      (dma_cfg_addr[6:3]),
+        .in_data      (config_full_word),
+        .in_pe_sel    (dma_cfg_pe_sel),
+        .in_pe_bcast  (dma_cfg_addr[14]),
+        .in_we        (config_commit_en),
+        .out_addr     (cfg_wr_addr_mux),
+        .out_data     (cfg_wr_data_mux),
+        .out_pe_sel   (cfg_wr_pe_sel_mux),
+        .out_pe_bcast (cfg_wr_pe_bcast_mux),
+        .out_we       (cfg_wr_en_mux)
     );
 
     // =========================================================================
@@ -685,6 +688,7 @@ module cgra_top #(
         .cfg_wr_addr(cfg_wr_addr_mux),
         .cfg_wr_data(cfg_wr_data_mux),
         .cfg_wr_pe_sel(cfg_wr_pe_sel_mux),
+        .cfg_wr_pe_bcast(cfg_wr_pe_bcast_mux),
         .cfg_wr_en(cfg_wr_en_mux),
 
         // North/South/East edge inputs — tied off
