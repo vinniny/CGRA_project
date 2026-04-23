@@ -74,7 +74,10 @@ module cgra_control_unit #(
     // Tile address auto-increment
     input  logic                tile_auto_inc_en_i,
     output logic [7:0]          tile_base_offset_o,
-    output logic [7:0]          next_tile_base_offset_o
+    output logic [7:0]          next_tile_base_offset_o,
+
+    // SPM auto-increment: pulses 1 cycle per loop wrap (same edge as tile auto-inc)
+    output logic                loop_wrap_o
 );
 
     // =========================================================================
@@ -295,6 +298,10 @@ module cgra_control_unit #(
     end
 
     assign tile_base_offset_o = tile_base_offset;
+
+    assign loop_wrap_o = pe_enable && !global_stall_o
+                      && (pc_counter == loop_end_reg)
+                      && (loop_count_reg > 16'd0 || loop2_count_reg > 16'd0);
 
     // =========================================================================
     // Global Stall Logic

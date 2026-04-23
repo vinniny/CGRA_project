@@ -147,6 +147,8 @@ module cgra_top #(
     logic        tile_bank_sel_csr;
     logic        tile_auto_inc_en;
     logic [7:0]  cu_next_tile_offset;
+    logic        spm_auto_inc_en;
+    logic        loop_wrap;
     // DMA subsystem CSR/status signals
     logic [31:0] dma_desc_head;
     logic        dma_chain_start;
@@ -370,7 +372,8 @@ module cgra_top #(
         .dma_desc_head(dma_desc_head),
         .dma_chain_start(dma_chain_start),
         .dma_chain_active_i(dma_chain_active),
-        .dma_desc_completed_i(dma_desc_completed)
+        .dma_desc_completed_i(dma_desc_completed),
+        .spm_auto_inc_en(spm_auto_inc_en)
     );
     
     // =========================================================================
@@ -500,7 +503,8 @@ module cgra_top #(
         .loops_done_o(cu_loops_done),
         .tile_auto_inc_en_i(tile_auto_inc_en),
         .tile_base_offset_o(),                      // registered (unused at top level)
-        .next_tile_base_offset_o(cu_next_tile_offset) // combinational for prefetch
+        .next_tile_base_offset_o(cu_next_tile_offset), // combinational for prefetch
+        .loop_wrap_o(loop_wrap)
     );
     
     // Tile memory: 4 banks × 4096 words, DMA writes ext_*, array reads bank*_rdata.
@@ -708,7 +712,11 @@ module cgra_top #(
         // DMA→SPM write bus
         .dma_spm_we(dma_spm_we),
         .dma_spm_waddr(dma_spm_word),
-        .dma_spm_wdata(dma_spm_raw_data)
+        .dma_spm_wdata(dma_spm_raw_data),
+
+        // SPM auto-increment
+        .spm_auto_inc_en(spm_auto_inc_en),
+        .loop_wrap(loop_wrap)
     );
 
     // Synthesis keeper: prevents synth from optimizing the mesh away when the

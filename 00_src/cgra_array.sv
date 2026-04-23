@@ -73,7 +73,11 @@ module cgra_array #(
     // DMA→SPM write bus (per-PE enable, broadcast addr+data)
     input  logic [NUM_PES-1:0]        dma_spm_we,
     input  logic [$clog2(SPM_DEPTH)-1:0] dma_spm_waddr,
-    input  logic [DATA_WIDTH-1:0]     dma_spm_wdata
+    input  logic [DATA_WIDTH-1:0]     dma_spm_wdata,
+
+    // SPM auto-increment control (broadcast to all PEs)
+    input  logic                      spm_auto_inc_en,
+    input  logic                      loop_wrap
 );
 
     // =========================================================================
@@ -175,7 +179,11 @@ module cgra_array #(
                     // DMA→SPM
                     .dma_spm_we   (dma_spm_we[PE_ID]),
                     .dma_spm_waddr(dma_spm_waddr),
-                    .dma_spm_wdata(dma_spm_wdata)
+                    .dma_spm_wdata(dma_spm_wdata),
+
+                    // SPM auto-increment
+                    .spm_auto_inc_en(spm_auto_inc_en),
+                    .loop_wrap      (loop_wrap)
                 );
 
             end // col

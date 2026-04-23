@@ -51,7 +51,12 @@ module cgra_pe #(
     // DMA→SPM write (priority over OP_STORE_SPM; preload is one-shot before CU)
     input  logic                           dma_spm_we_i,
     input  logic [$clog2(SPM_DEPTH)-1:0]   dma_spm_waddr_i,
-    input  logic [DATA_WIDTH-1:0]          dma_spm_wdata_i
+    input  logic [DATA_WIDTH-1:0]          dma_spm_wdata_i,
+
+    // SPM auto-increment: spm_addr = operand1_r2 + spm_iter_cnt when enabled.
+    // spm_iter_cnt increments by 16 per loop wrap (one 16-slot pass = 16 weights).
+    input  logic                           spm_auto_inc_en_i,
+    input  logic                           loop_wrap_i
 );
 
     // =========================================================================
@@ -139,6 +144,23 @@ module cgra_pe #(
     logic [DATA_WIDTH-1:0] spm_rdata;
     logic [DATA_WIDTH-1:0] spm_wdata;
     logic                  spm_we;
+
+    // SPM auto-increment counter: increments by 16 per loop wrap.
+    // spm_addr = operand1_r2 + spm_iter_cnt when spm_auto_inc_en_i is set.
+    logic [$clog2(SPM_DEPTH)-1:0] spm_iter_cnt;
+
+    // loop_wrap_i already encodes !global_stall_o (combinational in CU). Do NOT
+    // gate this counter on global_stall_r (the registered version passed to PEs),
+    // otherwise the first loop wrap of every run is silently dropped because
+    // global_stall_r is still high from the 1-cycle pe_enable warm-up lag.
+    always_ff @(posedge clk) begin
+        if (!rst_n)
+            spm_iter_cnt <= '0;
+        else if (loop_wrap_i && spm_auto_inc_en_i)
+            spm_iter_cnt <= spm_iter_cnt + $clog2(SPM_DEPTH)'(16);
+        else if (!global_stall && context_pc == '0 && !spm_auto_inc_en_i)
+            spm_iter_cnt <= '0;
+    end
 
     always_ff @(posedge clk) begin
         if (dma_spm_we_i)
@@ -589,7 +611,9 @@ module cgra_pe #(
         rf_wdata = alu_result[DATA_WIDTH-1:0];
 
         spm_we = 1'b0;
-        spm_addr = operand1_r2[$clog2(SPM_DEPTH)-1:0];
+        spm_addr = spm_auto_inc_en_i
+                   ? (operand1_r2[$clog2(SPM_DEPTH)-1:0] + spm_iter_cnt)
+                   : operand1_r2[$clog2(SPM_DEPTH)-1:0];
         spm_wdata = operand0_r2;
 
         if (config_active_r2 && execute_enable_r2 && !stall) begin
