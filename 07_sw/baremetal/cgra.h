@@ -23,12 +23,25 @@
 #define CGRA_PFX_AXI        0x00000000UL   /* External DDR */
 #define CGRA_PFX_TILE       0x10000000UL   /* Tile memory */
 #define CGRA_PFX_CONFIG     0x20000000UL   /* PE config RAM */
+#define CGRA_PFX_SPM        0x40000000UL   /* PE scratchpad (DMA→SPM path) */
 /* Tile broadcast mode: ORing 0x80000000 into a tile destination address
  * replicates every written word to all 4 tile banks in a single DMA
  * (cgra_dma_engine.sv:597-618).  Usage: cgra_dma(src, CGRA_TILE_BCAST, bytes)
  * — writes 4× as many bank cycles as bytes/4, but saves 3 DMA setup hits
  * vs issuing 4 separate per-bank DMAs.                                     */
 #define CGRA_TILE_BCAST     (CGRA_PFX_TILE | 0x80000000UL)
+
+/* SPM address for a given PE and word index (word=0..1023).
+ * cgra_dma_engine decodes bits[31:28]==0x4→DST_SPM, [15:12]=pe_id, [11:2]=word. */
+#define CGRA_SPM_PE_ADDR(pe, word) \
+    (CGRA_PFX_SPM | (((uint32_t)(pe) & 0xFu) << 12) | (((uint32_t)(word) & 0x3FFu) << 2))
+
+/* DMA one PE's SPM slice from DDR.  src = DDR word-aligned pointer,
+ * pe = PE index 0-15, n_words = number of 32-bit words (≤ 1024).          */
+static inline void cgra_dma_to_spm(uint32_t src, unsigned pe, unsigned n_words)
+{
+    cgra_dma(src, CGRA_SPM_PE_ADDR(pe, 0), n_words * 4u);
+}
 
 /* ── Register offsets (mirrors cgra_driver.h) ─────────────────────────── */
 #define CGRA_DMA_CTRL        0x00

@@ -8,7 +8,7 @@ module cgra_pe #(
     parameter DATA_WIDTH  = 32,
     parameter COORD_WIDTH = 4,
     parameter ADDR_WIDTH  = 8,
-    parameter SPM_DEPTH   = 256,
+    parameter SPM_DEPTH   = 1024,
     parameter RF_DEPTH    = 16,
     parameter CONTEXT_DEPTH = 16,
     parameter PC_WIDTH    = 4
@@ -46,7 +46,12 @@ module cgra_pe #(
 
     // Dynamic branch output (from PE predicate to CU)
     output logic [PC_WIDTH-1:0]   branch_target_o,
-    output logic                  branch_taken_o
+    output logic                  branch_taken_o,
+
+    // DMA→SPM write (priority over OP_STORE_SPM; preload is one-shot before CU)
+    input  logic                           dma_spm_we_i,
+    input  logic [$clog2(SPM_DEPTH)-1:0]   dma_spm_waddr_i,
+    input  logic [DATA_WIDTH-1:0]          dma_spm_wdata_i
 );
 
     // =========================================================================
@@ -136,7 +141,9 @@ module cgra_pe #(
     logic                  spm_we;
 
     always_ff @(posedge clk) begin
-        if (spm_we && !stall)
+        if (dma_spm_we_i)
+            spm_mem[dma_spm_waddr_i] <= dma_spm_wdata_i;
+        else if (spm_we && !stall)
             spm_mem[spm_addr] <= spm_wdata;
     end
 

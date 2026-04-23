@@ -42,7 +42,12 @@ module cgra_tile #(
     output logic                   valid_out_w,
 
     output logic [PC_WIDTH-1:0]    branch_target_o,
-    output logic                   branch_taken_o
+    output logic                   branch_taken_o,
+
+    // DMA→SPM write
+    input  logic                                  dma_spm_we,
+    input  logic [$clog2(SPM_DEPTH)-1:0]          dma_spm_waddr,
+    input  logic [DATA_WIDTH-1:0]                 dma_spm_wdata
 );
 
     logic [DATA_WIDTH-1:0] pe_result;
@@ -81,7 +86,11 @@ module cgra_tile #(
         .valid_out_w(pe_valid_w),
 
         .branch_target_o(branch_target_o),
-        .branch_taken_o(branch_taken_o)
+        .branch_taken_o(branch_taken_o),
+
+        .dma_spm_we_i   (dma_spm_we),
+        .dma_spm_waddr_i(dma_spm_waddr),
+        .dma_spm_wdata_i(dma_spm_wdata)
     );
 
     assign data_out_n = pe_result;

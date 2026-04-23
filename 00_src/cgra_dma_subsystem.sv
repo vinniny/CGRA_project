@@ -84,6 +84,11 @@ module cgra_dma_subsystem #(
     output logic                    config_we_o,
     output logic [31:0]             config_wdata_o,
 
+    // SPM write (DMA→SPM path)
+    output logic [31:0]             spm_write_addr_o,
+    output logic [31:0]             spm_write_data_o,
+    output logic                    spm_write_en_o,
+
     // ILA debug
     output logic                    dbg_status_busy,
     output logic [2:0]              dbg_read_fsm_state,
@@ -207,6 +212,10 @@ module cgra_dma_subsystem #(
         .config_addr_o(config_addr_o),
         .config_we_o(config_we_o),
         .config_wdata_o(config_wdata_o),
+
+        .spm_write_addr_o(spm_write_addr_o),
+        .spm_write_data_o(spm_write_data_o),
+        .spm_write_en_o(spm_write_en_o),
 
         .dbg_status_busy(dbg_status_busy),
         .dbg_read_fsm_state(dbg_read_fsm_state),

@@ -211,6 +211,7 @@ module tb_top;
     `include "include/tb_suite_opencores_dma.svh" // Suite OC: OpenCores LFSR DMA Integrity
     `include "include/tb_suite_pc_end.svh"        // Suite PCE: CU_PC_END Register
     `include "include/tb_suite_bank_overlap.svh"  // Suite BOV: Bank-Overlap / DMA-CU Stall
+    `include "include/tb_suite_spm_dma.svh"      // Suite SPM_DMA: DMA→SPM Write Path
 
     // ── OpenCores golden reference models (combinational, Q=0 integer mode) ──
     qadd  #(.Q(0), .N(32)) u_ref_qadd (
@@ -750,6 +751,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_BOV_bank_overlap();
+
+        // =====================================================================
+        // Suite SPM_DMA: DMA→SPM Write Path
+        // =====================================================================
+        reset_dut(5);
+        run_suite_SPM_dma();
 
         // Print functional coverage before finishing
         print_functional_coverage();
