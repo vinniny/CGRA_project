@@ -444,4 +444,110 @@ int golden_infer_cgra(const int32_t *input,
     return 0;
 }
 
+/* ── SPM-based v2 staging DDR — sits above the v1 scratch region */
+#define LPR_CGRA_SPM_STAGE_DDR   0x00120000UL   /* ≥ 784×4 = 3136 B for weight staging */
+
 #endif /* USE_CGRA_INFER */
+
+/* =========================================================================
+ * CGRA-accelerated FC layer v2 (R1/R2/R3: SPM weight preload, no reprogram)
+ *
+ * Compiled only when -DUSE_CGRA_INFER_V2 is passed.
+ * Requires:  DMA→SPM path (R1), SPM auto-inc (R2), PE broadcast (R3).
+ * fc_w_spm layout: [N_CLASSES][N_INPUTS] int32 (from quantize_int16.py --out_spm)
+ * ========================================================================= */
+#ifdef USE_CGRA_INFER_V2
+
+#ifndef USE_CGRA_INFER
+#include "cgra.h"
+#include "cgra_kernels_lpr.h"
+#define LPR_CGRA_POOL2_Q_DDR   0x00110000UL
+#define LPR_CGRA_STAGING_DDR   0x00112000UL
+#define LPR_POOL2_ACT_SCALE    8
+#define LPR_INT16_FC_B_BOFF    ((72u+8u+1152u+16u+23520u)*2u)
+#define LPR_CGRA_SPM_STAGE_DDR 0x00120000UL
+#endif
+
+static void golden_fc_cgra_v2(uint32_t pool2_q_ddr,
+                               int32_t logits_raw[LPR_FC_N_CLASSES],
+                               const int32_t *fc_w_spm,
+                               uint32_t staging_ddr)
+{
+    lpr_build_fc_kernel_v2(staging_ddr);
+    lpr_fc_tile_preload_v2((const int32_t *)pool2_q_ddr, staging_ddr);
+
+    for (int g = 0; g < LPR_FC_N_GROUPS; g++) {
+        int32_t result[4];
+        lpr_fc_run_group_v2(g, fc_w_spm, LPR_CGRA_SPM_STAGE_DDR, result);
+        for (int r = 0; r < 4; r++) {
+            int n = g * 4 + r;
+            if (n < LPR_FC_N_CLASSES)
+                logits_raw[n] = result[r];
+        }
+    }
+}
+
+int golden_infer_cgra_v2(const int32_t *input,
+                          const GoldenWeights *w_f,
+                          GoldenContext *ctx,
+                          const void *w_int16_base,
+                          const void *w_spm_base,
+                          int *out_class,
+                          char *out_char)
+{
+    if (!input || !w_f || !ctx || !w_int16_base || !w_spm_base) return -1;
+
+    /* ── ARM float: Conv1 + Pool1 + Conv2 + Pool2 ───────────────────────── */
+    float input_f[GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C];
+    for (int i = 0; i < GOLDEN_IN_H * GOLDEN_IN_W * GOLDEN_IN_C; i++)
+        input_f[i] = (float)input[i];
+
+    golden_conv2d_relu(input_f, ctx->conv1_out,
+                       w_f->conv1_w, w_f->conv1_b,
+                       GOLDEN_IN_H, GOLDEN_IN_W,
+                       GOLDEN_IN_C, GOLDEN_CONV1_OUT_CH,
+                       GOLDEN_CONV1_KH, GOLDEN_CONV1_KW,
+                       GOLDEN_CONV1_PAD, GOLDEN_CONV1_STRIDE);
+
+    golden_maxpool_2x2(ctx->conv1_out, ctx->pool1_out,
+                       GOLDEN_IN_H, GOLDEN_IN_W, GOLDEN_CONV1_OUT_CH);
+
+    golden_conv2d_relu(ctx->pool1_out, ctx->conv2_out,
+                       w_f->conv2_w, w_f->conv2_b,
+                       GOLDEN_POOL1_H, GOLDEN_POOL1_W,
+                       GOLDEN_CONV2_IN_CH, GOLDEN_CONV2_OUT_CH,
+                       GOLDEN_CONV2_KH, GOLDEN_CONV2_KW,
+                       GOLDEN_CONV2_PAD, GOLDEN_CONV2_STRIDE);
+
+    golden_maxpool_2x2(ctx->conv2_out, ctx->pool2_out,
+                       GOLDEN_POOL1_H, GOLDEN_POOL1_W, GOLDEN_CONV2_OUT_CH);
+
+    /* ── Quantise pool2_out to int32 and write to DDR for CGRA DMA ──────── */
+    volatile int32_t *pool2_q = (volatile int32_t *)LPR_CGRA_POOL2_Q_DDR;
+    for (int i = 0; i < GOLDEN_FC_IN; i++)
+        pool2_q[i] = (int32_t)(ctx->pool2_out[i] * (float)LPR_POOL2_ACT_SCALE);
+
+    /* ── CGRA FC v2 (SPM weight preload) ─────────────────────────────────── */
+    const int32_t *fc_w_spm = (const int32_t *)w_spm_base;
+
+    const int16_t *fc_b_q = (const int16_t *)((const uint8_t *)w_int16_base
+                                              + LPR_INT16_FC_B_BOFF);
+
+    int32_t logits_raw[LPR_FC_N_CLASSES];
+    golden_fc_cgra_v2(LPR_CGRA_POOL2_Q_DDR, logits_raw,
+                      fc_w_spm, LPR_CGRA_STAGING_DDR);
+
+    /* ── Argmax: add bias then find best class ────────────────────────────── */
+    int best = 0;
+    int32_t best_val = logits_raw[0] + (int32_t)fc_b_q[0];
+    for (int j = 1; j < LPR_FC_N_CLASSES; j++) {
+        int32_t val = logits_raw[j] + (int32_t)fc_b_q[j];
+        if (val > best_val) { best_val = val; best = j; }
+    }
+
+    if (out_class) *out_class = best;
+    if (out_char)  *out_char  = VN_CHAR_MAP[best];
+    return 0;
+}
+
+#endif /* USE_CGRA_INFER_V2 */
