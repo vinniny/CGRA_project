@@ -123,7 +123,14 @@ int main(void)
     uint32_t dma_cyc_total    = 0;
     uint64_t infer_cyc_total  = 0;
 
-    for (int i = 0; i < LPR_TEST_NUM_IMAGES; i++) {
+#ifdef LPR_CGRA_PROFILE
+    /* Truncate to 60 images for profiling runs — statistically sufficient
+     * for per-operation averages and keeps wall-clock under 10 s. */
+    const int _n_images = (LPR_TEST_NUM_IMAGES < 60) ? LPR_TEST_NUM_IMAGES : 60;
+#else
+    const int _n_images = LPR_TEST_NUM_IMAGES;
+#endif
+    for (int i = 0; i < _n_images; i++) {
         char     gt_ch  = lpr_test_chars[i];
         uint8_t  gt_cls = lpr_test_class_idx[i];
         const int32_t *img = lpr_images_start + (uint32_t)i * LPR_TEST_IMG_PIXELS;
@@ -149,7 +156,7 @@ int main(void)
         uart_puts("  [");
         uart_rjdec((uint32_t)(i + 1), 4);
         uart_puts("/");
-        uart_putdec(LPR_TEST_NUM_IMAGES);
+        uart_putdec((uint32_t)_n_images);
         uart_puts("] '");
         uart_putchar(gt_ch);
         uart_puts("' -> '");
@@ -167,7 +174,7 @@ int main(void)
     uart_puts("\nPer-class accuracy (");
     uart_putdec(VN_NUM_CLASSES);
     uart_puts(" classes, ");
-    uart_putdec(LPR_TEST_NUM_IMAGES);
+    uart_putdec((uint32_t)_n_images);
     uart_puts(" total):\n");
 
     for (int c = 0; c < VN_NUM_CLASSES; c++) {
@@ -188,10 +195,10 @@ int main(void)
     uart_puts("  Accuracy: ");
     uart_putdec(total_correct);
     uart_puts("/");
-    uart_putdec(LPR_TEST_NUM_IMAGES);
+    uart_putdec((uint32_t)_n_images);
     uart_puts("  (");
     /* Print NNN.N% */
-    uint32_t acc_x10 = (total_correct * 1000u) / (uint32_t)LPR_TEST_NUM_IMAGES;
+    uint32_t acc_x10 = (total_correct * 1000u) / (uint32_t)_n_images;
     uart_putdec(acc_x10 / 10u);
     uart_putchar('.');
     uart_putchar('0' + (acc_x10 % 10u));
@@ -202,7 +209,7 @@ int main(void)
     uint32_t mhz       = 667u;
     uint32_t dma_us    = (dma_cyc_total + mhz / 2u) / mhz;
     uint32_t infer_us  = (uint32_t)((infer_cyc_total + mhz / 2u) / mhz);
-    uint32_t per_char  = (uint32_t)(infer_cyc_total / (uint32_t)LPR_TEST_NUM_IMAGES);
+    uint32_t per_char  = (uint32_t)(infer_cyc_total / (uint32_t)_n_images);
     uint32_t per_us    = (per_char + mhz / 2u) / mhz;
 
     uart_puts("[TIMING] CGRA DMA total:  ");
@@ -232,6 +239,26 @@ int main(void)
         uart_putdec(plates_s);
         uart_puts(" plates/s @ 7 chars)\n");
     }
+
+#if defined(USE_CGRA_INFER) && defined(LPR_CGRA_PROFILE)
+    extern uint64_t g_fc_prof_program_cyc, g_fc_prof_dma_cyc, g_fc_prof_cu_cyc;
+    extern uint64_t g_fc_prof_readout_cyc, g_fc_prof_accclr_cyc;
+    extern uint32_t g_fc_prof_chunk_cnt;
+
+    uart_puts("\n[FC PROFILE] per-operation breakdown (sum over all chars):\n");
+    uart_puts("  chunks timed:   "); uart_putdec64(g_fc_prof_chunk_cnt); uart_puts("\n");
+    uart_puts("  kernel program: "); uart_putdec64(g_fc_prof_program_cyc);
+    uart_puts(" cyc  avg/chunk: "); uart_putdec((uint32_t)(g_fc_prof_program_cyc / (uint64_t)(g_fc_prof_chunk_cnt ? g_fc_prof_chunk_cnt : 1)));
+    uart_puts(" cyc\n");
+    uart_puts("  DMA tile (x4):  "); uart_putdec64(g_fc_prof_dma_cyc);
+    uart_puts(" cyc  avg/chunk: "); uart_putdec((uint32_t)(g_fc_prof_dma_cyc / (uint64_t)(g_fc_prof_chunk_cnt ? g_fc_prof_chunk_cnt : 1)));
+    uart_puts(" cyc\n");
+    uart_puts("  CU start+wait:  "); uart_putdec64(g_fc_prof_cu_cyc);
+    uart_puts(" cyc  avg/chunk: "); uart_putdec((uint32_t)(g_fc_prof_cu_cyc / (uint64_t)(g_fc_prof_chunk_cnt ? g_fc_prof_chunk_cnt : 1)));
+    uart_puts(" cyc\n");
+    uart_puts("  ACC_CLR (8x):   "); uart_putdec64(g_fc_prof_accclr_cyc); uart_puts(" cyc\n");
+    uart_puts("  Readout (8x):   "); uart_putdec64(g_fc_prof_readout_cyc); uart_puts(" cyc\n");
+#endif
 
     uart_puts("\n[ARM] Demo complete. Parked.\n");
 

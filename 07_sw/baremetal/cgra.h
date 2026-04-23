@@ -23,6 +23,12 @@
 #define CGRA_PFX_AXI        0x00000000UL   /* External DDR */
 #define CGRA_PFX_TILE       0x10000000UL   /* Tile memory */
 #define CGRA_PFX_CONFIG     0x20000000UL   /* PE config RAM */
+/* Tile broadcast mode: ORing 0x80000000 into a tile destination address
+ * replicates every written word to all 4 tile banks in a single DMA
+ * (cgra_dma_engine.sv:597-618).  Usage: cgra_dma(src, CGRA_TILE_BCAST, bytes)
+ * — writes 4× as many bank cycles as bytes/4, but saves 3 DMA setup hits
+ * vs issuing 4 separate per-bank DMAs.                                     */
+#define CGRA_TILE_BCAST     (CGRA_PFX_TILE | 0x80000000UL)
 
 /* ── Register offsets (mirrors cgra_driver.h) ─────────────────────────── */
 #define CGRA_DMA_CTRL        0x00
@@ -379,16 +385,21 @@ static inline int cgra_config_pe_bulk(uint32_t pe_id,
     volatile uint32_t *stage = (volatile uint32_t *)staging_ddr;
     uint32_t cfg_base = CGRA_PFX_CONFIG | ((pe_id & 0xFu) << 7);
 
+    /* Slot 0 written as a single 8-byte DMA (hi32 + lo32 in 2 consecutive
+     * staging words).  Writing slot 0 triggers the broadcast-fill that
+     * copies slot 0 into slots 1-15; the second DMA below then overwrites
+     * slots 1-15 with the real instructions.  Using one 8-byte DMA instead
+     * of two 4-byte DMAs saves one round-trip of APB register-program +
+     * start + poll overhead per PE program (measured ~15 μs/PE in M2). */
     stage[0] = (uint32_t)(words[0] >> 32);
-    if (cgra_dma(staging_ddr, cfg_base, 4u)) return -1;
-    stage[0] = (uint32_t)(words[0] & 0xFFFFFFFFuL);
-    if (cgra_dma(staging_ddr, cfg_base | 0x4u, 4u)) return -1;
+    stage[1] = (uint32_t)(words[0] & 0xFFFFFFFFuL);
+    if (cgra_dma(staging_ddr, cfg_base, 8u)) return -1;
 
     for (uint32_t s = 1; s < 16; s++) {
-        stage[(s - 1) * 2]     = (uint32_t)(words[s] >> 32);
-        stage[(s - 1) * 2 + 1] = (uint32_t)(words[s] & 0xFFFFFFFFuL);
+        stage[2 + (s - 1) * 2]     = (uint32_t)(words[s] >> 32);
+        stage[2 + (s - 1) * 2 + 1] = (uint32_t)(words[s] & 0xFFFFFFFFuL);
     }
-    return cgra_dma(staging_ddr, cfg_base + 8u, 120u);
+    return cgra_dma(staging_ddr + 8u, cfg_base + 8u, 120u);
 }
 
 /* ── Kernel descriptor types ──────────────────────────────────────────── */
