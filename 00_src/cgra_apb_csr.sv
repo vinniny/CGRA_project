@@ -88,7 +88,10 @@ module cgra_apb_csr #(
     output logic [31:0]           dma_desc_head,        // descriptor chain head pointer
     output logic                  dma_chain_start,      // pulse: start chain execution
     input  logic                  dma_chain_active_i,   // chain in progress
-    input  logic [15:0]           dma_desc_completed_i  // descriptors completed
+    input  logic [15:0]           dma_desc_completed_i, // descriptors completed
+
+    // SPM Auto-Increment
+    output logic                  spm_auto_inc_en       // bit[0]: enable spm_iter_cnt on loop wrap
 );
 
     // =========================================================================
@@ -143,6 +146,9 @@ module cgra_apb_csr #(
     localparam ADDR_DMA_DESC_HEAD   = 8'h7C; // RW: descriptor chain head pointer (DDR addr)
     localparam ADDR_DMA_DESC_STATUS = 8'h80; // RO: [0] chain_active, [15:8] desc_completed
 
+    // SPM Auto-Increment
+    localparam ADDR_SPM_AUTO_INC    = 8'h84; // RW: bit[0] = enable spm_iter_cnt on loop wrap
+
     // =========================================================================
     // Internal Registers
     // =========================================================================
@@ -173,6 +179,7 @@ module cgra_apb_csr #(
     logic [31:0] reg_result_skip;
     logic [31:0] reg_cu_pc_end;
     logic [31:0] reg_dma_desc_head;
+    logic [31:0] reg_spm_auto_inc;
 
     logic        dma_done_latch;
     logic        cu_done_latch;
@@ -273,6 +280,7 @@ module cgra_apb_csr #(
             reg_result_skip    <= 32'd12;  // 3-stage PE x 3 hops + router pipeline warmup (registered push adds 1 cycle)
             reg_cu_pc_end      <= 32'hF;  // default: run through PC=15 (full context)
             reg_dma_desc_head  <= 32'd0;
+            reg_spm_auto_inc   <= 32'd0;
         end else begin
             if (apb_write) begin
                 case (paddr[7:0])
@@ -297,6 +305,7 @@ module cgra_apb_csr #(
                     ADDR_RESULT_SKIP:    if (cu_wr_ok)   reg_result_skip    <= pwdata;
                     ADDR_CU_PC_END:      if (cu_wr_ok)   reg_cu_pc_end      <= pwdata;
                     ADDR_DMA_DESC_HEAD:  if (dma_wr_ok)  reg_dma_desc_head  <= pwdata;
+                    ADDR_SPM_AUTO_INC:   if (cu_wr_ok)   reg_spm_auto_inc   <= pwdata;
                     default: ;
                 endcase
             end
@@ -342,6 +351,7 @@ module cgra_apb_csr #(
             ADDR_DMA_DESC_HEAD:  prdata = reg_dma_desc_head;
             ADDR_DMA_DESC_STATUS: prdata = {16'b0, dma_desc_completed_i,
                                             7'b0, dma_chain_active_i};
+            ADDR_SPM_AUTO_INC:   prdata = reg_spm_auto_inc;
             default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
@@ -373,6 +383,7 @@ module cgra_apb_csr #(
     assign cu_pc_end         = reg_cu_pc_end[3:0];
     assign dma_desc_head    = reg_dma_desc_head;
     assign dma_chain_start  = reg_dma_ctrl[1];
+    assign spm_auto_inc_en  = reg_spm_auto_inc[0];
 
     always_ff @(posedge clk) begin
         if (!rst_n) irq <= 1'b0;

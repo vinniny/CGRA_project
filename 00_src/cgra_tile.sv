@@ -47,7 +47,11 @@ module cgra_tile #(
     // DMA→SPM write
     input  logic                                  dma_spm_we,
     input  logic [$clog2(SPM_DEPTH)-1:0]          dma_spm_waddr,
-    input  logic [DATA_WIDTH-1:0]                 dma_spm_wdata
+    input  logic [DATA_WIDTH-1:0]                 dma_spm_wdata,
+
+    // SPM auto-increment
+    input  logic                                  spm_auto_inc_en,
+    input  logic                                  loop_wrap
 );
 
     logic [DATA_WIDTH-1:0] pe_result;
@@ -90,7 +94,10 @@ module cgra_tile #(
 
         .dma_spm_we_i   (dma_spm_we),
         .dma_spm_waddr_i(dma_spm_waddr),
-        .dma_spm_wdata_i(dma_spm_wdata)
+        .dma_spm_wdata_i(dma_spm_wdata),
+
+        .spm_auto_inc_en_i(spm_auto_inc_en),
+        .loop_wrap_i      (loop_wrap)
     );
 
     assign data_out_n = pe_result;
