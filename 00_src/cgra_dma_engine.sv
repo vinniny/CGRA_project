@@ -1,5 +1,5 @@
 // cgra_dma_engine.sv — AXI4 master + producer/consumer FIFO data mover.
-// Destination routing by address prefix: 0x1=tile, 0x2=config, else=AXI.
+// Destination routing by address prefix: 0x1=tile, 0x2=config, 0x4=SPM, else=AXI.
 // Config writes are double-pumped (high word then low word).
 
 module cgra_dma_engine #(
@@ -72,6 +72,11 @@ module cgra_dma_engine #(
     output logic                  config_we_o,
     output logic [31:0]           config_wdata_o,
 
+    // SPM write (DMA→SPM path)
+    output logic [31:0]           spm_write_addr_o,
+    output logic [31:0]           spm_write_data_o,
+    output logic                  spm_write_en_o,
+
     // ILA debug
     output logic                  dbg_status_busy,
     output logic [2:0]            dbg_read_fsm_state,
@@ -101,10 +106,11 @@ module cgra_dma_engine #(
     assign fifo_empty = (count == '0);
 
     // Latched destination routing (captured on cfg_start)
-    typedef enum logic [1:0] {
-        DST_AXI    = 2'd0,
-        DST_TILE   = 2'd1,
-        DST_CONFIG = 2'd2
+    typedef enum logic [2:0] {
+        DST_AXI    = 3'd0,
+        DST_TILE   = 3'd1,
+        DST_CONFIG = 3'd2,
+        DST_SPM    = 3'd3
     } dst_kind_t;
     dst_kind_t dst_kind;
     logic src_is_tile;
@@ -463,7 +469,8 @@ module cgra_dma_engine #(
                         // cfg_dst[31] = broadcast (multi-bank write)
                         write_addr <= {1'b0, cfg_dst[30:0]};
                         write_words_remaining <= cfg_transfer_words;
-                        dst_kind <= (cfg_dst[31:28] == 4'h2)                     ? DST_CONFIG :
+                        dst_kind <= (cfg_dst[31:28] == 4'h4)                     ? DST_SPM    :
+                                    (cfg_dst[31:28] == 4'h2)                     ? DST_CONFIG :
                                     ((cfg_dst[31:28] == 4'h1) || cfg_dst[31]) ? DST_TILE   :
                                                                                  DST_AXI;
                         dst_broadcast <= cfg_dst[31];
@@ -637,6 +644,10 @@ module cgra_dma_engine #(
     assign config_addr_o   = local_write_addr;
     assign config_wdata_o  = write_data_reg;
     assign config_we_o     = local_write_en && (dst_kind == DST_CONFIG);
+
+    assign spm_write_addr_o = local_write_addr;
+    assign spm_write_data_o = write_data_reg;
+    assign spm_write_en_o   = local_write_en && (dst_kind == DST_SPM);
 
     assign m_axi_awid = {AXI_ID_WIDTH{1'b0}};
     assign m_axi_arid = {AXI_ID_WIDTH{1'b0}};

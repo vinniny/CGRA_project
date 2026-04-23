@@ -68,7 +68,12 @@ module cgra_array #(
 
     // B4: Branch output from PE[0][0] (designated branch source)
     output logic [3:0]  branch_target_o,            // [PC_WIDTH-1:0]
-    output logic        branch_taken_o
+    output logic        branch_taken_o,
+
+    // DMA→SPM write bus (per-PE enable, broadcast addr+data)
+    input  logic [NUM_PES-1:0]        dma_spm_we,
+    input  logic [$clog2(SPM_DEPTH)-1:0] dma_spm_waddr,
+    input  logic [DATA_WIDTH-1:0]     dma_spm_wdata
 );
 
     // =========================================================================
@@ -165,7 +170,12 @@ module cgra_array #(
 
                     // B4: Branch
                     .branch_target_o(tile_branch_target[y][x]),
-                    .branch_taken_o (tile_branch_taken[y][x])
+                    .branch_taken_o (tile_branch_taken[y][x]),
+
+                    // DMA→SPM
+                    .dma_spm_we   (dma_spm_we[PE_ID]),
+                    .dma_spm_waddr(dma_spm_waddr),
+                    .dma_spm_wdata(dma_spm_wdata)
                 );
 
             end // col

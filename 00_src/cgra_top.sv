@@ -18,7 +18,7 @@ module cgra_top #(
     parameter COORD_WIDTH = 4,
     parameter ADDR_WIDTH = 32,
     parameter AXI_ID_WIDTH = 4,
-    parameter SPM_DEPTH = 256,
+    parameter SPM_DEPTH = 1024,
     parameter RF_DEPTH = 16,
     parameter CONFIG_WIDTH = 64,
     parameter NUM_PES = 16
@@ -204,6 +204,17 @@ module cgra_top #(
     logic [31:0] dma_cfg_addr;
     logic        dma_cfg_we;
     logic [31:0] dma_cfg_wdata;
+
+    // DMA → SPM write bus
+    logic [31:0] dma_spm_raw_addr;
+    logic [31:0] dma_spm_raw_data;
+    logic        dma_spm_raw_en;
+    logic [3:0]  dma_spm_pe_id;    // bits [15:12] of SPM address
+    logic [9:0]  dma_spm_word;     // bits [11:2]  of SPM address (0..1023)
+    logic [15:0] dma_spm_we;       // per-PE write enable fan-out
+
+    assign dma_spm_pe_id = dma_spm_raw_addr[15:12];
+    assign dma_spm_word  = dma_spm_raw_addr[11:2];
     logic [3:0]  dma_cfg_pe_sel;  // Which PE to configure (0-15)
     
     // Double-pump 64-bit config loader: DMA writes HI (addr[2]=0) then LO
@@ -282,6 +293,24 @@ module cgra_top #(
 
     // Config address within 2048-byte block: [2]=HI/LO, [6:3]=slot, [10:7]=PE
     assign dma_cfg_pe_sel = dma_cfg_addr[10:7];
+
+    // Per-PE SPM write enable: only the addressed PE gets the write pulse.
+    assign dma_spm_we[ 0] = dma_spm_raw_en && (dma_spm_pe_id == 4'd0);
+    assign dma_spm_we[ 1] = dma_spm_raw_en && (dma_spm_pe_id == 4'd1);
+    assign dma_spm_we[ 2] = dma_spm_raw_en && (dma_spm_pe_id == 4'd2);
+    assign dma_spm_we[ 3] = dma_spm_raw_en && (dma_spm_pe_id == 4'd3);
+    assign dma_spm_we[ 4] = dma_spm_raw_en && (dma_spm_pe_id == 4'd4);
+    assign dma_spm_we[ 5] = dma_spm_raw_en && (dma_spm_pe_id == 4'd5);
+    assign dma_spm_we[ 6] = dma_spm_raw_en && (dma_spm_pe_id == 4'd6);
+    assign dma_spm_we[ 7] = dma_spm_raw_en && (dma_spm_pe_id == 4'd7);
+    assign dma_spm_we[ 8] = dma_spm_raw_en && (dma_spm_pe_id == 4'd8);
+    assign dma_spm_we[ 9] = dma_spm_raw_en && (dma_spm_pe_id == 4'd9);
+    assign dma_spm_we[10] = dma_spm_raw_en && (dma_spm_pe_id == 4'd10);
+    assign dma_spm_we[11] = dma_spm_raw_en && (dma_spm_pe_id == 4'd11);
+    assign dma_spm_we[12] = dma_spm_raw_en && (dma_spm_pe_id == 4'd12);
+    assign dma_spm_we[13] = dma_spm_raw_en && (dma_spm_pe_id == 4'd13);
+    assign dma_spm_we[14] = dma_spm_raw_en && (dma_spm_pe_id == 4'd14);
+    assign dma_spm_we[15] = dma_spm_raw_en && (dma_spm_pe_id == 4'd15);
 
     // =========================================================================
     // 1. APB CSR Module
@@ -415,6 +444,10 @@ module cgra_top #(
         .config_addr_o(dma_cfg_addr),
         .config_we_o(dma_cfg_we),
         .config_wdata_o(dma_cfg_wdata),
+
+        .spm_write_addr_o(dma_spm_raw_addr),
+        .spm_write_data_o(dma_spm_raw_data),
+        .spm_write_en_o(dma_spm_raw_en),
 
         .dbg_status_busy(dbg_dma_busy),
         .dbg_read_fsm_state(dbg_dma_read_state),
@@ -670,7 +703,12 @@ module cgra_top #(
 
         // B4: Branch from PE[0][0]
         .branch_target_o(array_branch_target),
-        .branch_taken_o(array_branch_taken)
+        .branch_taken_o(array_branch_taken),
+
+        // DMA→SPM write bus
+        .dma_spm_we(dma_spm_we),
+        .dma_spm_waddr(dma_spm_word),
+        .dma_spm_wdata(dma_spm_raw_data)
     );
 
     // Synthesis keeper: prevents synth from optimizing the mesh away when the
