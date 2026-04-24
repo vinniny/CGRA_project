@@ -468,13 +468,19 @@ int golden_infer_cgra(const int32_t *input,
 #define LPR_CGRA_SPM_STAGE_DDR 0x00120000UL
 #endif
 
+#ifdef LPR_CGRA_V2_DBG
+volatile uint32_t g_v2_dbg_spm_cyc = 0;
+volatile uint32_t g_v2_dbg_mac_cyc = 0;
+volatile uint32_t g_v2_dbg_timeout = 0;
+#endif
+
 static void golden_fc_cgra_v2(uint32_t pool2_q_ddr,
                                int32_t logits_raw[LPR_FC_N_CLASSES],
                                const int32_t *fc_w_spm,
                                uint32_t staging_ddr)
 {
-    lpr_build_fc_kernel_v2(staging_ddr);
-    lpr_fc_tile_preload_v2((const int32_t *)pool2_q_ddr, staging_ddr);
+    lpr_fc_build_chains_v2((uint32_t)fc_w_spm, staging_ddr);
+    lpr_fc_tile_preload_v2(pool2_q_ddr);
 
     for (int g = 0; g < LPR_FC_N_GROUPS; g++) {
         int32_t result[4];

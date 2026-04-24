@@ -268,6 +268,18 @@ int main(void)
     uart_puts("  Readout (8x):   "); uart_putdec64(g_fc_prof_readout_cyc); uart_puts(" cyc\n");
 #endif
 
+#ifdef LPR_CGRA_V2_DBG
+    {
+        extern volatile uint32_t g_v2_dbg_spm_cyc;
+        extern volatile uint32_t g_v2_dbg_mac_cyc;
+        extern volatile uint32_t g_v2_dbg_timeout;
+        uart_puts("\n[V2 DBG] Group-0, last image:\n");
+        uart_puts("  SPM preload DMA wait: "); uart_putdec(g_v2_dbg_spm_cyc); uart_puts(" cyc\n");
+        uart_puts("  MAC loop CU wait:     "); uart_putdec(g_v2_dbg_mac_cyc); uart_puts(" cyc\n");
+        uart_puts("  Timeout mask:         0x"); uart_putdec(g_v2_dbg_timeout); uart_puts("\n");
+    }
+#endif
+
     uart_puts("\n[ARM] Demo complete. Parked.\n");
 
     while (1) { __asm__ volatile ("wfi"); }

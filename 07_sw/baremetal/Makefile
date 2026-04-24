@@ -96,11 +96,12 @@ LPR_CGRA_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER
 DEMO_LPR_CGRA_TARGET := demo_lpr_cgra.elf
 
 # ── demo_lpr_cgra_v2: CGRA FC v2 — SPM weight preload (R1/R2/R3 required) ──
-LPR_CGRA_V2_CFLAGS  := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2
-# Profile build: make demo_lpr_cgra_v2 LPR_CGRA_V2_CFLAGS='$(LPR_CFLAGS) -DUSE_CGRA_INFER_V2 -DLPR_CGRA_PROFILE'
-DEMO_LPR_CGRA_V2_TARGET := demo_lpr_cgra_v2.elf
+LPR_CGRA_V2_CFLAGS       := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2
+LPR_CGRA_V2_SMOKE_CFLAGS := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2 -DLPR_CGRA_PROFILE -DLPR_CGRA_V2_DBG
+DEMO_LPR_CGRA_V2_TARGET       := demo_lpr_cgra_v2.elf
+DEMO_LPR_CGRA_V2_SMOKE_TARGET := demo_lpr_cgra_v2_smoke.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke
 
 all: $(TARGET)
 
@@ -111,6 +112,8 @@ demo_lpr: $(DEMO_LPR_TARGET)
 demo_lpr_cgra: $(DEMO_LPR_CGRA_TARGET)
 
 demo_lpr_cgra_v2: $(DEMO_LPR_CGRA_V2_TARGET)
+
+demo_lpr_cgra_v2_smoke: $(DEMO_LPR_CGRA_V2_SMOKE_TARGET)
 
 bench: $(BENCH_TARGET)
 
@@ -159,6 +162,11 @@ $(DEMO_LPR_CGRA_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_i
 $(DEMO_LPR_CGRA_V2_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h demo_lpr_test_images.bin cgra_kernels_lpr.h ../lprnet_eval/golden_weights_int16.bin ../lprnet_eval/golden_weights_spm.bin
 	$(CC) $(LPR_CGRA_V2_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(DEMO_LPR_CGRA_V2_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(DEMO_LPR_CGRA_V2_SMOKE_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_lpr_test_images.h demo_lpr_test_images.bin cgra_kernels_lpr.h ../lprnet_eval/golden_weights_int16.bin ../lprnet_eval/golden_weights_spm.bin
+	$(CC) $(LPR_CGRA_V2_SMOKE_CFLAGS) $(LPR_LDFLAGS) $(LPR_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(DEMO_LPR_CGRA_V2_SMOKE_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 dis: $(TARGET)
