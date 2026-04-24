@@ -34,7 +34,9 @@ task automatic run_cgra_wait_done(input int timeout_cyc);
         t++;
     end while (!cu_stat[1] && t < timeout_cyc);
     if (t >= timeout_cyc)
-        $display("[SAI] WARNING: CU did not complete within %0d cycles", timeout_cyc);
+        fail("SAI: CU did not complete — possible FIFO-overflow stall",
+             $sformatf("timeout=%0d fifo_full=%b", timeout_cyc,
+                 tb_top.u_dut.result_fifo_full));
 endtask
 
 task automatic run_suite_SAI_spm_auto_inc;

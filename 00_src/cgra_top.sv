@@ -193,8 +193,11 @@ module cgra_top #(
     // addr >> 2, bit 9), which matches bank_sel_i. Non-conflicting DMA writes
     // (other half) allow the CU to run concurrently.
     logic        dma_bank_conflict;
-    assign dma_bank_conflict = (dma_tile_we && (dma_tile_addr[11] == tile_bank_sel_csr))
-                             || result_fifo_full;
+    // result_fifo_full is intentionally NOT included here. The FIFO can overflow
+    // (dropping excess pushes via overflow_pulse) but must never stall the CU.
+    // The FC v2 MAC loop generates 784 push_valid cycles which exceeds FIFO
+    // DEPTH=256+SKIP=12=268 — a permanent stall would occur if full is gated here.
+    assign dma_bank_conflict = (dma_tile_we && (dma_tile_addr[11] == tile_bank_sel_csr));
     
     // Row data from tile memory (1-cycle SRAM latency)
     logic [31:0] row_data [0:3];

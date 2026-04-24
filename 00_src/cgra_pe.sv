@@ -611,8 +611,11 @@ module cgra_pe #(
         rf_wdata = alu_result[DATA_WIDTH-1:0];
 
         spm_we = 1'b0;
+        // Auto-inc: use immediate field as base address so that operand1 (src1)
+        // remains free for data (e.g. SRC_SPM carries the weight in OP_MAC).
+        // Without this, src1_sel=SRC_SPM feeds spm_rdata back as spm_addr — wrong.
         spm_addr = spm_auto_inc_en_i
-                   ? (operand1_r2[$clog2(SPM_DEPTH)-1:0] + spm_iter_cnt)
+                   ? ($clog2(SPM_DEPTH)'(immediate) + spm_iter_cnt)
                    : operand1_r2[$clog2(SPM_DEPTH)-1:0];
         spm_wdata = operand0_r2;
 
