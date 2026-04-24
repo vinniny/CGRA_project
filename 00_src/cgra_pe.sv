@@ -162,12 +162,18 @@ module cgra_pe #(
             spm_iter_cnt <= '0;
     end
 
-    always_ff @(posedge clk) begin
-        if (dma_spm_we_i)
-            spm_mem[dma_spm_waddr_i] <= dma_spm_wdata_i;
-        else if (spm_we && !stall)
-            spm_mem[spm_addr] <= spm_wdata;
-    end
+    // Mux write inputs before the always_ff so Vivado sees a single write port
+    // (dual-address pattern prevents BRAM inference per UG901 §RAM HDL Coding).
+    // DMA takes priority over OP_STORE_SPM when both fire simultaneously.
+    logic                          spm_wen;
+    logic [$clog2(SPM_DEPTH)-1:0]  spm_waddr_mux;
+    logic [DATA_WIDTH-1:0]         spm_wdata_mux;
+    assign spm_wen       = dma_spm_we_i | (spm_we & ~stall);
+    assign spm_waddr_mux = dma_spm_we_i ? dma_spm_waddr_i : spm_addr;
+    assign spm_wdata_mux = dma_spm_we_i ? dma_spm_wdata_i : spm_wdata;
+
+    always_ff @(posedge clk)
+        if (spm_wen) spm_mem[spm_waddr_mux] <= spm_wdata_mux;
 
     // !stall → BRAM REGCE; !rst_n → BRAM RSTREG (active-high, inverted by synth)
     always_ff @(posedge clk) begin

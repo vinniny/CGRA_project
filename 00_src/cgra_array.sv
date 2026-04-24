@@ -18,7 +18,7 @@ module cgra_array #(
     parameter DATA_WIDTH    = 32,
     parameter COORD_WIDTH   = 4,
     parameter ADDR_WIDTH    = 4,
-    parameter SPM_DEPTH     = 256,
+    parameter SPM_DEPTH     = 1024,
     parameter RF_DEPTH      = 16,
     parameter CONTEXT_DEPTH = 16,
     parameter PC_WIDTH      = 4,
