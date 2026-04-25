@@ -8,8 +8,12 @@
 // spm_addr = operand1_r2 + spm_iter_cnt uses SPM DATA (not a base address).
 //
 // SMA01: Exact FC v2 kernel (SRC_W, SRC_SPM, imm=0) — whitebox spm_addr check.
-//        Fails pre-fix (spm_addr = garbage), passes post-fix (spm_addr=iter_cnt).
-// SMA02: Correct path (SRC_W, SRC_IMM, imm=0) — baseline reference, must pass always.
+//        Fails pre-fix (spm_addr = garbage).
+//        Post-fix: spm_addr = imm(0) + spm_iter_cnt + context_pc.
+//        The context_pc term ensures each slot in a pass reads a unique weight.
+// SMA02: Correct path (SRC_IMM, imm=0) — baseline reference, must pass always.
+//        Post-fix: same formula; SRC_IMM keeps spm_auto_inc_en=1 so
+//        spm_addr = imm + spm_iter_cnt + context_pc.
 // SMA03: End-to-end OP_ADD with SRC_SPM + auto-inc — numerical correctness check.
 // SMA04: 16-PE broadcast MAC config + distinct per-PE SPM preload.
 // =============================================================================
@@ -54,6 +58,7 @@ task automatic run_suite_SMA_spm_mac_addrsrc;
     logic [31:0] rd;
     logic [9:0]  observed_addr;
     logic [9:0]  iter_cnt;
+    logic [3:0]  observed_pc;
     logic [63:0] mac_cfg;
     begin
         $display("\n========================================");
@@ -63,13 +68,11 @@ task automatic run_suite_SMA_spm_mac_addrsrc;
         // =================================================================
         // SMA01: FC v2 exact kernel: CFGW(OP_MAC, SRC_W, SRC_SPM, 0, 0, 0)
         //        with spm_auto_inc_en=1.
-        //        Pre-fix: spm_addr = spm_rdata + spm_iter_cnt (bug).
-        //        Post-fix: spm_addr = immediate(0) + spm_iter_cnt = iter_cnt.
-        //
-        //        Check: after CU starts, sample spm_addr on PE0 at a moment
-        //        when spm_iter_cnt=0 (first iteration).  Must equal 0.
+        //        Pre-fix: spm_addr = spm_rdata + spm_iter_cnt (bug: data→addr).
+        //        Post-fix: spm_addr = imm(0) + spm_iter_cnt + context_pc.
+        //        Each slot reads a unique weight: slot j in pass p → weight[p*16+j].
         // =================================================================
-        $display("[SMA01] FC v2 kernel SRC_SPM addr check (spm_addr must equal spm_iter_cnt)...");
+        $display("[SMA01] FC v2 kernel SRC_SPM addr check (spm_addr must equal spm_iter_cnt+pc)...");
         reset_dut(5);
 
         // Preload PE0 SPM: word[k] = k+1  (so word[0]=1, word[16]=17, ...)
@@ -109,25 +112,20 @@ task automatic run_suite_SMA_spm_mac_addrsrc;
         apb_write(ADDR_CU_CTRL, 32'd1);
         wait_cycles(10);  // pipeline fills; spm_iter_cnt still 0
 
-        // Whitebox: sample spm_addr on PE0 while first iteration is running
+        // Whitebox: sample spm_addr, spm_iter_cnt, context_pc simultaneously on PE0
         observed_addr = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.spm_addr;
         iter_cnt      = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.spm_iter_cnt;
+        observed_pc   = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.context_pc;
 
-        if (iter_cnt === 10'd0) begin
-            // First iteration: expected spm_addr = 0 + 0 = 0
-            if (observed_addr === 10'd0)
-                pass("SMA01a: spm_addr=0 in first iteration (correct: imm+iter_cnt)");
-            else
-                fail("SMA01a: spm_addr wrong in first iteration",
-                     $sformatf("exp=0 got=%0d (bug: SPM data used as address)", observed_addr));
-        end else begin
-            // spm_iter_cnt already advanced — check addr = iter_cnt
-            if (observed_addr === iter_cnt)
-                pass($sformatf("SMA01a: spm_addr=%0d = spm_iter_cnt=%0d", observed_addr, iter_cnt));
-            else
-                fail("SMA01a: spm_addr != spm_iter_cnt",
-                     $sformatf("addr=%0d cnt=%0d", observed_addr, iter_cnt));
-        end
+        // Post-fix: spm_addr = spm_iter_cnt + context_pc (imm=0)
+        if (observed_addr === iter_cnt + 10'(observed_pc))
+            pass($sformatf("SMA01a: spm_addr=%0d = iter_cnt(%0d)+pc(%0d)",
+                           observed_addr, iter_cnt, observed_pc));
+        else
+            fail("SMA01a: spm_addr != spm_iter_cnt+context_pc",
+                 $sformatf("addr=%0d cnt=%0d pc=%0d (expected %0d)",
+                            observed_addr, iter_cnt, observed_pc,
+                            iter_cnt + 10'(observed_pc)));
 
         // Wait for CU to finish
         begin
@@ -149,8 +147,10 @@ task automatic run_suite_SMA_spm_mac_addrsrc;
 
         // =================================================================
         // SMA02: Correct path — OP_LOAD_SPM with SRC_IMM for address.
-        //        Must pass on both pre-fix and post-fix RTL.
-        //        Verify spm_addr = 0 + spm_iter_cnt (same as SAI03 baseline).
+        //        Post-fix: spm_addr = imm(0) + spm_iter_cnt + context_pc.
+        //        For LOOP_END=0 (single active slot at PC=0), the loop body
+        //        uses context_pc=0 → spm_addr = spm_iter_cnt in the loop.
+        //        Free-run slots (PC 1..15 after loop) see spm_addr += PC.
         // =================================================================
         $display("[SMA02] SRC_IMM address path (must pass always)...");
         reset_dut(5);
@@ -179,12 +179,16 @@ task automatic run_suite_SMA_spm_mac_addrsrc;
 
         observed_addr = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.spm_addr;
         iter_cnt      = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.spm_iter_cnt;
+        observed_pc   = tb_top.u_dut.u_array.row[0].col[0].u_tile.u_pe.context_pc;
 
-        if (observed_addr === iter_cnt)
-            pass($sformatf("SMA02: spm_addr=%0d = spm_iter_cnt=%0d (SRC_IMM path)", observed_addr, iter_cnt));
+        if (observed_addr === iter_cnt + 10'(observed_pc))
+            pass($sformatf("SMA02: spm_addr=%0d = iter_cnt(%0d)+pc(%0d) (SRC_IMM path)",
+                           observed_addr, iter_cnt, observed_pc));
         else
             fail("SMA02: SRC_IMM path spm_addr mismatch",
-                 $sformatf("addr=%0d cnt=%0d", observed_addr, iter_cnt));
+                 $sformatf("addr=%0d cnt=%0d pc=%0d (expected %0d)",
+                            observed_addr, iter_cnt, observed_pc,
+                            iter_cnt + 10'(observed_pc)));
 
         begin
             logic [31:0] cu_stat; int t;
