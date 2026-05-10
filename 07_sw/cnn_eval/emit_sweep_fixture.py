@@ -135,14 +135,21 @@ def main(args):
 
     act400_all = np.zeros((n, 400), dtype=np.int32)
     act64_all  = np.zeros((n,  64), dtype=np.int32)
+    input28_all = np.zeros((n, 784), dtype=np.uint8)
     labels     = np.zeros(n, dtype=np.uint8)
     golden     = np.zeros(n, dtype=np.uint8)
+
+    # The torchvision MNIST dataset stores raw uint8 pixels in `test_ds.data`
+    # (28x28 tensor per image). We snapshot these before any transforms so the
+    # HDMI demo can render the actual handwritten digit.
+    raw_pixels = test_ds.data.numpy().astype(np.uint8)  # [N, 28, 28]
 
     correct = 0
     for i in range(n):
         img, label = test_ds[i]
         a400, a64, pred = run_image(torch.tensor(img.numpy()), w)
         act400_all[i] = a400; act64_all[i] = a64
+        input28_all[i] = raw_pixels[i].reshape(784)
         labels[i] = label;    golden[i] = pred
         correct += (pred == label)
 
@@ -167,6 +174,12 @@ def main(args):
               f"static const int32_t SWEEP_RODATA sweep_act64[{n}][64] = {{"]
     for i in range(n):
         row = ", ".join(str(int(v)) for v in act64_all[i])
+        lines.append(f"  {{ {row} }},")
+    lines += ["};", "",
+              f"/* Raw 28x28 grayscale input pixels (uint8 0..255) for HDMI demo */",
+              f"static const uint8_t SWEEP_RODATA sweep_input28[{n}][784] = {{"]
+    for i in range(n):
+        row = ", ".join(str(int(v)) for v in input28_all[i])
         lines.append(f"  {{ {row} }},")
     lines += ["};", "",
               f"static const uint8_t SWEEP_RODATA sweep_labels[{n}] = {{ "
