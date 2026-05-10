@@ -103,11 +103,27 @@ extern "C" {
 /*
  * CGRA IP base address in the Zynq PL address map.
  * Must match the Vivado block design address assignment.
- * Default: 0x43C00000 (typical AXI GP0 range on Zynq-7000)
- * Override at compile time: -DCGRA_PHYS_BASE=0xNNNNNNNN
+ *
+ * Three predefined layouts (pick one with -DBOARD_<X>):
+ *   BOARD_WILDFIRE    0x43CD0000 — CGRA in Wildfire's BD (default)
+ *   BOARD_CGRA_ONLY   0x43C00000 — silicon-validated CGRA-only bitstream
+ *   BOARD_HDMI        0x43C10000 — Haoyue-mirrored CGRA+HDMI BD on PYNQ-Z2
+ *                                  (built by build_cgra_hdmi_pynqz2_clean.tcl)
+ * Or override directly: -DCGRA_PHYS_BASE=0xNNNNNNNN
  */
 #ifndef CGRA_PHYS_BASE
-#define CGRA_PHYS_BASE        0x43C00000u
+# if defined(BOARD_PYNQ_BASE) || defined(BOARD_HDMI)
+   /* PYNQ-Z2 base BD + CGRA bolt-on. Auto-assigned slot. */
+#  define CGRA_PHYS_BASE      0x43C80000u
+#  define HDMI_DYNCLK_PHYS    0x43C10000u  /* video/hdmi_out/frontend/axi_dynclk */
+#  define HDMI_VTC_OUT_PHYS   0x43C20000u  /* video/hdmi_out/frontend/vtc_out    */
+#  define HDMI_VTC_IN_PHYS    0x43C30000u  /* video/hdmi_in/frontend/vtc_in      */
+#  define HDMI_VDMA_PHYS      0x43000000u  /* video/axi_vdma                     */
+# elif defined(BOARD_CGRA_ONLY)
+#  define CGRA_PHYS_BASE      0x43C00000u
+# else                                       /* BOARD_WILDFIRE (default) */
+#  define CGRA_PHYS_BASE      0x43CD0000u
+# endif
 #endif
 #define CGRA_REG_SPAN         0x10000u     /* 64KB register region */
 

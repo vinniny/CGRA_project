@@ -388,24 +388,44 @@ static int cma_alloc_devmem(cgra_cma_buf_t *buf, size_t alloc_size)
     return 0;
 }
 
+#ifdef __linux__
+/* PYNQ libcma prototypes */
+void* cma_alloc(uint32_t len, uint32_t cacheable);
+void cma_free(void *buf);
+unsigned long cma_get_phy_addr(void *buf);
+#endif
+
 int cgra_cma_alloc(cgra_cma_buf_t *buf, size_t bytes)
 {
     if (!buf || bytes == 0) { errno = EINVAL; return -1; }
     memset(buf, 0, sizeof(*buf));
     buf->fd = -1;
 
+#ifdef __linux__
     /* Round up to page boundary */
     long page = sysconf(_SC_PAGESIZE);
     size_t alloc_size = (bytes + page - 1) & ~(page - 1);
 
-    /* Try udmabuf first */
+    /* 1. Try PYNQ libcma first (cleanest, most robust) */
+    void *virt = cma_alloc(alloc_size, 0);
+    if (virt) {
+        buf->virt = virt;
+        buf->phys = (uint32_t)cma_get_phy_addr(virt);
+        buf->size = alloc_size;
+        buf->is_devmem = 0;
+        fprintf(stderr, "cgra_cma_alloc: libcma %zu bytes @ phys 0x%08X\n",
+                alloc_size, buf->phys);
+        return 0;
+    }
+
+    /* 2. Try /dev/udmabuf0 fallback */
     if (cma_alloc_udmabuf(buf, alloc_size) == 0) {
         fprintf(stderr, "cgra_cma_alloc: udmabuf %zu bytes @ phys 0x%08X\n",
                 alloc_size, buf->phys);
         return 0;
     }
 
-    /* Fallback: /dev/mem */
+    /* 3. Try /dev/mem fixed reservation fallback */
     if (cma_alloc_devmem(buf, alloc_size) == 0) {
         fprintf(stderr, "cgra_cma_alloc: devmem %zu bytes @ phys 0x%08X\n",
                 alloc_size, buf->phys);
@@ -414,17 +434,25 @@ int cgra_cma_alloc(cgra_cma_buf_t *buf, size_t bytes)
 
     fprintf(stderr, "cgra_cma_alloc: all methods failed\n");
     return -1;
+#else
+    fprintf(stderr, "cgra_cma_alloc: baremetal fallback\n");
+    buf->virt = malloc(bytes);
+    buf->phys = (uint32_t)(uintptr_t)buf->virt;
+    buf->size = bytes;
+    return (buf->virt) ? 0 : -1;
+#endif
 }
 
 void cgra_cma_free(cgra_cma_buf_t *buf)
 {
     if (!buf) return;
-    if (buf->virt && buf->virt != MAP_FAILED)
-        munmap(buf->virt, buf->size);
-    if (buf->fd >= 0)
-        close(buf->fd);
-    /* Note: devmem bump allocator does not reclaim — acceptable for
-     * embedded use where allocations are done once at startup. */
+#ifdef __linux__
+    if (buf->virt) {
+        cma_free(buf->virt);
+    }
+#else
+    if (buf->virt) free(buf->virt);
+#endif
     memset(buf, 0, sizeof(*buf));
     buf->fd = -1;
 }

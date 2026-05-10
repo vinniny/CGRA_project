@@ -10,10 +10,19 @@ OBJCOPY := $(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-objcopy
 
 TARGET  := cgra_test.elf
 
+# ── Board profile (selects CGRA base address) ────────────────────────────
+# Pass on the command line: make BOARD=PYNQ_BASE mnist_sweep
+#   BOARD=CGRA_ONLY  -> CGRA at 0x43C00000 (default; silicon-validated)
+#   BOARD=PYNQ_BASE  -> CGRA at 0x43C50000 (PYNQ-Z2 base BD + CGRA bolt-on)
+#   BOARD=HDMI       -> alias for PYNQ_BASE (legacy)
+#   BOARD=WILDFIRE   -> CGRA at 0x43CD0000 (Wildfire BD)
+BOARD ?= CGRA_ONLY
+BOARD_DEFS := -DBOARD_$(BOARD)
+
 CFLAGS  := -O1 -Wall -Wextra \
            -ffreestanding -nostdlib \
            -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
-           -I.
+           -I. $(BOARD_DEFS)
 
 LDFLAGS := -T linker.ld -nostdlib
 
@@ -44,7 +53,7 @@ DEMO_DEFS := -DPLATFORM_ZYNQ -DUSE_AMP=0
 DEMO_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
                -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
                -ffunction-sections -fdata-sections \
-               $(DEMO_INC) $(DEMO_DEFS)
+               $(DEMO_INC) $(DEMO_DEFS) $(BOARD_DEFS)
 
 DEMO_LDFLAGS := -T linker.ld -nostdlib -Wl,--gc-sections
 
@@ -82,7 +91,7 @@ BENCH_TAI_TARGET := bench_tile_autoinc.elf
 LPR_CFLAGS  := -O1 -Wall -ffreestanding -nostdlib \
                -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
                -ffunction-sections -fdata-sections \
-               -I. -I../lib
+               -I. -I../lib $(BOARD_DEFS)
 
 LPR_LDFLAGS := -T linker_lpr.ld -nostdlib -Wl,--gc-sections
 
@@ -101,9 +110,32 @@ LPR_CGRA_V2_SMOKE_CFLAGS := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2 -DLPR_CGRA_PROFILE
 DEMO_LPR_CGRA_V2_TARGET       := demo_lpr_cgra_v2.elf
 DEMO_LPR_CGRA_V2_SMOKE_TARGET := demo_lpr_cgra_v2_smoke.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke
+# ── demo_mnist_smoke: CGRA MNIST FC kernel smoke test (D3) ──────────────
+CNN_SMOKE_SRCS   := start.s demo_mnist_smoke.c demo_mnist_weights.S gic.c
+CNN_SMOKE_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
+                   -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
+                   -ffunction-sections -fdata-sections \
+                   -I. $(BOARD_DEFS)
+CNN_SMOKE_LDFLAGS := -T linker_cnn.ld -nostdlib -Wl,--gc-sections
+CNN_SMOKE_TARGET  := demo_mnist_smoke.elf
+
+# ── demo_mnist_sweep: N-image sweep on FC1+FC2 (D4) ─────────────────────
+CNN_SWEEP_SRCS    := start.s demo_mnist_sweep.c demo_mnist_weights.S gic.c
+CNN_SWEEP_TARGET  := demo_mnist_sweep.elf
+
+# ── bench_compare: ARM-vs-CGRA head-to-head on canonical kernels ────────
+BCMP_SRCS    := start.s bench_compare.c gic.c
+BCMP_TARGET  := bench_compare.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare
 
 all: $(TARGET)
+
+mnist_smoke: $(CNN_SMOKE_TARGET)
+
+mnist_sweep: $(CNN_SWEEP_TARGET)
+
+bench_compare: $(BCMP_TARGET)
 
 demo: $(DEMO_TARGET)
 
@@ -169,8 +201,23 @@ $(DEMO_LPR_CGRA_V2_SMOKE_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_l
 	@echo "[BUILD] $(DEMO_LPR_CGRA_V2_SMOKE_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
+$(CNN_SMOKE_TARGET): $(CNN_SMOKE_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_smoke_fixture.h linker_cnn.ld ../cnn_eval/mnist_weights_spm.bin
+	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(CNN_SMOKE_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(CNN_SMOKE_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(CNN_SWEEP_TARGET): $(CNN_SWEEP_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_sweep_fixture.h linker_cnn.ld ../cnn_eval/mnist_weights_spm.bin
+	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(CNN_SWEEP_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(CNN_SWEEP_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(BCMP_TARGET): $(BCMP_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BCMP_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BCMP_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
 dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) $(CNN_SMOKE_TARGET) *.o

@@ -17,7 +17,28 @@
 /* OCM is reachable by CGRA DMA engine via the PS AXI HP slave port.       */
 
 /* ── Base address ─────────────────────────────────────────────────────── */
-#define CGRA_BASE           0x43C00000UL
+/* Override at compile time:
+ *   -DCGRA_BASE=...      explicit base (Linux user-space mmap'd address)
+ *   -DBOARD_CGRA_ONLY    PYNQ-Z2 CGRA-only bitstream (CGRA at 0x43C00000)
+ *   -DBOARD_PYNQ_BASE    PYNQ-Z2 PYNQ-base BD + CGRA bolt-on (recommended)
+ *                         CGRA at 0x43C50000 (free slot above PYNQ peripherals)
+ *                         video pipeline at PYNQ's standard addresses
+ * Default is BOARD_CGRA_ONLY — matches the silicon-validated single-IP
+ * bitstream that the bare-metal regression runs on today.
+ */
+#if !defined(CGRA_BASE)
+# if defined(BOARD_PYNQ_BASE)
+   /* PYNQ-Z2 base.tcl + CGRA bolt-on. Address auto-assigned by Vivado at
+    * the first free 64K slot above hdmi/color_convert which uses 0x43C50000-
+    * 0x43C70000. CGRA APB lands at 0x43C80000. */
+#  define CGRA_BASE          0x43C80000UL
+# elif defined(BOARD_HDMI)
+   /* Legacy alias for BOARD_PYNQ_BASE. */
+#  define CGRA_BASE          0x43C80000UL
+# else
+#  define CGRA_BASE          0x43C00000UL  /* CGRA-only bitstream */
+# endif
+#endif
 
 /* ── DMA address space prefixes ───────────────────────────────────────── */
 #define CGRA_PFX_AXI        0x00000000UL   /* External DDR */

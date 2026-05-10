@@ -7,7 +7,8 @@
  * ps7_init configures MIO[14]/[15] and sets baud divisors:
  *   BAUD_RATE_GEN (CD)   = 124  (0x7C)
  *   BAUD_RATE_DIV (BDIV) = 6
- *   Actual baud = 100MHz / 124 / 7 = 115,384 (~0.16% error @ 115200)
+ *   Actual baud = 100MHz / 124 / 7 = 115,207 (~0.006% error @ 115200)
+ * PYNQ-Z2: IO_PLL=1800MHz, UART_CLK_DIV=18 → UART_REF_CLK=100MHz
  *
  * uart_init() resets FIFOs, reapplies mode and baud, then enables TX/RX.
  * Do NOT configure MIO here — ps7_init already does it correctly.
@@ -51,7 +52,7 @@ static inline void uart_init(void)
     /* 8N1, uart_ref_clk (matches ps7_init MR=0x20) */
     *(volatile uint32_t *)(UART0_BASE + UART_MR) = 0x20u;
 
-    /* Baud: CD=124, BDIV=6 → 115200 @ 100 MHz ref (matches ps7_init) */
+    /* Baud: CD=124, BDIV=6 → 115207 @ 100 MHz ref (matches ps7_init) */
     *(volatile uint32_t *)(UART0_BASE + UART_BAUD_GEN) = 124u;
     *(volatile uint32_t *)(UART0_BASE + UART_BAUD_DIV) = 6u;
 

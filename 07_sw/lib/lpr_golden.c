@@ -277,12 +277,26 @@ const float *golden_get_fc_output(const GoldenContext *ctx)
  * ========================================================================= */
 #ifdef USE_CGRA_INFER
 
+/* Linux user-space build: redirect CGRA_BASE to runtime mmap'd APB CSR via
+ * the shim. Bare-metal builds get the shim path at compile time too without
+ * affecting the literal CGRA_BASE because the shim only defines CGRA_BASE
+ * when explicitly included (and bare-metal Makefile doesn't include it). */
+#ifdef CGRA_LINUX_SHIM
+#include "cgra_baremetal_shim.h"
+#endif
+
 #include "cgra.h"
 #include "cgra_kernels_lpr.h"
 
-/* DDR addresses used by the CGRA FC path — above the existing DDR_STAGE. */
+/* DDR addresses used by the CGRA FC path — above the existing DDR_STAGE.
+ * Linux user-space builds override these via -D to point at MAP_FIXED uncached
+ * pages above the kernel's allocated region (e.g. 0x3FFE0000+). */
+#ifndef LPR_CGRA_POOL2_Q_DDR
 #define LPR_CGRA_POOL2_Q_DDR  0x00110000UL   /* pool2 quantised: 784 × 4B = 3136 B */
+#endif
+#ifndef LPR_CGRA_STAGING_DDR
 #define LPR_CGRA_STAGING_DDR  0x00112000UL   /* PE-config DMA scratch:  128 B       */
+#endif
 
 /* Pool2 activations are scaled by this integer before passing to the CGRA.
  * Pool2 float values after ReLU are in [0, ~3.5]; ×8 → [0, ~28] → fits int16.
