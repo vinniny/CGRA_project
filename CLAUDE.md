@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-4x4 CGRA (Coarse-Grained Reconfigurable Array) accelerator IP for Sparse Spiking Neural Networks (SNN) and License Plate Recognition (LPR) inference. Targets Xilinx Zynq-7000 (XC7Z020) at 50 MHz with PetaLinux 2022.2 deployment. All RTL is SystemVerilog. Simulation uses Cadence Xcelium 20.09.
+4x4 CGRA (Coarse-Grained Reconfigurable Array) accelerator IP for Sparse Spiking Neural Networks (SNN), License Plate Recognition (LPR) inference, and MNIST CNN inference. Targets Xilinx Zynq-7000 (XC7Z020) at 50 MHz with PetaLinux 2022.2 deployment. All RTL is SystemVerilog. Simulation uses Cadence Xcelium 20.09. Current bitstream: `bitstreams/cgra_top.bit` (SPM_DEPTH=1024, silicon-validated on Haoyue board).
 
 ## Build & Simulation Commands
 
 ```bash
-make sim                # Full simulation flow (compile + elaborate + run, 8957 tests)
+make sim                # Full simulation flow (compile + elaborate + run, ~9113 tests)
 make compile            # xmvlog compilation only
 make build              # xmelab elaboration only
 make run                # xmsim simulation only
@@ -31,7 +31,7 @@ make clean              # Remove simulation/synthesis artifacts
 
 FPGA Deployment (Xilinx XSDB / Zynq-7000):
 ```bash
-make program BIT=bitstreams/cgra.bit          # Program PL + init PS
+make program BIT=bitstreams/cgra_top.bit      # Program PL + init PS (current bitstream)
 make program BIT=... PS_INIT=0                # Program PL only (no PS init)
 make fpga_status                              # Read FPGA state + CGRA registers
 make run_elf ELF=07_sw/build/app BIT=...      # Load & run bare-metal ELF on ARM
@@ -66,6 +66,13 @@ make run_demo            # Program FPGA + load demo + capture UART
 make bench               # Build bench_cgra.elf — 11-category performance benchmark
 make bench_res           # Build bench_resolution.elf — resolution sweep for demo planning
 make bench_tai           # Build bench_tile_autoinc.elf — tile auto-inc deep verification + benchmark
+make demo_lpr            # Build demo_lpr.elf — VN plate OCR ARM-only golden inference
+make demo_lpr_cgra       # Build demo_lpr_cgra.elf — LPR v1 with CGRA FC (INT16 tiled)
+make demo_lpr_cgra_v2    # Build demo_lpr_cgra_v2.elf — LPR v2 with DMA→SPM + SPM_AUTO_INC
+make demo_lpr_cgra_v2_smoke  # Build demo_lpr_cgra_v2_smoke.elf — first-image smoke test
+make mnist_smoke         # Build demo_mnist_smoke.elf — CGRA FC kernel D3 smoke test
+make mnist_sweep         # Build demo_mnist_sweep.elf — full MNIST accuracy sweep
+make bench_compare       # Build bench_compare.elf — ARM vs CGRA cycle comparison
 ```
 The demo (`07_sw/baremetal/demo_ascii_inverter.c`) is a Vitis-BSP-style
 standalone application that inverts an 8x8 letter Z through the CGRA
@@ -115,7 +122,9 @@ device to capture traces if any future test fails.
 - **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
 - **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VBAR + VFP enable + IRQ-mode SP + BSS + IRQ vector saving caller-saved regs and dispatching via gic_irq_entry), linker.ld (OCM 0x4000 + vectors + IRQ stack at 0x1EFC0 + SVC stack at 0x1FFC0 + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA + async helpers, single-slot and multi-slot PE config double-pump, cgra_wait_dma_and_cu for concurrency tests), gic.h / gic.c (bare-metal ARMv7 GIC v1 driver targeting Zynq distributor 0xF8F01000 + CPU interface 0xF8F00100, ~150 LOC, no Vitis BSP — gic_init / gic_register_isr / gic_enable_irq_id and a gic_irq_dispatch top-half for the IRQ vector), uart.h (Zynq UART0 driver, baud divisors matching ps7_init, per-line drain), main.c (25-group / 96-check regression covering registers, DMA, ALU, MAC, multi-context, all 4 routing directions, multicast, concurrency, error path, and end-to-end GIC interrupt delivery).
 - **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl, xsdb_debug_uart.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization. uart_monitor.py is a pyserial reader for the CH340 UART (/dev/ttyUSB2 in WSL2).
-- **bitstreams/** — Staging directory for .bit files generated from Windows Vivado
+- **07_sw/cnn_eval/** — Python training + quantization pipeline for MNIST CNN demo (train_mnist.py, quantize_cgra.py, emit_smoke_fixture.py, emit_sweep_fixture.py, golden_sim.py). Generates `mnist_weights_spm.bin` (weight blob for DMA→SPM), `mnist_smoke_fixture.h`, and `mnist_sweep_fixture.h`.
+- **07_sw/linux/** — PetaLinux userspace tools (lpr_eval.c, cgra_dmatest.c, cgra_smoke.c, lpr_hdmi_demo.c)
+- **bitstreams/** — Staging directory for .bit files generated from Windows Vivado (current: cgra_top.bit)
 
 ## Architecture
 
@@ -132,7 +141,7 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 
 **Extensions:** Mixed-precision INT8x4 / INT16x2 SIMD (config bits [50:49]), dynamic branching from PE predicate to CU PC (config bits [48:44]), nested hardware loops (2 levels).
 
-**Key parameters:** DATA_WIDTH=32, CONFIG_WIDTH=64, CONTEXT_DEPTH=16, NUM_PES=16 (4x4), FIFO_DEPTH=32, BANK_DEPTH=4096.
+**Key parameters:** DATA_WIDTH=32, CONFIG_WIDTH=64, CONTEXT_DEPTH=16, NUM_PES=16 (4x4), FIFO_DEPTH=32, BANK_DEPTH=4096, SPM_DEPTH=1024 (per PE, 4 KB scratchpad).
 
 **Hardware quirks discovered during bring-up** (relevant when writing PE programs):
 - The CU **always runs PC 0..15 to completion**. `LOOP_END` only confines the PC while `LOOP_COUNT > 0`; once the loop exhausts, PC advances naturally through to slot 15 before `done` asserts. Tests must keep slots `LOOP_END+1..15` NOP-clean (NOP doesn't write `alu_result`) or the last PC's value will overwrite the loop body's result.
@@ -140,6 +149,7 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 - `src0_sel`/`src1_sel` is both a source-type selector AND the RF read address; effectively only `RF[0]` is readable (`SRC_RF=0` reads `RF[rf_raddr=0]`; values 1-6 select N/E/S/W/SPM/IMM, not RF[1..6]). `dst_sel` is a real 4-bit RF write address, but writes to `RF[1..15]` are functionally invisible.
 - The MAC accumulator update has the **same pipeline hazard** — only ~1/3 of back-to-back MACs contribute. Use enough cycles (the saturation test runs 512 to peg MAX_POS_40 = 0x7F_FFFF_FFFF, with 32-bit output clamped to 0x7FFFFFFF).
 - `IRQ_STATUS[2]` is W1C and clears immediately. The latched `DMA_ERROR` register is sticky until the next `DMA_CTRL[0]` start, not on IRQ W1C.
+- **SPM auto-inc slot boundary asymmetry**: In a multi-pass MAC loop (LOOP_COUNT>1), the SPM and tile address pairing at loop wrap boundaries is not symmetric. Empirically: single-pass reads SPM addrs {2..13} (12 slots out of 16); 2-pass pass-0 reads 15 SPM addrs vs 14 tile addrs; 2-pass pass-1 reads 11 SPM addrs vs 12 tile addrs. The SPM addr formula is `imm + spm_iter_cnt + context_pc`. This causes per-neuron MAC deltas between hardware and pure-analytic golden models — check `06_doc/demo_audit.md` and `tb_suite_cnn_kernel.svh` for the bitmask probe methodology. Use argmax correctness (not per-accumulator exact match) as the smoke pass criterion.
 
 ## APB Register Map (30 registers, 0x00-0x80)
 
@@ -162,7 +172,7 @@ Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. 
 
 ## Testbench Architecture
 
-5-layer modular TB with 26 test suites, 8957 tests + UVM-inspired transaction layer:
+5-layer modular TB with 27+ test suites, ~9113 tests + UVM-inspired transaction layer:
 - Layer 1: tb_defs.svh — macros, constants, assertion helpers (CHECK_EQ, ASSERT_TRUE, etc.)
 - Layer 2: tb_scenario_gen.svh — constrained-random classes (cgra_dma_stim, cgra_pe_stim, cgra_apb_stim) + sequence base classes
 - Layer 3: tb_tasks.svh — APB/DMA/PE driver tasks + clocking-block variants (apb_cb_write/read)
@@ -171,6 +181,41 @@ Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. 
 - Layer 6 (UVM-inspired): tb_transactions.svh, tb_config.svh, tb_drivers.svh, tb_monitors.svh, tb_scoreboard.svh, tb_agents.svh, tb_env.svh — class-based verification infrastructure with APB/AXI monitors, DMA/PE scoreboards (21-opcode golden ALU + SIMD), mailbox-connected agents
 
 Clocking blocks: `apb_cb` (drive #1, sample #1step), `axi_cb` (sample-only). Watchdog: TB_WATCHDOG_NS (100ms default). Error threshold: MAX_ERRORS (50 default). Verbosity: +define+TB_VERBOSE or +VERBOSITY=N plusarg.
+
+## HDMI Pipeline Integration (scripts/add_cgra_hdmi_v157.tcl)
+
+Live HDMI video output integration into the PYNQ-Z2 Vivado block design (separate project at `C:\Users\thanh\Desktop\CGRA_PYNQ\`). Pipeline: `axi_vdma` + `axi_dynclk` + `rgb2dvi` + `v_tc`, sharing PS7 HP0 with CGRA DMA. Current script: `scripts/add_cgra_hdmi_v157.tcl`.
+
+Run sequence in Vivado Tcl console:
+```tcl
+source C:/Users/thanh/Desktop/CGRA_project/scripts/add_cgra_hdmi_v157.tcl
+# then: Reset Output Products → Generate Output Products → Create HDL Wrapper → Generate Bitstream
+```
+
+**Critical design rules** (learned from V79→V156 debug session):
+- `proc_sys_reset_5x` must NOT exist — `PXL_CLK_5X_O` is a BUFIO that cannot drive fabric. Use `proc_sys_reset_video` with `PXL_CLK_O` (1x pixel clock) for `rgb2dvi_0/aRst`. BD-41-1343 timing warning is safe to ignore.
+- HDMI TX ports must be flat individual ports (`hdmi_tx_clk_p`, `hdmi_tx_d_p[0:2]`) matching `constrs_pynq_z2.xdc`. Do NOT use `make_bd_intf_pins_external` on `rgb2dvi/TMDS` — creates `TMDS_0`/`hdmi_out_1` naming that triggers DRC UCIO-1.
+- `xlconstant` driving `hdmi_tx_en` must have `CONFIG.CONST_VAL=1` (default is 0, which disables the HDMI transmitter).
+- AXI address assignment order: VDMA 0x43000000, DynClk 0x43C10000, VTC 0x43C20000, CGRA 0x43C00000.
+- Digilent IP repos: `C:/Users/thanh/Desktop/zynq7020_2022/zynq7020/ip_repo` and `C:/Users/thanh/Desktop/vivado-library/...` (must be in `ip_repo_paths`).
+
+## CNN/MNIST Demo Pipeline (07_sw/cnn_eval/)
+
+Architecture: 28×28 INT8 → Conv3×3×8 → ReLU+MaxPool → Conv3×3×16 → ReLU+MaxPool → FC 400→64 → FC 64→10 → argmax. All features silicon-validated; only SW tasks remain.
+
+```bash
+cd 07_sw/cnn_eval
+python3 train_mnist.py          # Train + quantize CNN, produces mnist_cgra.pt
+python3 quantize_cgra.py        # Export INT16 weight blobs (mnist_weights_spm.bin)
+python3 emit_smoke_fixture.py   # Generate mnist_smoke_fixture.h (one-image golden)
+python3 emit_sweep_fixture.py   # Generate mnist_sweep_fixture.h (full test sweep)
+python3 golden_sim.py           # Run Python golden inference for comparison
+```
+
+Open demo tasks (from 06_doc/demo_audit.md):
+- **D4**: `demo_mnist_sweep.elf` — full accuracy + FPS measurement, ARM baseline comparison
+- **D5**: Kyber-512 Barrett reduction kernel (`cgra_kernels_kyber.h`) + golden reference + demo ELF
+- **D6**: Update thesis title + abstract
 
 ## Makefile Variables
 

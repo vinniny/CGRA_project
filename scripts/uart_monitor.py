@@ -36,9 +36,10 @@ try:
             text = line.decode('ascii', errors='replace').rstrip('\r\n')
             print(f"  > {text}")
             sys.stdout.flush()
-            # Exit on final result lines (regression test or benchmark summary)
+            # Exit on final result lines (regression test, benchmark, or LPR demo)
             if ("failed" in text and "passed" in text) or \
-               "[BENCH COMPLETE]" in text:
+               "[BENCH COMPLETE]" in text or \
+               "[ARM] Demo complete" in text:
                 time.sleep(0.5)
                 break
         else:
