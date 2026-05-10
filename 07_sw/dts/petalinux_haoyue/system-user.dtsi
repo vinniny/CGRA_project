@@ -1,0 +1,98 @@
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/phy/phy.h>
+
+/ {
+    model = "Embedfire ZYNQ Board";
+    compatible = "xlnx,zynq-khoi", "xlnx,zynq-7000";
+
+    cpus {
+        cpu@0 {
+            operating-points = <666667 1000000 333334 1000000>;
+        };
+    };
+
+    chosen {
+        bootargs = "console=ttyPS0,115200 earlycon uio_pdrv_genirq.of_id=generic-uio";
+        stdout-path = "serial0:115200n8";
+    };
+
+    reserved-memory {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+
+        hdmi_fb0: framebuffer@1f000000 {
+            no-map;
+            reg = <0x1f000000 0x00800000>;
+        };
+    };
+
+    usb_phy0: usb_phy@0 {
+        compatible = "usb-nop-xceiv";
+        #phy-cells = <0>;
+        reset-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+    };
+};
+
+&qspi {
+    w25q128: w25q128@0 {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        spi-rx-bus-width = <4>;
+        spi-tx-bus-width = <4>;
+        compatible = "w25q128", "jedec,spi-nor";
+        reg = <0>;
+        spi-max-frequency = <50000000>;
+    };
+};
+
+&gem0 {
+    status = "okay";
+    local-mac-address = [00 0a 35 20 8b 89];
+    phy-mode = "rgmii-id";
+    phy-handle = <&phy0>;
+
+    phy0: ethernet-phy@1 { /* RTL8211E-V */
+        reg = <0x1>;
+        device_type = "ethernet-phy";
+    };
+};
+
+&usb_phy0 {
+    status = "okay";
+    reset-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+};
+
+&usb0 {
+    status = "okay";
+    dr_mode = "host";
+    usb-phy = <&usb_phy0>;
+};
+
+/*
+ * Để nguyên compatible gốc cho các IP HDMI pipeline.
+ * App userspace bản patch này sẽ truy cập bằng /dev/mem nên không cần UIO.
+ */
+&axi_dynclk_0 {
+    status = "okay";
+};
+
+&axi_vdma_0 {
+    status = "okay";
+};
+
+&v_tc_0 {
+    status = "okay";
+};
+
+
+// Cho cgra IP
+&cgra_main_0 {
+    compatible = "generic-uio";
+    status = "okay";
+};
+
+
+
