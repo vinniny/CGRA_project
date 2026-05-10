@@ -427,3 +427,4 @@ bitstreams/
 # Bare-metal ELF binaries (regenerated from source)
 # ==============================================================================
 07_sw/baremetal/*.elf
+07_sw/cnn_eval/data/
