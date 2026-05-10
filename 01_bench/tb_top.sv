@@ -219,6 +219,7 @@ module tb_top;
     `include "include/tb_suite_result_fifo_stress.svh" // Suite FRS: Result FIFO Stress (T2)
     `include "include/tb_suite_spm_mac_addrsrc.svh"    // Suite SMA: SPM MAC Address-Source (T3)
     `include "include/tb_suite_xfeat.svh"              // Suite XF:  Cross-Feature (T4)
+    `include "include/tb_suite_cnn_kernel.svh"         // Suite CNN_K: MNIST CNN FC Kernel (D3)
 
     // ── OpenCores golden reference models (combinational, Q=0 integer mode) ──
     qadd  #(.Q(0), .N(32)) u_ref_qadd (
@@ -794,6 +795,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_XF_xfeat();
+
+        // =====================================================================
+        // Suite CNN_K: MNIST CNN FC Kernel (D3)
+        // =====================================================================
+        reset_dut(5);
+        run_suite_CNN_K_fc_kernel();
 
         // Print functional coverage before finishing
         print_functional_coverage();
