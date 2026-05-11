@@ -123,11 +123,15 @@ CNN_SMOKE_TARGET  := demo_mnist_smoke.elf
 CNN_SWEEP_SRCS    := start.s demo_mnist_sweep.c demo_mnist_weights.S gic.c
 CNN_SWEEP_TARGET  := demo_mnist_sweep.elf
 
+# ── demo_hdmi_test: B2 bare-metal HDMI smoke (port of hdmi_first_light) ─
+HDMI_TEST_SRCS    := start.s demo_hdmi_test.c hdmi_bm.c gic.c
+HDMI_TEST_TARGET  := demo_hdmi_test.elf
+
 # ── bench_compare: ARM-vs-CGRA head-to-head on canonical kernels ────────
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test
 
 all: $(TARGET)
 
@@ -136,6 +140,8 @@ mnist_smoke: $(CNN_SMOKE_TARGET)
 mnist_sweep: $(CNN_SWEEP_TARGET)
 
 bench_compare: $(BCMP_TARGET)
+
+hdmi_test: $(HDMI_TEST_TARGET)
 
 demo: $(DEMO_TARGET)
 
@@ -214,6 +220,11 @@ $(CNN_SWEEP_TARGET): $(CNN_SWEEP_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_sw
 $(BCMP_TARGET): $(BCMP_SRCS) uart.h cgra.h gic.h linker.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(BCMP_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(BCMP_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(HDMI_TEST_TARGET): $(HDMI_TEST_SRCS) uart.h hdmi_bm.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(HDMI_TEST_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(HDMI_TEST_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 dis: $(TARGET)
