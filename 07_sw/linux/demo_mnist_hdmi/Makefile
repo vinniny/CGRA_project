@@ -69,6 +69,18 @@ $(TEST_PROBE_BIN): $(TEST_PROBE_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
+# test_compare (M4) — ARM vs CGRA timing + accuracy
+TEST_CMP_OBJS = $(BUILD_DIR)/test_compare.o $(BUILD_DIR)/cgra_user.o \
+                $(BUILD_DIR)/cgra_driver.o $(BUILD_DIR)/demo_mnist_weights.o \
+                $(BUILD_DIR)/arm_fc.o
+TEST_CMP_BIN  = $(BUILD_DIR)/test_compare
+.PHONY: test_compare
+test_compare: toolchain-check $(TEST_CMP_BIN)
+	@:
+$(TEST_CMP_BIN): $(TEST_CMP_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^
+	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
+
 fb_test: toolchain-check $(FB_TEST_BIN)
 	@:
 
