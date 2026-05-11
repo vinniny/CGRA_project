@@ -83,13 +83,20 @@ def load_weights():
 
 
 def run_image(img_t, w):
-    """Returns (act400_i32, act64_i32, golden_pred)."""
-    c1_w = torch.tensor(w["conv1_w_q"].astype(np.float32) * w["sc1"]).reshape(8, 1, 3, 3)
+    """Returns (act400_i32, act64_i32, golden_pred).
+
+    The conv weights are stored in [out, kH, kW, in] order in the binary
+    (per load_weights's frombuffer().reshape). PyTorch conv2d expects
+    [out, in, kH, kW], so we MUST transpose (not reshape, which preserves
+    memory layout and corrupts the channel axis for conv2 with in=8).
+    Matches golden_sim.py's infer_one path.
+    """
+    c1_w = torch.tensor(w["conv1_w_q"].astype(np.float32) * w["sc1"]).permute(0, 3, 1, 2).contiguous()
     c1_b = torch.tensor(w["conv1_b_q"].astype(np.float32) * w["sc1"])
     x = F.conv2d(img_t.unsqueeze(0), c1_w, c1_b)
     x = F.relu(x); x = F.max_pool2d(x, 2)
 
-    c2_w = torch.tensor(w["conv2_w_q"].astype(np.float32) * w["sc2"]).reshape(16, 8, 3, 3)
+    c2_w = torch.tensor(w["conv2_w_q"].astype(np.float32) * w["sc2"]).permute(0, 3, 1, 2).contiguous()
     c2_b = torch.tensor(w["conv2_b_q"].astype(np.float32) * w["sc2"])
     x = F.conv2d(x, c2_w, c2_b)
     x = F.relu(x); x = F.max_pool2d(x, 2)

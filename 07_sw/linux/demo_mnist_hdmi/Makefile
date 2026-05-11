@@ -22,12 +22,17 @@ REPO_ROOT := $(abspath $(CURDIR)/../../..)
 
 # -DSWEEP_RODATA= : override the bare-metal section attribute in the fixture
 #   so the data lands in default rodata when linked into a Linux ELF.
+# -DBOARD_PYNQ_BASE : selects CGRA APB at 0x43C80000 (PYNQ-base + CGRA bolt-on).
 CFLAGS  = -O2 -Wall -Wextra -static \
           -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=hard \
           -fno-tree-vectorize \
+          -Wno-array-bounds \
           -I. \
           -I$(REPO_ROOT)/07_sw/baremetal \
-          -DSWEEP_RODATA=
+          -I$(REPO_ROOT)/07_sw/lib \
+          -I$(REPO_ROOT)/07_sw/driver \
+          -DSWEEP_RODATA= \
+          -DBOARD_PYNQ_BASE
 
 BUILD_DIR = build
 
@@ -41,8 +46,28 @@ FB_TEST2_SRCS = fb_test2.c fb_lib.c font5x7.c
 FB_TEST2_OBJS = $(addprefix $(BUILD_DIR)/, $(FB_TEST2_SRCS:.c=.o))
 FB_TEST2_BIN  = $(BUILD_DIR)/fb_test2
 
-.PHONY: all clean toolchain-check fb_test fb_test2
-all: fb_test fb_test2
+# test_inference (M3) — CGRA inference smoke test
+# Includes the bare-metal weight blob (.S) and the existing cgra_driver.c.
+TEST_INF_SRCS  = test_inference.c cgra_user.c
+TEST_INF_DEPS  = $(REPO_ROOT)/07_sw/driver/cgra_driver.c \
+                 $(REPO_ROOT)/07_sw/baremetal/demo_mnist_weights.S
+TEST_INF_OBJS  = $(addprefix $(BUILD_DIR)/, $(TEST_INF_SRCS:.c=.o)) \
+                 $(BUILD_DIR)/cgra_driver.o \
+                 $(BUILD_DIR)/demo_mnist_weights.o
+TEST_INF_BIN   = $(BUILD_DIR)/test_inference
+
+.PHONY: all clean toolchain-check fb_test fb_test2 test_inference test_probe
+all: fb_test fb_test2 test_inference
+
+# test_probe — diagnostic for M3 debugging
+TEST_PROBE_OBJS = $(BUILD_DIR)/test_probe.o $(BUILD_DIR)/cgra_user.o \
+                  $(BUILD_DIR)/cgra_driver.o $(BUILD_DIR)/demo_mnist_weights.o
+TEST_PROBE_BIN  = $(BUILD_DIR)/test_probe
+test_probe: toolchain-check $(TEST_PROBE_BIN)
+	@:
+$(TEST_PROBE_BIN): $(TEST_PROBE_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^
+	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
 fb_test: toolchain-check $(FB_TEST_BIN)
 	@:
@@ -50,10 +75,26 @@ fb_test: toolchain-check $(FB_TEST_BIN)
 fb_test2: toolchain-check $(FB_TEST2_BIN)
 	@:
 
+test_inference: toolchain-check $(TEST_INF_BIN)
+	@:
+
 $(FB_TEST2_BIN): $(FB_TEST2_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 	@file $@
+
+$(TEST_INF_BIN): $(TEST_INF_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^
+	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
+	@file $@
+
+# Driver lives in 07_sw/driver/ — compile from there.
+$(BUILD_DIR)/cgra_driver.o: $(REPO_ROOT)/07_sw/driver/cgra_driver.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Weight blob: .incbin a binary file via assembler.
+$(BUILD_DIR)/demo_mnist_weights.o: $(REPO_ROOT)/07_sw/baremetal/demo_mnist_weights.S | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(FB_TEST_BIN): $(FB_TEST_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $^
