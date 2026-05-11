@@ -81,6 +81,19 @@ $(TEST_CMP_BIN): $(TEST_CMP_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
+# demo_mnist_hdmi (M5) — the full live HDMI demo binary
+DEMO_OBJS = $(BUILD_DIR)/demo_mnist_hdmi.o $(BUILD_DIR)/fb_lib.o \
+            $(BUILD_DIR)/font5x7.o $(BUILD_DIR)/cgra_user.o \
+            $(BUILD_DIR)/cgra_driver.o $(BUILD_DIR)/demo_mnist_weights.o \
+            $(BUILD_DIR)/arm_fc.o
+DEMO_BIN  = $(BUILD_DIR)/demo_mnist_hdmi
+.PHONY: demo_mnist_hdmi
+demo_mnist_hdmi: toolchain-check $(DEMO_BIN)
+	@:
+$(DEMO_BIN): $(DEMO_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^
+	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
+
 fb_test: toolchain-check $(FB_TEST_BIN)
 	@:
 
