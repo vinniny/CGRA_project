@@ -63,4 +63,10 @@ SECTIONS {
     .cnn_sweep : {
         *(.cnn_sweep)
     } > DDR_DATA
+
+    /* BSS-like runtime buffers too large for OCM (e.g. VFP FC weights).
+     * NOLOAD = no initial image bytes in ELF; zero-init at startup. */
+    .cnn_runtime (NOLOAD) : ALIGN(8) {
+        *(.cnn_runtime)
+    } > DDR_DATA
 }

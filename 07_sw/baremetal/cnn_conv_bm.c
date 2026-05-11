@@ -3,6 +3,7 @@
 #include "cnn_conv_bm.h"
 #include "cgra.h"
 #include "cgra_kernels_cnn.h"
+#include "cnn_requant_bm.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -15,28 +16,23 @@
  */
 extern const uint8_t cnn_conv_start[];
 
-/* Input scaling for INT MAC compatibility.
- *
- * Goal: pick an input_scale such that MAC accumulators dominate biases,
- * so ReLU doesn't clamp everything to zero.
- *
- * The float normalized pixel is in roughly [-0.42, +2.82] (mean-subtracted
- * uint8/255 divided by std). We multiply by INPUT_SCALE then round.
- *
- * Choice: INPUT_SCALE = 256 gives integer range ~[-110, +725] which keeps
- * Conv1 MAC sums (typical ~hundreds of thousands) well above the bias_q
- * values (typical magnitude ~30000 * 256 = 7.6M ≈ same order as MAC sum
- * after the * INPUT_SCALE scaling fix below). */
+/* Input scaling for INT MAC compatibility. INPUT_SCALE = 256 lifts the
+ * mean-subtracted normalized pixel into integer range while keeping
+ * Conv1 MAC sums well above bias_q magnitudes. */
 #define INPUT_SCALE       256
 #define INPUT_SCALE_LOG2  8
 
+/* 1 / MNIST_CONV1_SCALE_W_F (= 1 / 0.00003041). Used to scale Conv2 bias
+ * into the Conv2 accumulator's post-requant units. */
+#define CONV1_INV_SCALE_W 32885
+
+/* Input normalization in integer fixed point. */
 static inline int32_t normalize_pixel(uint8_t v)
 {
-    /* ((v/255 - 0.1307) / 0.3081) * INPUT_SCALE   — derived once, hard-coded.
-     * Avoid float in the hot path; use integer fixed-point. */
-    int32_t scaled = (int32_t)v * (INPUT_SCALE * 65536) / 255;     /* (v/255) << 16 * scale */
-    scaled -= (int32_t)(0.1307f * INPUT_SCALE * 65536.0f);          /* -mean */
-    int32_t out = scaled / (int32_t)(0.3081f * 65536.0f);           /* /std, undo <<16 */
+    /* ((v/255 - 0.1307) / 0.3081) * INPUT_SCALE */
+    int32_t scaled = (int32_t)v * (INPUT_SCALE * 65536) / 255;
+    scaled -= (int32_t)(0.1307f * INPUT_SCALE * 65536.0f);
+    int32_t out = scaled / (int32_t)(0.3081f * 65536.0f);
     return out;
 }
 
@@ -51,7 +47,6 @@ static inline int32_t c1_bias(int oc) {
 }
 static inline int16_t c2_weight(int oc, int kh, int kw, int ic) {
     const int16_t *w = (const int16_t *)(cnn_conv_start + 176);
-    /* OKHWI: w[oc][kh][kw][ic] = w[oc*72 + kh*24 + kw*8 + ic]. */
     return w[oc * 72 + kh * 24 + kw * 8 + ic];
 }
 static inline int32_t c2_bias(int oc) {
@@ -107,33 +102,32 @@ static void pack_inputs_1ch(int32_t *src, int W,
         }
 }
 
-/* Conv1: 28x28x1 input -> 26x26x8 output. ReLU done here too (cheap).
+/* Conv1: 28x28x1 input -> 26x26x8 output. Adds bias (correctly scaled) and
+ * fused ReLU. Output is in integer accumulator units at scale
+ * INPUT_SCALE * (1/s_w1) ≈ 8.42M per float unit.
  *
- * Scale arithmetic:
- *   I_in  at scale s_in  = 1/INPUT_SCALE
- *   I_w1  at scale s_w1  = 0.00003041 (MNIST_CONV1_SCALE_W_F)
- *   MAC acc I_acc at scale (s_in * s_w1).
- *   Bias I_b1 is stored at scale s_w1 (weight-scale units, per quantize_cgra.py).
- *   To add bias correctly to MAC accumulator:
- *     bias_for_acc = I_b1 / s_in = I_b1 * INPUT_SCALE
- */
+ * Amortized: PE0 configured once at the top, weights re-DMAed only when
+ * the output channel changes. Per-pixel cost is just input-DMA + CU +
+ * read — ~3500 cyc instead of cnn_conv3x3_pixel's ~7000.                */
 static int conv1_run(int32_t *input_hw, int32_t *output_hwc)
 {
     volatile uint32_t *wbuf  = (volatile uint32_t *)CONV_WBUF_DDR;
     volatile uint32_t *inbuf = (volatile uint32_t *)CONV_INBUF_DDR;
 
+    if (cnn_conv3x3_kernel_setup(CONV_STAGING_DDR) < 0) return -1;
+
     for (int oc = 0; oc < CONV1_OUT_C; ++oc) {
         pack_weights_c1(oc, wbuf);
-        int32_t bias = c1_bias(oc) << INPUT_SCALE_LOG2;    /* scale-correct */
+        if (cnn_conv3x3_load_weights(CONV_WBUF_DDR) < 0) return -1;
+        int32_t bias_q = c1_bias(oc);
         for (int oh = 0; oh < CONV1_OUT_H; ++oh) {
             for (int ow = 0; ow < CONV1_OUT_W; ++ow) {
                 pack_inputs_1ch(input_hw, CONV1_IN_W, oh, ow, inbuf);
                 int32_t acc = 0;
-                if (cnn_conv3x3_pixel(CONV_STAGING_DDR,
-                                      CONV_WBUF_DDR, CONV_INBUF_DDR,
-                                      &acc) < 0) return -1;
-                int32_t out = acc + bias;
-                if (out < 0) out = 0; /* fused ReLU */
+                if (cnn_conv3x3_run_pixel(CONV_INBUF_DDR, &acc) < 0)
+                    return -1;
+                int32_t out = conv1_apply_bias(acc, bias_q, INPUT_SCALE_LOG2);
+                if (out < 0) out = 0;
                 output_hwc[(oh * CONV1_OUT_W + ow) * CONV1_OUT_C + oc] = out;
             }
         }
@@ -141,36 +135,52 @@ static int conv1_run(int32_t *input_hw, int32_t *output_hwc)
     return 0;
 }
 
-/* Conv2: 13x13x8 input -> 11x11x16 output (with fused ReLU).
+/* Conv2: 13x13x8 input -> 11x11x16 output with fused ReLU and bias.
  *
- * Conv2 input is Conv1 output at accumulated scale (s_in * s_w1), so values
- * are already large. We DON'T add the Conv2 bias here — its scale mismatch
- * (I_b2 / (s_in * s_w1) overflows INT32 by ~3 decimal orders of magnitude).
- * Bias represents a small correction; skipping it loses some accuracy but
- * doesn't catastrophically bias toward one class. The proper fix is
- * per-layer requantization to keep accumulators bounded — deferred to
- * B4 phase 2 alongside the TILE_AUTO_INC optimization.                */
-static int conv2_run(int32_t *input_hwc, int32_t *output_hwc)
+ * Inputs are pool1_out *after* shift1 right-shift, so they fit in INT16.
+ * MAC across 8 input channels stays well inside INT32. Bias is converted
+ * from (1/s_w2) units into the Conv2-accumulator scale using shift1.    */
+/* Conv2: 13x13x8 input -> 11x11x16 output with fused ReLU and bias.
+ * Amortized: weights are re-DMAed only when (oc, ic) advances; the
+ * inner loop over (oh, ow) shares PE config and SPM weight content. */
+static int conv2_run(int32_t *input_hwc, int32_t *output_hwc, int shift1)
 {
     volatile uint32_t *wbuf  = (volatile uint32_t *)CONV_WBUF_DDR;
     volatile uint32_t *inbuf = (volatile uint32_t *)CONV_INBUF_DDR;
 
+    if (cnn_conv3x3_kernel_setup(CONV_STAGING_DDR) < 0) return -1;
+
+    /* Zero the channel-sum buffer before accumulating across ic. */
+    for (int i = 0; i < CONV2_OUT_H * CONV2_OUT_W * CONV2_OUT_C; ++i)
+        output_hwc[i] = 0;
+
     for (int oc = 0; oc < CONV2_OUT_C; ++oc) {
-        for (int oh = 0; oh < CONV2_OUT_H; ++oh) {
-            for (int ow = 0; ow < CONV2_OUT_W; ++ow) {
-                int32_t acc_sum = 0;  /* bias skipped on purpose */
-                for (int ic = 0; ic < CONV2_IN_C; ++ic) {
-                    pack_weights_c2(oc, ic, wbuf);
+        for (int ic = 0; ic < CONV2_IN_C; ++ic) {
+            pack_weights_c2(oc, ic, wbuf);
+            if (cnn_conv3x3_load_weights(CONV_WBUF_DDR) < 0) return -1;
+            for (int oh = 0; oh < CONV2_OUT_H; ++oh) {
+                for (int ow = 0; ow < CONV2_OUT_W; ++ow) {
                     pack_inputs(input_hwc, CONV2_IN_H, CONV2_IN_W,
                                 CONV2_IN_C, ic, oh, ow, inbuf);
                     int32_t acc = 0;
-                    if (cnn_conv3x3_pixel(CONV_STAGING_DDR,
-                                          CONV_WBUF_DDR, CONV_INBUF_DDR,
-                                          &acc) < 0) return -1;
-                    acc_sum += acc;
+                    if (cnn_conv3x3_run_pixel(CONV_INBUF_DDR, &acc) < 0)
+                        return -1;
+                    output_hwc[(oh * CONV2_OUT_W + ow) * CONV2_OUT_C + oc]
+                        += acc;
                 }
-                if (acc_sum < 0) acc_sum = 0; /* fused ReLU */
-                output_hwc[(oh * CONV2_OUT_W + ow) * CONV2_OUT_C + oc] = acc_sum;
+            }
+        }
+        /* After all 8 ic accumulated, add bias + ReLU for this oc. */
+        int32_t bias_q = c2_bias(oc);
+        for (int oh = 0; oh < CONV2_OUT_H; ++oh) {
+            for (int ow = 0; ow < CONV2_OUT_W; ++ow) {
+                int idx = (oh * CONV2_OUT_W + ow) * CONV2_OUT_C + oc;
+                int32_t v = conv2_apply_bias(output_hwc[idx], bias_q,
+                                             INPUT_SCALE,
+                                             CONV1_INV_SCALE_W,
+                                             shift1);
+                if (v < 0) v = 0;
+                output_hwc[idx] = v;
             }
         }
     }
@@ -199,26 +209,15 @@ static void maxpool_2x2(int32_t *input, int H_in, int W_in, int C,
     }
 }
 
-/* CHW-flatten + per-image right-shift to fit into INT16-range INT32.
- * pool2_out is HWC [5][5][16]. Output is [16][5][5] flattened to 400. */
-static void chw_quantize(int32_t *pool2_hwc, int32_t *act400_out)
+/* Transpose HWC -> CHW. Output [16][5][5] flattened to 400. */
+static void chw_transpose(const int32_t *pool2_hwc, int32_t *act400_out)
 {
-    /* Find max abs to decide a shift amount. */
-    int32_t max_abs = 0;
-    for (int i = 0; i < POOL2_OUT_N; ++i) {
-        int32_t a = pool2_hwc[i]; if (a < 0) a = -a;
-        if (a > max_abs) max_abs = a;
-    }
-    int shift = 0;
-    while ((max_abs >> shift) > 32767 && shift < 31) shift++;
-
-    /* Transpose HWC -> CHW + shift. */
     for (int c = 0; c < CONV2_OUT_C; ++c) {
         for (int h = 0; h < POOL2_OUT_H; ++h) {
             for (int w = 0; w < POOL2_OUT_W; ++w) {
                 int hwc = ((size_t)h * POOL2_OUT_W + w) * CONV2_OUT_C + c;
                 int chw = ((size_t)c * POOL2_OUT_H + h) * POOL2_OUT_W + w;
-                act400_out[chw] = pool2_hwc[hwc] >> shift;
+                act400_out[chw] = pool2_hwc[hwc];
             }
         }
     }
@@ -239,9 +238,16 @@ int cnn_full_inference(const uint8_t input_uint8[CONV1_IN_H * CONV1_IN_W],
 
     if (conv1_run(input_buf, conv1_out) < 0) return -1;
     maxpool_2x2(conv1_out, CONV1_OUT_H, CONV1_OUT_W, CONV1_OUT_C, pool1_out);
-    if (conv2_run(pool1_out, conv2_out) < 0) return -1;
+
+    /* Per-layer requant after pool1 — clamps inputs to Conv2 into INT16. */
+    int shift1 = cnn_requant_to_int16(pool1_out,
+                                      POOL1_OUT_H * POOL1_OUT_W * CONV1_OUT_C);
+
+    if (conv2_run(pool1_out, conv2_out, shift1) < 0) return -1;
     maxpool_2x2(conv2_out, CONV2_OUT_H, CONV2_OUT_W, CONV2_OUT_C, pool2_out);
-    chw_quantize(pool2_out, act400_out);
+
+    /* Per-image requant before flattening to FC1 input. */
+    (void)cnn_requant_to_int16(pool2_out, POOL2_OUT_N);
+    chw_transpose(pool2_out, act400_out);
     return 0;
 }
-

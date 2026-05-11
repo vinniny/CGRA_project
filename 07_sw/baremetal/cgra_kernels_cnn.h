@@ -350,6 +350,65 @@ static inline int cnn_conv3x3_pixel(
 }
 
 /* =========================================================================
+ * Conv3×3 amortized kernel — splits cnn_conv3x3_pixel into setup / load-
+ * weights / run-pixel so callers can amortize the ~3000-cycle per-call
+ * overhead across many output pixels of the same convolution channel.
+ *
+ * Use pattern:
+ *   cnn_conv3x3_kernel_setup(STAGING_DDR);          // once per boot
+ *   for each output channel oc:
+ *       cnn_conv3x3_load_weights(weights_ddr_oc);   // once per channel
+ *       for each output position (oh, ow):
+ *           pack inputs_ddr with 9 input values at [2..10];
+ *           cnn_conv3x3_run_pixel(inputs_ddr, &result);
+ *           // ARM-side: add bias, ReLU, store
+ *
+ * Same silicon path as cnn_conv3x3_pixel (PE0 MAC SRC_W×SRC_SPM, slots
+ * 0..15 with SPM/TILE auto-inc to address weight/input arrays). The
+ * setup phase configures PE0 once; subsequent run_pixel calls skip the
+ * 16-slot DMA-config phase. Expected per-call cost ~3500 cyc vs ~7000
+ * for cnn_conv3x3_pixel.
+ * ========================================================================= */
+static inline int cnn_conv3x3_kernel_setup(uint32_t staging_ddr)
+{
+    for (uint32_t i = 0; i < 16u; i++) {
+        if (cgra_config_pe_slot(0u, i, staging_ddr,
+                OP_MAC, SRC_W, SRC_SPM, 0u, 0u, 0u)) return -1;
+    }
+    cgra_wr(CGRA_LOOP_START, 0u);
+    cgra_wr(CGRA_LOOP_END,   15u);
+    cgra_wr(CGRA_LOOP_COUNT, 0u);
+    cgra_wr(CGRA_CU_PC_END,  15u);
+    return 0;
+}
+
+/* Load 16-word weight buffer (zeros except [2..10] = 9 weights) into
+ * PE0's SPM. Call once per output channel. */
+static inline int cnn_conv3x3_load_weights(uint32_t weights_ddr)
+{
+    return cgra_dma(weights_ddr, CGRA_SPM_PE_ADDR(0, 0), 64u);
+}
+
+/* Run one Conv3×3 pixel. Inputs must already be packed at inputs_ddr
+ * (16 int32 words, zeros except [2..10] = 9 input values). Weights and
+ * PE config must already be loaded by the setup/load_weights pair. */
+static inline int cnn_conv3x3_run_pixel(uint32_t inputs_ddr,
+                                         int32_t *result_out)
+{
+    if (cgra_dma(inputs_ddr, CGRA_TILE_BCAST, 64u)) return -1;
+    cgra_wr(CGRA_CU_CTRL, 2u);
+    cgra_wr(CGRA_CU_CTRL, 0u);
+    cgra_wr(CGRA_TILE_AUTO_INC, 1u);
+    cgra_wr(CGRA_SPM_AUTO_INC,  1u);
+    cgra_cu_start();
+    if (cgra_cu_wait(1000000u)) return -1;
+    cgra_wr(CGRA_TILE_AUTO_INC, 0u);
+    cgra_wr(CGRA_SPM_AUTO_INC,  0u);
+    *result_out = (int32_t)cgra_rd(CGRA_RESULT_DATA);
+    return 0;
+}
+
+/* =========================================================================
  * ReLU activation kernel (single value via PE0)
  * =========================================================================
  * Applies max(0, x) to one tile-driven value. Mirrors tb_suite_cnn_kernel.svh
