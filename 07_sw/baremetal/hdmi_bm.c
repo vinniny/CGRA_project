@@ -130,6 +130,27 @@ static void hls_configure(void)
     mmio_w(PU_OUT_BASE + 0x10, 0x0u);
 }
 
+/* Force every HDMI IP into a known idle state before reconfiguration.
+ * Needed because XSDB-driven ELF reloads don't power-cycle the PL — when
+ * the previous ELF left VDMA/VTC running, the new hdmi_init() would
+ * write the regs while a frame transfer was in flight, producing torn
+ * or shifted output until the next board reset. */
+static void hdmi_force_idle(void)
+{
+    /* VDMA MM2S: stop (RUNSTOP=0), then soft-reset (bit 2), wait. */
+    mmio_w(VDMA_BASE, 0u);
+    delay_us(1000);
+    mmio_w(VDMA_BASE, 0x4u);        /* RESET */
+    delay_us(5000);
+    /* VTC generator: disable (CTL=0). Stops AXI-Stream output. */
+    mmio_w(VTC_BASE, 0u);
+    delay_us(1000);
+    /* dynclk: stop the MMCM so the next program sequence sees a clean
+     * de-asserted state. */
+    mmio_w(DYNCLK_BASE, 0u);
+    delay_us(1000);
+}
+
 int hdmi_init(void)
 {
     /* In bare-metal we control SLCR directly. ps7_init.tcl set FCLK0 to
@@ -139,10 +160,9 @@ int hdmi_init(void)
     mmio_w(SLCR_BASE + 0x170, 0x00100A00u); /* FPGA0_CLK_CTRL: DIV0=10,DIV1=1,IO_PLL */
     mmio_w(SLCR_BASE + 0x004, 0x0000767Bu); /* SLCR_LOCK */
 
-    /* In Linux the script reloads the bitstream HERE so dynclk MMCM boots
-     * fresh with FCLK0=100 MHz. In bare-metal the bitstream is already
-     * loaded by XSDB (via fpga -file). No reload available; we trust
-     * that XSDB's recent fpga programming + our FCLK0 fix above is enough. */
+    /* Quench any leftover state from a previous ELF run. Without this,
+     * ELF reloads via XSDB cause HDMI tearing/misalignment until SRST. */
+    hdmi_force_idle();
 
     if (dynclk_program_25_175MHz() < 0) return -1;
     hls_configure();

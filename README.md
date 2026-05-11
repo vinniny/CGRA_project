@@ -271,6 +271,46 @@ baud and captured in `02_log/uart.log`. **Current result on hardware:
 > usbipd attach --wsl --busid <jtag>; usbipd attach --wsl --busid <uart>
 > ```
 
+### MNIST CNN FC Acceleration Demo (Bare-metal HDMI)
+
+End-to-end thesis demo: live three-panel head-to-head of the FC1+FC2
+dense-matmul stage running on **CGRA** vs **ARM scalar INT64** vs
+**ARM scalar VFP**, with the Conv+Pool front-end kept on ARM-VFP for
+all three paths so only the FC stage is timed. Renders the MNIST input
+digit + each path's prediction, microsecond timing, FPS, and live
+running speedup ratio to a 640×480 HDMI panel.
+
+```bash
+cd 07_sw/baremetal && make BOARD=PYNQ_BASE mnist_hdmi
+make run_elf ELF=07_sw/baremetal/demo_mnist_hdmi_bm.elf \
+             BIT=bitstreams/cgra_pynq_base/base.bit
+```
+
+**Silicon-measured (PYNQ-Z2, 201 frames, locked at tag
+`baremetal-mnist-fc-demo-locked`)**:
+
+| Path        | Per-img | FPS | Accuracy  | vs CGRA      |
+|-------------|---------|-----|-----------|--------------|
+| **CGRA-FC** | 1.50 ms | 668 | 97% (195/201) | —            |
+| ARM-INT-FC  | 5.60 ms | 178 | 97% (195/201) | 3.74× slower |
+| ARM-VFP-FC  | 4.36 ms | 230 | 100% (201/201) | 2.91× slower |
+
+The CGRA-FC vs ARM-INT-FC pair runs the *exact same integer math*
+(INT16 weights × INT32 acts → INT64 acc → INT32 saturate); only the
+hardware target differs. That's the thesis-defensible apples-to-apples
+3.74× wall-clock speedup. The VFP path is the honest "modern compiler
+default" asterisk.
+
+The companion UART-only target `make mnist_compare` produces the same
+three measurements without the HDMI overhead — useful for headless
+cycle-counter sweeps.
+
+**See [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md)
+for the full software top-to-bottom walkthrough**: frame-loop call
+chain, ARM Conv→Pool pipeline, CGRA SPM_AUTO_INC kernel, three FC
+implementations, HDMI bring-up sequence, memory layout, and the
+specific reasons Conv stays on ARM (future-work).
+
 ### C ALPR (Real-Time License Plate Recognition)
 
 Pure C pipeline for video/webcam-based plate detection using ONNX Runtime + FFmpeg.
@@ -892,6 +932,7 @@ void cgra_get_results(uint32_t results[4]) {
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
 | **Bare-Metal Regression** | baremetal/{main.c, cgra.h, uart.h, gic.{h,c}, start.s, linker.ld} | ~2000 | OCM-resident ARM ELF, 25-group / 96-check CGRA regression streaming results over UART0; includes a self-contained ARMv7 GIC driver for the round-3 interrupt-delivery test |
 | **ASCII Image Accelerator Demo** | baremetal/{demo_ascii_inverter.c, xparameters.h, xscugic_g.c, bspconfig.h} | ~660 | Vitis-BSP standalone application that inverts an 8×8 letter Z through the CGRA end-to-end; identical source for WSL2 and Windows Vitis Workbench; uses real `XScuGic` / `Xil_DCache*` APIs |
+| **MNIST FC HDMI Demo** | baremetal/{demo_mnist_hdmi_bm.c, arm_cnn_bm.c, arm_fc_{int,vfp}_bm.c, cgra_kernels_cnn.h, hdmi_bm.c, fb_lib_bm.c} | ~1500 | Three-panel HDMI head-to-head: CGRA-FC vs ARM-INT-FC vs ARM-VFP-FC, with ARM-VFP Conv+Pool as a constant front-end. **3.74× silicon-measured speedup on FC dense matmul.** See [MNIST_HDMI_DEMO.md](07_sw/baremetal/MNIST_HDMI_DEMO.md). |
 
 ### LPR Golden Model
 

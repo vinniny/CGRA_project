@@ -242,17 +242,32 @@ static void render_panel(int px, int pred, int label, uint32_t cycles)
     fbm_draw_text(px + 8, PANEL_Y + 114, fps_disp, COLOR_TXT, 2);
 }
 
-static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
-                          int correct, int total)
+/* Append a "label: n/total" segment to dst starting at *idx_io. */
+static void append_acc(char *dst, int *idx_io, const char *label,
+                       uint32_t n, uint32_t total)
 {
-    (void)cyc_vfp;
+    int idx = *idx_io;
+    while (*label) dst[idx++] = *label++;
+    char numbuf[16];
+    int k = u32_to_decimal(n, numbuf, 0);
+    for (int i = 0; i < k; ++i) dst[idx++] = numbuf[i];
+    dst[idx++] = '/';
+    k = u32_to_decimal(total, numbuf, 0);
+    for (int i = 0; i < k; ++i) dst[idx++] = numbuf[i];
+    *idx_io = idx;
+}
+
+static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
+                          int correct_cgra, int correct_int, int correct_vfp,
+                          int total)
+{
     hdmi_rect(0, FOOTER_Y, HDMI_FB_W, HDMI_FB_H - FOOTER_Y, COLOR_BG);
 
     char sp_int[16], sp_vfp[16];
     fmt_speedup(cyc_int, cyc_cgra, sp_int);
     fmt_speedup(cyc_vfp, cyc_cgra, sp_vfp);
 
-    char line[96];
+    char line[128];
     int idx = 0;
     const char *p;
     p = "CGRA-FC SPEEDUP  vs ARM-INT-FC: ";  while (*p) line[idx++] = *p++;
@@ -262,19 +277,15 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
     line[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y, line, COLOR_ACCENT, 1);
 
-    char acc[64];
+    char acc[128];
     idx = 0;
-    p = "ACCURACY (ALL PATHS): ";  while (*p) acc[idx++] = *p++;
-    char numbuf[16];
-    int n;
-    n = u32_to_decimal((uint32_t)correct, numbuf, 0);
-    for (int i = 0; i < n; ++i) acc[idx++] = numbuf[i];
-    acc[idx++] = '/';
-    n = u32_to_decimal((uint32_t)total, numbuf, 0);
-    for (int i = 0; i < n; ++i) acc[idx++] = numbuf[i];
+    append_acc(acc, &idx, "ACC  CGRA: ", (uint32_t)correct_cgra, (uint32_t)total);
+    append_acc(acc, &idx, "   INT: ",    (uint32_t)correct_int,  (uint32_t)total);
+    append_acc(acc, &idx, "   VFP: ",    (uint32_t)correct_vfp,  (uint32_t)total);
     p = "   FRAME: ";  while (*p) acc[idx++] = *p++;
-    n = u32_to_decimal((uint32_t)total, numbuf, 0);
-    for (int i = 0; i < n; ++i) acc[idx++] = numbuf[i];
+    char numbuf[16];
+    int k = u32_to_decimal((uint32_t)total, numbuf, 0);
+    for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
     acc[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y + 14, acc, COLOR_TXT, 1);
 }
@@ -299,7 +310,9 @@ int main(void)
     render_static_chrome();
     hdmi_flush_fb();
 
-    int correct = 0;   /* counts agreement of all 3 FC paths with the label */
+    int correct_cgra = 0;
+    int correct_int  = 0;
+    int correct_vfp  = 0;
     int frame = 0;
 
     for (;;) {
@@ -331,13 +344,16 @@ int main(void)
         t1 = arm_ccnt_read();
         cyc_vfp = t1 - t0;
 
-        if (pred_cgra == label) correct++;
+        if (pred_cgra == label) correct_cgra++;
+        if (pred_int  == label) correct_int++;
+        if (pred_vfp  == label) correct_vfp++;
 
         fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
         render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra);
         render_panel(PANEL_INT_X,  pred_int,  label, cyc_int);
         render_panel(PANEL_VFP_X,  pred_vfp,  label, cyc_vfp);
-        render_footer(cyc_cgra, cyc_int, cyc_vfp, correct, frame + 1);
+        render_footer(cyc_cgra, cyc_int, cyc_vfp,
+                      correct_cgra, correct_int, correct_vfp, frame + 1);
         hdmi_flush_fb();
 
         uart_puts("img "); uart_putdec((uint32_t)i);
