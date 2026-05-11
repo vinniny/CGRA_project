@@ -34,6 +34,13 @@ CFLAGS  = -O2 -Wall -Wextra -static \
           -DSWEEP_RODATA= \
           -DBOARD_PYNQ_BASE
 
+# Mark stack as non-executable in the ELF. Without this, musl-cross-gcc
+# leaves the PT_GNU_STACK flag at the default (RWX), and the kernel emits
+# a warning "Process '...' started with executable stack" on every run.
+# Cosmetic but worth fixing — also future-proofs against kernels that
+# enforce SIGKILL on exec-stack binaries.
+LDFLAGS = -Wl,-z,noexecstack
+
 BUILD_DIR = build
 
 # fb_test (M1)
@@ -66,7 +73,7 @@ TEST_PROBE_BIN  = $(BUILD_DIR)/test_probe
 test_probe: toolchain-check $(TEST_PROBE_BIN)
 	@:
 $(TEST_PROBE_BIN): $(TEST_PROBE_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
 # test_compare (M4) — ARM vs CGRA timing + accuracy
@@ -78,7 +85,7 @@ TEST_CMP_BIN  = $(BUILD_DIR)/test_compare
 test_compare: toolchain-check $(TEST_CMP_BIN)
 	@:
 $(TEST_CMP_BIN): $(TEST_CMP_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
 # demo_mnist_hdmi (M5) — the full live HDMI demo binary
@@ -91,7 +98,7 @@ DEMO_BIN  = $(BUILD_DIR)/demo_mnist_hdmi
 demo_mnist_hdmi: toolchain-check $(DEMO_BIN)
 	@:
 $(DEMO_BIN): $(DEMO_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
 fb_test: toolchain-check $(FB_TEST_BIN)
@@ -104,12 +111,12 @@ test_inference: toolchain-check $(TEST_INF_BIN)
 	@:
 
 $(FB_TEST2_BIN): $(FB_TEST2_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 	@file $@
 
 $(TEST_INF_BIN): $(TEST_INF_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 	@file $@
 
@@ -122,7 +129,7 @@ $(BUILD_DIR)/demo_mnist_weights.o: $(REPO_ROOT)/07_sw/baremetal/demo_mnist_weigh
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(FB_TEST_BIN): $(FB_TEST_OBJS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 	@file $@
 
