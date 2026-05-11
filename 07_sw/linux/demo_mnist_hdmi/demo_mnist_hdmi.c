@@ -180,10 +180,21 @@ int main(int argc, char **argv)
 
     /* ---- init: FB + CGRA (CGRA needed even in --arm so the hardware
      * stays warm and we report a consistent CGRA path; we just skip the
-     * cgra_user_run_inference call in ARM-only mode). ---- */
+     * cgra_user_run_inference call in ARM-only mode).
+     *
+     * NOTE: fb_lib.h has fb_open_db / fb_swap for proper double-buffered
+     * VDMA park-mode operation. We don't use them here because the
+     * register-level access patterns we have today (no DT-reserved CMA,
+     * no UIO IRQ) collide with the AXI VDMA's strict requirement that
+     * frame addresses change at vsync boundaries. The DB path either
+     * blew up the AXIS chain (reset approach) or accumulated
+     * SOFEarlyErr that eventually halted the channel (soft approach).
+     * Single-buffer with slight cosmetic tearing is the right tradeoff
+     * for the demo until a kernel-level fix (DT memreserve + VDMA UIO
+     * IRQ at vsync) is in place. ---- */
     fb_t fb = {0};
     if (fb_open(&fb, FB_DEFAULT_PHYS) < 0) return 1;
-    fprintf(stderr, "demo: FB mmap'd OK\n");
+    fprintf(stderr, "demo: FB mmap'd OK (single-buffer)\n");
 
     cgra_user_t u;
     int cgra_ok = (cgra_user_init(&u) == 0);
@@ -198,19 +209,17 @@ int main(int argc, char **argv)
     int32_t arm_fc2[ARM_FC2_N_OUT];
     int32_t cgra_fc2[ARM_FC2_N_OUT];
 
-    /* ---- static UI: clear + banner + image-tile border ---- */
+    /* ---- static UI: drawn once outside the loop (single-buffer mode) ---- */
     fb_clear(&fb, FB_DARKBG);
     const char *banner =
         (mode == MODE_ARM)     ? "MNIST DEMO ARM-ONLY" :
         (mode == MODE_COMPARE) ? "MNIST DEMO ARM VS CGRA" :
                                  "MNIST DEMO CGRA";
     fb_draw_text(&fb, 16, 4, banner, FB_WHITE, 2);
-    /* Border around image tile */
     fb_rect(&fb, IMG_X - 2, IMG_Y - 2, IMG_W + 4, 1,   FB_GRAY);
     fb_rect(&fb, IMG_X - 2, IMG_BOTTOM + 1, IMG_W + 4, 1, FB_GRAY);
     fb_rect(&fb, IMG_X - 2, IMG_Y - 2, 1, IMG_W + 4,   FB_GRAY);
     fb_rect(&fb, IMG_X + IMG_W + 1, IMG_Y - 2, 1, IMG_W + 4, FB_GRAY);
-    /* Horizontal divider above the panels */
     fb_rect(&fb, 0, DIVIDER_Y, FB_WIDTH, 1, FB_GRAY);
 
     /* ---- main loop ---- */

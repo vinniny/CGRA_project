@@ -27,16 +27,47 @@
 
 typedef struct {
     int       fd;
-    uint8_t  *map;      /* page-aligned mmap base */
-    uint8_t  *pixels;   /* = map + page_off, first byte of pixel (0,0) */
+    uint8_t  *map;      /* page-aligned mmap base of FB_A (and only FB in single mode) */
+    uint8_t  *map_b;    /* FB_B mmap base in double-buffer mode, NULL in single mode */
+    uint8_t  *pixels;   /* current back-buffer write target (= map_X + page_off) */
     size_t    map_len;
+    size_t    map_len_b;
     size_t    page_off;
+    /* Double-buffer state — unused when double_buffer == 0. */
+    volatile uint32_t *vdma;    /* mmap'd VDMA register window (MM2S) */
+    size_t    vdma_len;
+    int       front_idx;        /* frame VDMA reads: 0 = FB_A, 1 = FB_B */
+    int       double_buffer;    /* 1 if opened via fb_open_db; 0 = single */
 } fb_t;
 
-/* Open /dev/mem and mmap FB_BYTES at the given physical address.
- * `phys` may be FB_DEFAULT_PHYS or another reserved-memory base.
- * Returns 0 on success; -1 on error (errno set, perror-friendly). */
+/* Open /dev/mem and mmap FB_BYTES at the given physical address (single-
+ * buffer mode). `phys` may be FB_DEFAULT_PHYS or another reserved-memory
+ * base. Returns 0 on success; -1 on error (errno set). */
 int  fb_open(fb_t *fb, unsigned long phys);
+
+/* Open the framebuffer in double-buffer mode:
+ *   - mmaps FB_A at phys_a and FB_B at phys_b (each FB_BYTES, page-aligned).
+ *   - mmaps the AXI VDMA register window at vdma_phys (one page).
+ *   - Configures VDMA MM2S for 2-frame park mode: FRMSTORE=2,
+ *     FRAME0=phys_a, FRAME1=phys_b, PARK_PTR=0 (display FB_A first).
+ *   - Clears both buffers to FB_BLACK so neither shows garbage during the
+ *     first swap.
+ *   - Initialises fb->pixels at FB_B (caller draws to it first).
+ *
+ * Subsequent fb_pixel/rect/clear/draw_* calls write to the BACK buffer.
+ * Call fb_swap(&fb) at end of each frame to hand the back to VDMA and
+ * receive the (now displayed) old front as the new back.
+ *
+ * Returns 0 on success; -1 on error. */
+int  fb_open_db(fb_t *fb, unsigned long phys_a, unsigned long phys_b,
+                unsigned long vdma_phys);
+
+/* Swap front/back buffers. Writes VDMA's MM2S_PARK_PTR to point at what
+ * was just rendered; VDMA picks it up at the next vsync (tear-free, since
+ * the bitstream's VDMA has C_USE_FSYNC=1). After the call, fb->pixels
+ * points at the new back buffer. No-op for single-buffer fb. */
+void fb_swap(fb_t *fb);
+
 void fb_close(fb_t *fb);
 
 /* Color macros: API takes 0xRRGGBB (top byte ignored). The library converts

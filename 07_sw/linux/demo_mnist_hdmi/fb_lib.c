@@ -8,19 +8,55 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
 #include <sys/mman.h>
 
+/* AXI VDMA MM2S register offsets — verified from bitstreams/cgra_pynq_base/
+ * base.hwh against the actual instance (Xilinx PG020 r6.3). Note: this
+ * VDMA does NOT expose a separate FRMSTORE register; the ring size is
+ * fixed at synthesis via C_NUM_FSTORES=4. Software writes to 0x18 are
+ * unmapped no-ops.
+ *
+ * PARK_PTR_REG (0x28) layout (corrected from PG020 errata):
+ *   bits  [4:0]  RdFrmPtrRef  RW  MM2S park frame index (the swap reg)
+ *   bits  [12:8] WrFrmPtrRef  RW  S2MM park frame index (unused here)
+ *   bits [20:16] RdFrmStore   RO  Current MM2S frame indicator
+ *   bits [28:24] WrFrmStore   RO  Current S2MM frame indicator
+ */
+#define VDMA_MM2S_CR         0x00
+#define VDMA_MM2S_SR         0x04
+#define VDMA_MM2S_PARK_PTR   0x28
+#define VDMA_MM2S_VSIZE      0x50
+#define VDMA_MM2S_HSIZE      0x54
+#define VDMA_MM2S_STRIDE     0x58
+#define VDMA_MM2S_FRAME0     0x5C
+#define VDMA_MM2S_FRAME1     0x60
+#define VDMA_REG_SPAN        0x100
+
+/* ARM dcache-clean syscall: pushes dirty cache lines out to the point of
+ * coherency (which on Zynq-7000 is L2/DDR, visible to HP1 AXI master that
+ * VDMA reads through). Glibc/musl don't provide a wrapper. */
+#ifndef __ARM_NR_cacheflush
+#define __ARM_NR_cacheflush  (0x0f0000 + 2)
+#endif
+static inline void arm_dcache_clean(void *start, void *end) {
+    syscall(__ARM_NR_cacheflush, start, end, 0);
+}
+
 int fb_open(fb_t *fb, unsigned long phys) {
+    memset(fb, 0, sizeof(*fb));
+    fb->fd = -1;
+
     long ps = sysconf(_SC_PAGESIZE);
     fb->page_off = (size_t)(phys & (unsigned long)(ps - 1));
     unsigned long page_base = phys - fb->page_off;
     fb->map_len = (fb->page_off + FB_BYTES + (size_t)ps - 1) & ~(size_t)(ps - 1);
 
-    /* Open /dev/mem WITHOUT O_SYNC. O_SYNC forces uncached mappings, which
-     * makes per-pixel writes pay a round-trip to DDR. The reserved framebuffer
-     * region is normal DDR; cacheable mapping is correct. We msync() before
-     * VDMA reads if we ever need explicit ordering; for the demo's per-frame
-     * cadence the natural cache eviction is enough. */
+    /* Open /dev/mem WITHOUT O_SYNC: the FB region is normal DDR, cacheable
+     * mapping gives ~10x write throughput vs uncached. Per-frame visibility
+     * to VDMA is achieved by dcache-clean before swap (fb_swap in DB mode).
+     * Single-buffer mode tolerates the lack of explicit flush because of the
+     * 100 ms dwell which lets natural cache eviction catch up. */
     fb->fd = open("/dev/mem", O_RDWR);
     if (fb->fd < 0) {
         perror("fb_lib: open /dev/mem");
@@ -39,16 +75,152 @@ int fb_open(fb_t *fb, unsigned long phys) {
     return 0;
 }
 
+int fb_open_db(fb_t *fb, unsigned long phys_a, unsigned long phys_b,
+               unsigned long vdma_phys)
+{
+    memset(fb, 0, sizeof(*fb));
+    fb->fd = -1;
+
+    long ps = sysconf(_SC_PAGESIZE);
+    size_t pmask = (size_t)(ps - 1);
+
+    /* Both FBs share the same page-offset since they're both at addresses
+     * that are page-aligned by design (0x1F000000, 0x1F0F0000). */
+    fb->page_off  = (size_t)(phys_a & (unsigned long)pmask);
+    fb->map_len   = (fb->page_off + FB_BYTES + pmask) & ~pmask;
+    fb->map_len_b = (((size_t)(phys_b & pmask)) + FB_BYTES + pmask) & ~pmask;
+    fb->vdma_len  = (VDMA_REG_SPAN + pmask) & ~pmask;
+
+    /* FB fd: cacheable mapping (no O_SYNC). */
+    fb->fd = open("/dev/mem", O_RDWR);
+    if (fb->fd < 0) { perror("fb_lib: open /dev/mem (FB)"); return -1; }
+
+    fb->map = mmap(NULL, fb->map_len, PROT_READ | PROT_WRITE,
+                   MAP_SHARED, fb->fd, (off_t)(phys_a - fb->page_off));
+    if (fb->map == MAP_FAILED) {
+        perror("fb_lib: mmap FB_A"); fb_close(fb); return -1;
+    }
+    fb->map_b = mmap(NULL, fb->map_len_b, PROT_READ | PROT_WRITE,
+                     MAP_SHARED, fb->fd,
+                     (off_t)(phys_b & ~(unsigned long)pmask));
+    if (fb->map_b == MAP_FAILED) {
+        perror("fb_lib: mmap FB_B"); fb_close(fb); return -1;
+    }
+
+    /* VDMA register window: open a SEPARATE fd with O_SYNC so the kernel
+     * gives us an uncached mapping (peripheral writes must bypass cache). */
+    int vdma_fd = open("/dev/mem", O_RDWR | O_SYNC);
+    if (vdma_fd < 0) { perror("fb_lib: open /dev/mem (VDMA)"); fb_close(fb); return -1; }
+    void *vdma_map = mmap(NULL, fb->vdma_len, PROT_READ | PROT_WRITE,
+                          MAP_SHARED, vdma_fd, (off_t)vdma_phys);
+    /* The vdma_fd can be closed immediately — the mapping persists. */
+    close(vdma_fd);
+    if (vdma_map == MAP_FAILED) {
+        perror("fb_lib: mmap VDMA"); fb_close(fb); return -1;
+    }
+    fb->vdma = (volatile uint32_t *)vdma_map;
+
+    /* Start with back buffer at FB_B; VDMA parks on FB_A. */
+    fb->front_idx     = 0;
+    fb->pixels        = fb->map_b + (size_t)(phys_b & pmask);
+    fb->double_buffer = 1;
+
+    /* Clear both buffers so neither shows garbage during the first swap. */
+    fb_clear(fb, FB_BLACK);          /* clears current back (FB_B) */
+    uint8_t *save_pixels = fb->pixels;
+    fb->pixels = fb->map + fb->page_off;
+    fb_clear(fb, FB_BLACK);          /* now clear FB_A */
+    fb->pixels = save_pixels;
+
+    /* Add FRAME1 to the running VDMA ring WITHOUT resetting.
+     *
+     * The earlier "reset + full reconfigure" approach broke the downstream
+     * AXIS handshake (v_axi4s_vid_out_0 lost lock, monitor went to
+     * no-signal) and didn't recover until hdmi_first_light.sh was re-run.
+     * Instead we rely on hdmi_first_light having already brought the chain
+     * up cleanly in single-frame mode (FRAME0=phys_a, PARK_PTR=0, CR.RS=1).
+     * We just register the second frame buffer and ensure PARK_PTR is 0
+     * to start; the C_NUM_FSTORES=4 ring already has slots 1..3 allocated.
+     * Subsequent fb_swap() writes flip RdFrmPtrRef between 0 and 1. */
+
+    /* Sanity-check that VDMA is already running. If not, bail — caller
+     * should have run hdmi_first_light.sh first. */
+    uint32_t cr = fb->vdma[VDMA_MM2S_CR / 4];
+    uint32_t sr = fb->vdma[VDMA_MM2S_SR / 4];
+    if (!(cr & 0x1) || (sr & 0x1) /* halted bit */) {
+        fprintf(stderr, "fb_lib: VDMA not running (CR=0x%08X SR=0x%08X). "
+                        "Run hdmi_first_light.sh + hdmi_paint.sh first.\n", cr, sr);
+        fb_close(fb);
+        return -1;
+    }
+
+    /* Verify FRAME0 already matches phys_a (it should, since hdmi_first_light
+     * wrote it). Warn but proceed if it differs. */
+    uint32_t cur_frame0 = fb->vdma[VDMA_MM2S_FRAME0 / 4];
+    if (cur_frame0 != (uint32_t)phys_a) {
+        fprintf(stderr, "fb_lib: WARN — FRAME0=0x%08X, expected 0x%08lX; "
+                        "demo will still work but is not synced with bring-up\n",
+                cur_frame0, phys_a);
+    }
+
+    /* Register FRAME1 and ensure park is on FRAME0 to start. PARK_PTR is
+     * the only register we routinely touch from here on — fb_swap writes
+     * its RdFrmPtrRef field every frame. */
+    fb->vdma[VDMA_MM2S_FRAME1   / 4] = (uint32_t)phys_b;
+    fb->vdma[VDMA_MM2S_PARK_PTR / 4] = 0x00000000u;
+
+    fprintf(stderr, "fb_lib: DB mode — FB_A=0x%08lX FB_B=0x%08lX VDMA=0x%08lX\n",
+            phys_a, phys_b, vdma_phys);
+    fprintf(stderr, "fb_lib:   MM2S CR=0x%08X SR=0x%08X PARK_PTR=0x%08X "
+                    "FRAME0=0x%08X FRAME1=0x%08X\n",
+            fb->vdma[VDMA_MM2S_CR / 4],
+            fb->vdma[VDMA_MM2S_SR / 4],
+            fb->vdma[VDMA_MM2S_PARK_PTR / 4],
+            fb->vdma[VDMA_MM2S_FRAME0 / 4],
+            fb->vdma[VDMA_MM2S_FRAME1 / 4]);
+    return 0;
+}
+
+void fb_swap(fb_t *fb) {
+    if (!fb->double_buffer) return;
+    /* Flush pending pixel writes from L1/L2 dcache out to DDR so the next
+     * VDMA read sees fresh content. ~1 MB clean takes ~200 us on Cortex-A9
+     * — negligible vs the 16.6 ms vsync interval. */
+    arm_dcache_clean(fb->pixels, fb->pixels + FB_BYTES);
+
+    /* The frame we just rendered becomes the new front. Old front becomes
+     * the new back. front_idx tracks what VDMA is reading. */
+    fb->front_idx ^= 1;
+    fb->pixels = ((fb->front_idx == 0) ? fb->map_b : fb->map)
+               + fb->page_off;
+
+    /* Hand the new front to VDMA. PARK_PTR_REG.RdFrmPtrRef (bits[4:0]) =
+     * MM2S park frame index; VDMA samples it at the next vsync
+     * (C_USE_FSYNC=1 in the bitstream), giving us a tear-free buffer swap.
+     * (bits[20:16] are the read-only RdFrmStore status indicator — writing
+     * there is what the v1 of this code did, with no effect; corrected.) */
+    fb->vdma[VDMA_MM2S_PARK_PTR / 4] = (uint32_t)fb->front_idx & 0x1Fu;
+}
+
 void fb_close(fb_t *fb) {
     if (fb->map && fb->map != MAP_FAILED) {
         munmap(fb->map, fb->map_len);
         fb->map = NULL;
-        fb->pixels = NULL;
     }
+    if (fb->map_b && fb->map_b != MAP_FAILED) {
+        munmap(fb->map_b, fb->map_len_b);
+        fb->map_b = NULL;
+    }
+    if (fb->vdma && fb->vdma != MAP_FAILED) {
+        munmap((void *)fb->vdma, fb->vdma_len);
+        fb->vdma = NULL;
+    }
+    fb->pixels = NULL;
     if (fb->fd >= 0) {
         close(fb->fd);
         fb->fd = -1;
     }
+    fb->double_buffer = 0;
 }
 
 /* Clip the requested rect against the FB. Updates *x,*y,*w,*h in place.
