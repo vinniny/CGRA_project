@@ -98,10 +98,19 @@ static void format_speedup(char *buf, size_t n, double mult) {
     snprintf(buf, n, "%d.%dX", whole, frac);
 }
 
-/* ---- render a single panel (ARM or CGRA stats) ---- */
+/* ---- render a single panel (ARM or CGRA stats) ----
+ *
+ * For ARM:   header + PRED/GT + "WALL: 0.3 MS" + "3225 FPS"
+ * For CGRA:  header + PRED/GT + "WALL: 2.1 MS" + "PURE: 0.24 MS"
+ *                                + "SPEEDUP: 13.0X PURE"
+ *
+ * "WALL" includes Linux APB-poll overhead — the user-visible time.
+ * "PURE" is CU_CYCLES at 50 MHz — the silicon's actual compute time.
+ * Both shown honestly so the comparison can be assessed from either angle.
+ */
 static void draw_panel(fb_t *fb, int x, const char *label, uint32_t lbl_color,
-                       int pred, int gt, double ms, double speedup,
-                       int show_speedup, const char *speedup_suffix)
+                       int pred, int gt, double wall_ms,
+                       int show_pure, double pure_ms, double pure_speedup)
 {
     /* Clear panel area */
     fb_rect(fb, x, PANEL_Y, FB_WIDTH/2 - 16, FOOTER_Y - PANEL_Y - 8, FB_DARKBG);
@@ -112,29 +121,35 @@ static void draw_panel(fb_t *fb, int x, const char *label, uint32_t lbl_color,
     char buf[64];
     int line_h = (FONT5X7_HEIGHT + 1) * 2 + 4;  /* ~20 px */
 
-    /* PRED/GT line */
+    /* PRED/GT line — green if matches ground truth, red otherwise. */
     int y = PANEL_Y + 28;
     snprintf(buf, sizeof(buf), "PRED: %d  GT: %d", pred, gt);
     fb_draw_text(fb, x, y, buf,
                  (pred == gt) ? FB_GREEN : FB_RED, 2);
 
-    /* Timing line */
+    /* WALL line — wall-clock ms + derived FPS. */
     y += line_h;
     char ms_buf[24], fps_buf[24];
-    format_ms(ms_buf, sizeof(ms_buf), ms);
-    format_fps(fps_buf, sizeof(fps_buf), ms);
-    snprintf(buf, sizeof(buf), "%s / %s", ms_buf, fps_buf);
+    format_ms(ms_buf, sizeof(ms_buf), wall_ms);
+    format_fps(fps_buf, sizeof(fps_buf), wall_ms);
+    snprintf(buf, sizeof(buf), "WALL: %s", ms_buf);
     fb_draw_text(fb, x, y, buf, FB_YELLOW, 2);
 
-    /* Speedup line (only for CGRA panel in compare mode) */
     y += line_h;
-    if (show_speedup) {
-        char sp_buf[16];
-        format_speedup(sp_buf, sizeof(sp_buf), speedup);
-        snprintf(buf, sizeof(buf), "%s %s", sp_buf, speedup_suffix);
+    fb_draw_text(fb, x, y, fps_buf, FB_WHITE, 2);
+
+    /* PURE line + SPEEDUP line — only on CGRA panel in compare mode. */
+    if (show_pure) {
+        y += line_h;
+        format_ms(ms_buf, sizeof(ms_buf), pure_ms);
+        snprintf(buf, sizeof(buf), "PURE: %s", ms_buf);
         fb_draw_text(fb, x, y, buf, FB_CYAN, 2);
-    } else {
-        fb_draw_text(fb, x, y, "1.0X (BASE)", FB_GRAY, 2);
+
+        y += line_h;
+        char sp_buf[16];
+        format_speedup(sp_buf, sizeof(sp_buf), pure_speedup);
+        snprintf(buf, sizeof(buf), "SPEEDUP: %s", sp_buf);
+        fb_draw_text(fb, x, y, buf, FB_CYAN, 2);
     }
 }
 
@@ -248,21 +263,33 @@ int main(int argc, char **argv)
         /* ---- render image tile ---- */
         fb_draw_image28(&fb, IMG_X, IMG_Y, sweep_input28[idx], IMG_SCALE);
 
-        /* ---- render panels ---- */
+        /* ---- render panels ----
+         *
+         * cgra_pure_ms is the CU's compute-only time (CU_CYCLES @ 50 MHz),
+         * exclusive of the Linux APB-poll overhead that dominates cgra_ms
+         * (wall-clock). Speedup is ARM-wall vs CGRA-pure: it answers "how
+         * much faster is the silicon" rather than "how much faster is this
+         * Linux harness", which is the thesis-relevant number. */
+        double cgra_pure_ms = (double)cgra_cycles * 20e-6;  /* 20 ns/cycle */
+        double pure_speedup = (cgra_pure_ms > 0.0) ? (arm_ms / cgra_pure_ms) : 0.0;
+
         if (mode == MODE_COMPARE) {
             draw_panel(&fb, LEFT_X,  "ARM",  FB_WHITE,
-                       arm_pred, label, arm_ms, 1.0, 0, "");
-            /* Pure-cycle speedup: arm_ms vs cgra_pure_ms (cycles/50MHz) */
-            double cgra_pure_ms = (double)cgra_cycles * 20e-6; /* 20 ns/cyc */
-            double speedup = (cgra_pure_ms > 0.0) ? (arm_ms / cgra_pure_ms) : 0.0;
+                       arm_pred, label, arm_ms,
+                       0, 0.0, 0.0);
             draw_panel(&fb, RIGHT_X, "CGRA", FB_CYAN,
-                       cgra_pred, label, cgra_ms, speedup, 1, "CYC");
+                       cgra_pred, label, cgra_ms,
+                       1, cgra_pure_ms, pure_speedup);
         } else if (mode == MODE_ARM) {
             draw_panel(&fb, LEFT_X, "ARM SCALAR", FB_WHITE,
-                       arm_pred, label, arm_ms, 1.0, 0, "");
+                       arm_pred, label, arm_ms,
+                       0, 0.0, 0.0);
         } else {
+            /* CGRA-only: still show PURE so the silicon's compute time is
+             * visible alongside the user-visible wall-clock. */
             draw_panel(&fb, LEFT_X, "CGRA", FB_CYAN,
-                       cgra_pred, label, cgra_ms, 1.0, 0, "");
+                       cgra_pred, label, cgra_ms,
+                       1, cgra_pure_ms, pure_speedup);
         }
 
         /* ---- footer: accuracy + display FPS + frame number ---- */
