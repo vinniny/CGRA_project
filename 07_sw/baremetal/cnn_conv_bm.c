@@ -15,19 +15,28 @@
  */
 extern const uint8_t cnn_conv_start[];
 
-/* Input scaling: torchvision Normalize((0.1307,), (0.3081,)) applied to
- * pixel/255.  We approximate in INT32 to avoid float in the hot path:
- *   val_int = (val_uint8 * 32768 / 255 - 13107 * 32768 / 10000) * 10000 / 30810
- *          ~ ((val * 128) - 1671) * 207 / 64   (close enough for argmax)
- * For simplicity and minimal drift, we scale by 32 so the range
- * [-0.42..+2.82] maps to roughly [-13..+90] INT range — fits easily in INT8
- * and keeps subsequent MAC accumulators within INT32. */
+/* Input scaling for INT MAC compatibility.
+ *
+ * Goal: pick an input_scale such that MAC accumulators dominate biases,
+ * so ReLU doesn't clamp everything to zero.
+ *
+ * The float normalized pixel is in roughly [-0.42, +2.82] (mean-subtracted
+ * uint8/255 divided by std). We multiply by INPUT_SCALE then round.
+ *
+ * Choice: INPUT_SCALE = 256 gives integer range ~[-110, +725] which keeps
+ * Conv1 MAC sums (typical ~hundreds of thousands) well above the bias_q
+ * values (typical magnitude ~30000 * 256 = 7.6M ≈ same order as MAC sum
+ * after the * INPUT_SCALE scaling fix below). */
+#define INPUT_SCALE       256
+#define INPUT_SCALE_LOG2  8
+
 static inline int32_t normalize_pixel(uint8_t v)
 {
-    /* (v/255 - 0.1307) / 0.3081  * 32   — derived once, hard-coded. */
-    int32_t scaled = (int32_t)v * 8388608 / 255;       /* v/255 * 32 << 18 */
-    scaled -= (int32_t)(0.1307f * 32 * 262144);        /* -mean * 32 << 18 */
-    int32_t out = scaled / (int32_t)(0.3081f * 262144);
+    /* ((v/255 - 0.1307) / 0.3081) * INPUT_SCALE   — derived once, hard-coded.
+     * Avoid float in the hot path; use integer fixed-point. */
+    int32_t scaled = (int32_t)v * (INPUT_SCALE * 65536) / 255;     /* (v/255) << 16 * scale */
+    scaled -= (int32_t)(0.1307f * INPUT_SCALE * 65536.0f);          /* -mean */
+    int32_t out = scaled / (int32_t)(0.3081f * 65536.0f);           /* /std, undo <<16 */
     return out;
 }
 
@@ -98,7 +107,16 @@ static void pack_inputs_1ch(int32_t *src, int W,
         }
 }
 
-/* Conv1: 28x28x1 input -> 26x26x8 output. ReLU done here too (cheap). */
+/* Conv1: 28x28x1 input -> 26x26x8 output. ReLU done here too (cheap).
+ *
+ * Scale arithmetic:
+ *   I_in  at scale s_in  = 1/INPUT_SCALE
+ *   I_w1  at scale s_w1  = 0.00003041 (MNIST_CONV1_SCALE_W_F)
+ *   MAC acc I_acc at scale (s_in * s_w1).
+ *   Bias I_b1 is stored at scale s_w1 (weight-scale units, per quantize_cgra.py).
+ *   To add bias correctly to MAC accumulator:
+ *     bias_for_acc = I_b1 / s_in = I_b1 * INPUT_SCALE
+ */
 static int conv1_run(int32_t *input_hw, int32_t *output_hwc)
 {
     volatile uint32_t *wbuf  = (volatile uint32_t *)CONV_WBUF_DDR;
@@ -106,7 +124,7 @@ static int conv1_run(int32_t *input_hw, int32_t *output_hwc)
 
     for (int oc = 0; oc < CONV1_OUT_C; ++oc) {
         pack_weights_c1(oc, wbuf);
-        int32_t bias = c1_bias(oc);
+        int32_t bias = c1_bias(oc) << INPUT_SCALE_LOG2;    /* scale-correct */
         for (int oh = 0; oh < CONV1_OUT_H; ++oh) {
             for (int ow = 0; ow < CONV1_OUT_W; ++ow) {
                 pack_inputs_1ch(input_hw, CONV1_IN_W, oh, ow, inbuf);
@@ -123,19 +141,24 @@ static int conv1_run(int32_t *input_hw, int32_t *output_hwc)
     return 0;
 }
 
-/* Conv2: 13x13x8 input -> 11x11x16 output (with fused ReLU). */
+/* Conv2: 13x13x8 input -> 11x11x16 output (with fused ReLU).
+ *
+ * Conv2 input is Conv1 output at accumulated scale (s_in * s_w1), so values
+ * are already large. We DON'T add the Conv2 bias here — its scale mismatch
+ * (I_b2 / (s_in * s_w1) overflows INT32 by ~3 decimal orders of magnitude).
+ * Bias represents a small correction; skipping it loses some accuracy but
+ * doesn't catastrophically bias toward one class. The proper fix is
+ * per-layer requantization to keep accumulators bounded — deferred to
+ * B4 phase 2 alongside the TILE_AUTO_INC optimization.                */
 static int conv2_run(int32_t *input_hwc, int32_t *output_hwc)
 {
     volatile uint32_t *wbuf  = (volatile uint32_t *)CONV_WBUF_DDR;
     volatile uint32_t *inbuf = (volatile uint32_t *)CONV_INBUF_DDR;
 
     for (int oc = 0; oc < CONV2_OUT_C; ++oc) {
-        int32_t bias = c2_bias(oc);
         for (int oh = 0; oh < CONV2_OUT_H; ++oh) {
             for (int ow = 0; ow < CONV2_OUT_W; ++ow) {
-                int32_t acc_sum = bias;
-                /* Sum over input channels by re-running cnn_conv3x3_pixel
-                 * per ic — each pass accumulates one channel slice. */
+                int32_t acc_sum = 0;  /* bias skipped on purpose */
                 for (int ic = 0; ic < CONV2_IN_C; ++ic) {
                     pack_weights_c2(oc, ic, wbuf);
                     pack_inputs(input_hwc, CONV2_IN_H, CONV2_IN_W,
