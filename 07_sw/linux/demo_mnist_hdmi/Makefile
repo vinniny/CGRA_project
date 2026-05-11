@@ -101,6 +101,24 @@ $(DEMO_BIN): $(DEMO_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
 
+# test_arm_cnn (P1) — full ARM CNN reference accuracy + speed
+# Brings in the Conv weight blob via demo_mnist_conv_weights.S.
+TEST_ARM_CNN_OBJS = $(BUILD_DIR)/test_arm_cnn.o \
+                    $(BUILD_DIR)/arm_cnn.o $(BUILD_DIR)/arm_fc.o \
+                    $(BUILD_DIR)/demo_mnist_weights.o \
+                    $(BUILD_DIR)/demo_mnist_conv_weights.o
+TEST_ARM_CNN_BIN  = $(BUILD_DIR)/test_arm_cnn
+.PHONY: test_arm_cnn
+test_arm_cnn: toolchain-check $(TEST_ARM_CNN_BIN)
+	@:
+$(TEST_ARM_CNN_BIN): $(TEST_ARM_CNN_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -lm -o $@ $^
+	@echo "Built: $@ ($$(stat -c %s $@) bytes)"
+
+# Conv-weights blob — .incbin a binary file via assembler.
+$(BUILD_DIR)/demo_mnist_conv_weights.o: demo_mnist_conv_weights.S | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 fb_test: toolchain-check $(FB_TEST_BIN)
 	@:
 
