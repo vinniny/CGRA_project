@@ -134,11 +134,16 @@ HDMI_TEXT_DEFS    := -DSWEEP_RODATA=
 HDMI_TEXT_INC     := -I../linux/demo_mnist_hdmi
 HDMI_TEXT_TARGET  := demo_hdmi_text.elf
 
+# ── demo_mnist_full: B4 end-to-end MNIST CNN on CGRA (Conv+Pool+FC) ────
+MNIST_FULL_SRCS   := start.s demo_mnist_full.c cnn_conv_bm.c \
+                     demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
+MNIST_FULL_TARGET := demo_mnist_full.elf
+
 # ── bench_compare: ARM-vs-CGRA head-to-head on canonical kernels ────────
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test hdmi_text
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test hdmi_text mnist_full
 
 all: $(TARGET)
 
@@ -151,6 +156,8 @@ bench_compare: $(BCMP_TARGET)
 hdmi_test: $(HDMI_TEST_TARGET)
 
 hdmi_text: $(HDMI_TEXT_TARGET)
+
+mnist_full: $(MNIST_FULL_TARGET)
 
 demo: $(DEMO_TARGET)
 
@@ -239,6 +246,11 @@ $(HDMI_TEST_TARGET): $(HDMI_TEST_SRCS) uart.h hdmi_bm.h gic.h linker.ld
 $(HDMI_TEXT_TARGET): $(HDMI_TEXT_SRCS) uart.h hdmi_bm.h fb_lib_bm.h gic.h linker_cnn.ld
 	$(CC) $(CFLAGS) $(HDMI_TEXT_INC) $(HDMI_TEXT_DEFS) -T linker_cnn.ld -nostdlib $(HDMI_TEXT_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(HDMI_TEXT_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(MNIST_FULL_TARGET): $(MNIST_FULL_SRCS) uart.h cgra.h cgra_kernels_cnn.h cnn_conv_bm.h mnist_sweep_fixture.h linker_cnn.ld
+	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(MNIST_FULL_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(MNIST_FULL_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 dis: $(TARGET)
