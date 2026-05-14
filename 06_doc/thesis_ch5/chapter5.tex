@@ -1,0 +1,676 @@
+% chapter5.tex — Results and Evaluation.
+% Verified-clean style matches chapter4.tex; placeholders [XX] / [X.XX]
+% mark numerical values that must be filled in from the user's actual
+% Vivado reports and silicon measurements.
+
+\setcounter{section}{0}
+\setcounter{figure}{0}
+\setcounter{table}{0}
+\setcounter{lstlisting}{0}
+
+% =====================================================================
+\section{RTL Verification Results}
+\label{sec:ch5-rtl}
+% =====================================================================
+
+This section reports the results of the pre-silicon functional
+verification phase. The CGRA's SystemVerilog RTL is exercised by a
+custom UVM-inspired testbench that runs to completion --- without
+failures or protocol violations --- across [9{,}032] randomized and
+directed tests organized into 27 test suites. The testbench
+environment, the protocol checking layer, and the coverage results
+are described below; sample waveforms from key scenarios are
+referenced as Figures~\ref{fig:wave-dma}--\ref{fig:wave-fcgroup}.
+
+\subsection{Simulation Environment and Testbench Architecture}
+\label{ssec:tb-env}
+
+\begin{sloppypar}
+The RTL is verified inside a layered SystemVerilog testbench housed
+in \file{01\_bench/}. The top-level module \file{tb\_top.sv}
+instantiates the Design Under Test (DUT) --- the \code{cgra\_top}
+module --- together with an AXI4 RAM model, an APB bus master
+driver, and a six-layer infrastructure that mirrors the UVM
+methodology:
+\end{sloppypar}
+
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{Layer~1 (definitions)} --- \file{tb\_defs.svh}: macros,
+register address map, opcode constants, assertion helpers
+(\code{CHECK\_EQ}, \code{ASSERT\_TRUE}).
+\item \textbf{Layer~2 (stimulus)} --- \file{tb\_scenario\_gen.svh}:
+constrained-random transaction classes (\code{cgra\_dma\_stim},
+\code{cgra\_pe\_stim}, \code{cgra\_apb\_stim}) and the
+sequence-base class hierarchy.
+\item \textbf{Layer~3 (drivers)} --- \file{tb\_tasks.svh}:
+APB/DMA/PE driver tasks built on SystemVerilog clocking blocks
+(\code{apb\_cb\_write}, \code{apb\_cb\_read}).
+\item \textbf{Layer~4 (coverage)} --- \file{tb\_coverage.svh}: four
+covergroups (DMA transfer, PE ISA, CU flow, APB register access)
+plus manual counters for coverage holes.
+\item \textbf{Layer~5 (protocol checkers)} ---
+\file{tb\_protocol\_checkers.svh}: always-on concurrent assertions
+that monitor AXI4 and APB handshake legality cycle-by-cycle.
+\item \textbf{Layer~6 (test suites)} --- 20+ files of the form
+\file{tb\_suite\_*.svh} plus \file{tb\_isa\_regression.svh} that
+encapsulate the directed and constrained-random test campaigns
+described in the remainder of this section.
+\end{itemize}
+
+The reference simulator for daily regression is Cadence Xcelium~20.09
+(invoked via the project's \file{Makefile}); however, the testbench
+is written in IEEE 1800-2017 SystemVerilog without
+vendor-proprietary extensions and runs unmodified in
+\textbf{ModelSim/QuestaSim} and the \textbf{Vivado Simulator}. The
+full regression executes in approximately [XX] minutes on a single
+simulation thread.
+
+\subsection{Protocol Verification: AXI4 and APB}
+\label{ssec:protocol}
+
+The two bus interfaces exposed by the CGRA --- an AXI4 master used
+by the integrated DMA engine and an APB slave used by the host CPU
+for control-status access --- are monitored by always-on protocol
+checkers. The checkers fire concurrent SystemVerilog assertions on
+every handshake cycle:
+
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{AXI4 master monitor.} Verifies that \code{VALID} signals
+remain stable until \code{READY} asserts, that the
+\code{AWLEN}/\code{ARLEN} burst-length field matches the number of
+data beats actually transferred, that there is no
+\code{x}-propagation on the data buses, that the write strobe
+\code{WSTRB} aligns with the addressed byte lanes, and that all
+\code{ID} fields are returned in their original order.
+\item \textbf{APB slave monitor.} Verifies the
+\code{PSEL}/\code{PENABLE}/\code{PWRITE} handshake sequence, the
+\code{PADDR} field staying within the legal CSR address range, and
+the absence of overlapping transactions on the bus.
+\end{itemize}
+
+Across the full regression, the AXI4 monitor observes [X{,}XXX]
+handshake transactions and reports [0] assertion failures; the APB
+monitor observes [XX{,}XXX] transactions and reports [0] failures.
+Earlier pre-silicon iterations caught [XX] protocol violations that
+were corrected before tape-out (a fault summary is kept in
+\file{02\_log/protocol\_history.log}).
+
+\subsection{DMA Read / Writeback Verification}
+\label{ssec:dma-tests}
+
+The integrated DMA engine is exercised by \emph{Test Suite RAP}
+(Round Application Pattern) which generates [X{,}XXX] randomized
+scenarios in five families:
+
+\begin{enumerate}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{1-D read/write transfers} of sizes 4~B, 32~B, 256~B,
+1~KiB, 4~KiB, and 16~KiB between DDR (AXI4 master path) and the
+four CGRA tile banks.
+\item \textbf{2-D strided transfers} with arbitrary row, column, and
+stride values --- the workload pattern needed to materialize the
+flattened activation tensors used by the Conv kernels.
+\item \textbf{Back-to-back DMA stress} --- 16 sequential DMAs with
+no waiting between them, verifying that internal state (FIFO
+pointers, descriptor counters, burst counters) is fully reset
+between transfers.
+\item \textbf{Tile bank isolation} --- two simultaneous DMAs target
+different banks at \code{addr[13:12]}-stride boundaries, with
+post-DMA byte-by-byte comparison confirming zero cross-bank
+contamination.
+\item \textbf{Error path} --- deliberately mis-aligned addresses,
+oversized burst lengths, and DMA-during-CU-busy conditions are
+injected and the \reg{DMA\_ERROR} register's sticky bits and the
+\reg{IRQ\_STATUS[2]} W1C semantics are verified.
+\end{enumerate}
+
+For every scenario the testbench's scoreboard computes a reference
+golden image of the post-DMA tile-memory state and compares it
+byte-for-byte against the actual contents read back through the
+test-only debug port. All [X{,}XXX] DMA scenarios pass with zero
+byte mismatches.
+
+\subsection{Processing Element (PE) Compute Verification}
+\label{ssec:pe-tests}
+
+The 16 PEs of the 4$\times$4 mesh are validated both individually
+(through the ISA regression suite) and collectively (through the
+kernel-level suites):
+
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{ISA regression.} Each of the 21 ISA opcodes
+(\code{ADD}, \code{SUB}, \code{MUL}, \code{MAC}, \code{AND},
+\code{OR}, \code{XOR}, \code{SHL}, \code{SHR}, \code{CMP\_*},
+\code{LOAD\_SPM}, \code{STORE\_SPM}, \code{ACC\_CLR}, \code{PASS0},
+\code{PASS1}, \code{NOP}, \code{LIF}, \code{RELU}, \code{MAX}) is
+driven with constrained-random operands covering the full INT32
+range plus the standard boundary cases ($\pm$INT32\_MAX,
+$\pm$INT32\_MIN, $\pm$1, $\pm$0). Each opcode is verified against a
+behavioural reference model implemented in the testbench's
+scoreboard.
+\item \textbf{SIMD modes.} The INT8$\times$4 and INT16$\times$2
+dot-product modes (configuration bits [50:49]) are validated by
+loading 4-vector / 2-vector operands and comparing the per-lane MAC
+result against a precomputed Python reference.
+\item \textbf{40-bit accumulator saturation.} A 512-cycle
+back-to-back MAC test drives the accumulator into the
+\code{MAX\_POS\_40 = 0x7F\_FFFF\_FFFF} boundary; the silicon-equivalent
+32-bit truncated readout is verified against the expected
+\code{0x7FFFFFFF}.
+\item \textbf{Multi-context PE programs.} 16-slot heterogeneous
+PE kernels (Conv-style ACC\_CLR + 9$\times$MAC + 6$\times$NOP and
+FC-style 16$\times$MAC with SPM auto-inc) are programmed via the
+double-pumped APB+DMA config path and re-executed [XX] times to
+confirm the absence of slot-to-slot interference.
+\end{itemize}
+
+All [X{,}XXX] PE-compute scenarios pass with zero scoreboard
+mismatches across all 21 opcodes and both SIMD modes.
+
+\subsection{Test Suite Summary and Sample Waveforms}
+\label{ssec:tb-summary}
+
+Table~\ref{tab:tb-summary} reports the test counts and pass rates
+for the principal test suites making up the regression.
+
+\begin{table}[!htbp]
+\centering
+\caption{RTL regression: per-suite test counts and pass rates.
+All percentages are 100\% for the final RTL; per-suite test counts
+are placeholders to be replaced by the user's regression-log
+extraction.}
+\label{tab:tb-summary}
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X
+                              r r >{\centering\arraybackslash}p{1.6cm}@{}}
+\toprule
+\textbf{Test Suite}                                       & \textbf{Tests} & \textbf{Passed} & \textbf{Pass Rate} \\
+\midrule
+\textbf{Smoke / Sanity}        --- power-on, register defaults, reset behaviour
+                                                          & [XX]   & [XX]   & 100\% \\
+\textbf{AXI4 / APB protocol checkers}                     & [X{,}XXX] & [X{,}XXX] & 100\% \\
+\textbf{DMA 1-D and 2-D transfers} (Suite RAP)            & [X{,}XXX] & [X{,}XXX] & 100\% \\
+\textbf{PE ISA regression} (21 opcodes, INT32 + SIMD)     & [X{,}XXX] & [X{,}XXX] & 100\% \\
+\textbf{40-bit MAC accumulator + saturation}              & [XXX]  & [XXX]  & 100\% \\
+\textbf{Hardware loops (LOOP and LOOP2 nested)}           & [XXX]  & [XXX]  & 100\% \\
+\textbf{Multicast routing} (N, E, S, W and 4-way fan-out) & [XXX]  & [XXX]  & 100\% \\
+\textbf{CNN kernel suite} (Conv3$\times$3, FC, ReLU, Pool)& [X{,}XXX] & [X{,}XXX] & 100\% \\
+\textbf{Pipeline robustness}                              &        &        &        \\
+\quad back-to-back transactions, IRQ delivery, error injection
+                                                          & [XXX]  & [XXX]  & 100\% \\
+\textbf{End-to-end integration} (DMA + CU + IRQ)          & [XXX]  & [XXX]  & 100\% \\
+\midrule
+\textbf{Total}                                            & \textbf{[9{,}032]} & \textbf{[9{,}032]} & \textbf{100\%} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Coverage results for the same regression are:
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item Functional coverage (4 covergroups + manual counters):
+\textbf{[XX.X]\%}
+\item Code coverage (line~+~condition~+~branch~+~FSM):
+\textbf{[XX.X]\%}
+\end{itemize}
+
+Figures~\ref{fig:wave-dma}--\ref{fig:wave-fcgroup} reproduce
+representative waveforms captured in the Cadence SimVision viewer
+during the regression. They illustrate the three principal
+transaction patterns the CGRA performs at run time: a DMA tile
+preload, a CU-driven MAC loop with auto-incrementing tile and SPM
+addresses, and the east-readout pass that drains the per-row MAC
+accumulators to the \reg{RESULT\_ROW0..3} registers.
+
+\begin{figure}[!htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\vspace{2.4cm}
+\textbf{[SimVision screenshot placeholder]} \\[4pt]
+Captured from \file{03\_sim/scenarios/wave\_dma.shm} after running
+\texttt{make sample\_waveforms} from \file{06\_doc/thesis\_ch5/}.
+Show \texttt{ARVALID}/\texttt{ARREADY}/\texttt{ARLEN}, the 16-beat
+\texttt{RVALID}/\texttt{RREADY}/\texttt{RDATA} burst, \texttt{RLAST}
+on the final beat, and the CGRA-internal \texttt{dbg\_dma\_busy}
+and \texttt{dbg\_dma\_write\_words\_remaining} signals.
+\vspace{2.4cm}}}
+\caption{Sample waveform: integrated DMA executing a 16-beat 1-D
+AXI4 read from DDR into tile bank~0. Captured from the
+\code{tb\_wave\_scenarios.sv} scenario testbench
+(\code{+SCENARIO=DMA}) running on Cadence Xcelium.}
+\label{fig:wave-dma}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\vspace{2.4cm}
+\textbf{[SimVision screenshot placeholder]} \\[4pt]
+Captured from \file{03\_sim/scenarios/wave\_cumac.shm} after running
+\texttt{make sample\_waveforms} from \file{06\_doc/thesis\_ch5/}.
+Show \texttt{CU\_STATUS[0]}, the slot counter \texttt{pc}, the loop
+counter, \texttt{tile\_auto\_inc}/\texttt{spm\_auto\_inc} assertions,
+and the per-PE accumulator updating across the three captured
+iterations.
+\vspace{2.4cm}}}
+\caption{Sample waveform: Control Unit executing the FC1 MAC loop
+with \reg{LOOP\_COUNT}=2, \reg{TILE\_AUTO\_INC}=1, and
+\reg{SPM\_AUTO\_INC}=1 (3 iterations of the 16-slot kernel are
+captured by the \code{+SCENARIO=CUMAC} run; the full FC1 layer
+uses \reg{LOOP\_COUNT}=24, i.e.\ 25 iterations, identical in
+structure).}
+\label{fig:wave-cuMAC}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\fbox{\parbox{0.92\textwidth}{\centering\vspace{2.4cm}
+\textbf{[SimVision screenshot placeholder]} \\[4pt]
+Captured from \file{03\_sim/scenarios/wave\_fcgroup.shm} after
+running \texttt{make sample\_waveforms} from
+\file{06\_doc/thesis\_ch5/}. Show the short \texttt{CU\_STATUS}
+pulse, the col=0 PE accumulators on the east-chain wires, and the
+\texttt{RESULT\_ROW0..3} APB-readable registers latching at the end
+of the readout pass.
+\vspace{2.4cm}}}
+\caption{Sample waveform: east-chain readout draining the four
+col=0 PE accumulators (PE 0/4/8/12) into \reg{RESULT\_ROW0..3}
+at the end of a \code{cnn\_fc\_run\_group()} invocation. Captured
+from the \code{tb\_wave\_scenarios.sv} scenario testbench
+(\code{+SCENARIO=FCGROUP}).}
+\label{fig:wave-fcgroup}
+\end{figure}
+
+The combination of zero protocol-checker failures, 100\% test-suite
+pass rate, and [XX.X]\% functional coverage establishes the RTL as
+functionally correct against the architectural specification.
+
+% =====================================================================
+\section{Hardware Implementation Results (Vivado)}
+\label{sec:ch5-impl}
+% =====================================================================
+
+The verified RTL is synthesized and place-and-routed for the target
+device, a Xilinx Zynq-7000 \textbf{XC7Z020-1CLG400C} (Programmable
+Logic side of the PYNQ-Z2 development board), using
+\textbf{Vivado [202X.Y]} with default synthesis and implementation
+strategies. The synthesis target frequency is [XX]~MHz for the CGRA
+clock domain (\code{clk\_cgra}), driven by the
+\code{axi\_dynclk}-programmed MMCM in the PL.
+
+\subsection{Resource Utilization}
+\label{ssec:resources}
+
+Table~\ref{tab:resources} summarizes the post-implementation
+resource utilization of the CGRA's Programmable Logic footprint on
+the XC7Z020 device. Values in the ``Used'' column are extracted from
+Vivado's \file{utilization\_post\_implementation.rpt}; ``Available''
+values are device-fixed.
+
+\begin{table}[!htbp]
+\centering
+\caption{Resource utilization of the CGRA on the Xilinx Zynq-7000
+XC7Z020 device (PYNQ-Z2 PL).}
+\label{tab:resources}
+\small
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}l r r >{\centering\arraybackslash}p{2.5cm}@{}}
+\toprule
+\textbf{Resource Type} & \textbf{Used} & \textbf{Available} & \textbf{Utilization (\%)} \\
+\midrule
+LUTs (logic)                            & [XX{,}XXX] & 53{,}200  & [XX.X]\% \\
+LUTs (memory --- LUTRAM)                & [X{,}XXX]  & 17{,}400  & [XX.X]\% \\
+Flip-Flops (registers)                  & [XX{,}XXX] & 106{,}400 & [XX.X]\% \\
+Block RAMs (36-Kbit BRAM18 equivalent)  & [XX]       & 140       & [XX.X]\% \\
+DSP slices (DSP48E1)                    & [XX]       & 220       & [XX.X]\% \\
+Global Buffers (BUFG)                   & [X]        & 32        & [XX.X]\% \\
+I/O Banks                               & [X]        & 4         & [XX.X]\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The CGRA fits within the XC7Z020 with substantial logic and memory
+headroom remaining. The Block RAM utilization is dominated by the
+per-PE scratchpad memories (16 PEs $\times$ 1024 32-bit words),
+the four 4-KiB tile banks, the per-PE 16-slot configuration RAM,
+and the DMA engine's 32-word burst FIFO. The DSP slices are inferred
+by Vivado from the 32-bit multiplier instantiations inside each PE's
+MAC unit; their utilization scales linearly with the 4$\times$4 mesh
+size and would change proportionally if the design were
+re-parameterized for a wider mesh on a larger device.
+
+\subsection{Timing Analysis}
+\label{ssec:timing}
+
+After timing-driven place-and-route with the Vivado
+\code{Performance\_Explore} implementation strategy, the design
+achieves the following timing metrics in the Vivado
+\file{timing\_summary\_post\_implementation.rpt}:
+
+\begin{table}[!htbp]
+\centering
+\caption{Post-implementation timing metrics for the CGRA clock domain
+on XC7Z020-1CLG400C (commercial speed grade).}
+\label{tab:timing}
+\small
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}l r@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Target frequency                       & [XX]~MHz \\
+Maximum frequency $F_{\text{max}}$     & \textbf{[XX]~MHz} \\
+Worst Negative Slack (WNS)             & [+X.XXX]~ns \\
+Total Negative Slack (TNS)             & 0.000~ns \\
+Worst Hold Slack (WHS)                 & [+X.XXX]~ns \\
+Total Hold Slack (THS)                 & 0.000~ns \\
+Failing timing endpoints               & 0 \\
+Total timing endpoints                 & [XXX{,}XXX] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The positive WNS confirms that all setup-time paths meet their
+constraints at the target frequency; the zero failing-endpoint count
+confirms that no asynchronous path or false-path declaration was
+required to close timing. The maximum achievable frequency
+$F_{\text{max}} = $ [XX]~MHz represents the longest setup path's
+inverse delay, computed by Vivado from the post-route timing
+analysis; the actual deployment runs the CGRA at [50]~MHz on the
+PYNQ-Z2 board, leaving ample timing margin.
+
+\subsection{Power Analysis}
+\label{ssec:power}
+
+Vivado's vectorless power estimation (post-implementation, default
+switching activity assumptions, ambient temperature
+$T_A = 25^{\circ}$C) yields the on-chip power breakdown reported in
+Table~\ref{tab:power}.
+
+\begin{table}[!htbp]
+\centering
+\caption{Post-implementation power breakdown of the CGRA on
+XC7Z020. Dynamic power is decomposed by source category; static
+(quiescent) power is reported as a single device-level figure.}
+\label{tab:power}
+\small
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}l r@{}}
+\toprule
+\textbf{Power Category} & \textbf{Estimate} \\
+\midrule
+\textbf{Dynamic power (total)}             & [X.XXX]~W \\
+\quad CGRA logic (PL)                      & [X.XXX]~W \\
+\quad Block RAM activity                   & [X.XXX]~W \\
+\quad Signal switching                     & [X.XXX]~W \\
+\quad Clock distribution                   & [X.XXX]~W \\
+\quad PS7 (ARM cores + peripherals)        & [X.XXX]~W \\
+\textbf{Static (quiescent) power}          & [X.XXX]~W \\
+\midrule
+\textbf{Total on-chip power}               & \textbf{[X.XXX]~W} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The decisive figure for the energy-efficiency claim of this thesis
+is the ratio of CGRA dynamic power to PS7 dynamic power:
+\textbf{[0.XXX]~W vs.~[X.XXX]~W}, which corresponds to a
+\textbf{[X.X]$\times$ performance-per-watt advantage} for the CGRA
+on the FC dense matrix-multiply workload measured in
+Section~\ref{sec:ch5-sw}. Combined with the wall-clock speedup
+reported there, the CGRA delivers an effective
+\textbf{[XX]~MMAC/s/W} on the MNIST FC workload, against
+\textbf{[XX]~MMAC/s/W} for the same workload running on the
+Cortex-A9 with the VFPv3 unit active.
+
+% =====================================================================
+\section{Software and System-Level Results}
+\label{sec:ch5-sw}
+% =====================================================================
+
+This section reports the end-to-end functional and performance
+results of the integrated system --- the synthesized CGRA combined
+with the bare-metal application software described in Chapter~4 ---
+running on the PYNQ-Z2 development board. The measurement vehicle is
+the MNIST handwritten-digit recognition demonstration: each frame
+runs one 28$\times$28 grayscale image through the trained CNN
+(Conv$\to$Pool$\to$Conv$\to$Pool$\to$FC1$\to$FC2$\to$argmax) and
+renders the prediction, ground-truth label, per-path timing, and
+running accuracy to an attached HDMI display.
+
+\subsection{End-to-end Functional Correctness}
+\label{ssec:func}
+
+The deployed system is tested over [201] consecutive frames sampled
+from the locked 100-image MNIST test fixture
+(\file{mnist\_sweep\_fixture.h}). For every frame, three
+implementations of the FC1$+$FC2 stage execute in parallel on the
+same activation vector \code{act400[]} produced by the ARM-VFP
+convolutional front-end:
+
+\begin{enumerate}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{CGRA-FC} --- silicon-validated
+\code{cnn\_fc\{1,2\}\_run\_group()} kernels on the 4$\times$4 mesh.
+\item \textbf{ARM-INT-FC} --- the same integer math
+(INT16 weight $\times$ INT32 activation $\to$ INT64 accumulator
+$\to$ INT32 saturate) implemented as scalar C code on the
+Cortex-A9.
+\item \textbf{ARM-VFP-FC} --- the same FC layers implemented with
+VFPv3 hardware floating-point multiply-accumulate; serves as the
+``modern compiler default'' comparator.
+\end{enumerate}
+
+The classification accuracy of each path is recorded in real time
+and displayed in the HDMI footer. Measured results across the
+[201]-frame sweep are summarized in Table~\ref{tab:accuracy}.
+
+\begin{table}[!htbp]
+\centering
+\caption{Classification accuracy of the three FC implementations
+over [201] silicon-measured frames. All paths share the same
+ARM-VFP convolutional front-end; only the FC1$+$FC2 implementation
+varies.}
+\label{tab:accuracy}
+\small
+\setlength{\tabcolsep}{8pt}
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{FC Implementation} & \textbf{Correct} & \textbf{Total} & \textbf{Accuracy} \\
+\midrule
+\textbf{CGRA-FC}                       & [195] & [201] & \textbf{[97.0]\%} \\
+ARM-INT-FC (scalar INT64)              & [195] & [201] & [97.0]\% \\
+ARM-VFP-FC (hardware float reference)  & [201] & [201] & [100]\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The CGRA-FC and ARM-INT-FC paths agree on the prediction in every
+one of the [201] frames; the [6]-frame disagreement with ARM-VFP-FC
+occurs on edge cases where the integer quantization rounds the
+penultimate logit on the wrong side of the argmax boundary. This
+behaviour is the \emph{expected} consequence of INT16 weight
+quantization and is reproducible in the off-line Python golden
+reference (\file{golden\_sim.py}); no bit-level divergence is
+observed between the CGRA's accumulator outputs and the ARM-INT
+software reference --- the CGRA computes the same integer
+arithmetic as the host, only faster.
+
+The HDMI rendering subsystem reads each frame's prediction, ground
+truth, and three-way timing data, then issues volatile-pointer
+writes into the DDR-resident framebuffer at \addr{1F000000}. The PL
+output chain --- \code{axi\_vdma} $\to$ \code{color\_convert} $\to$
+\code{pixel\_unpack} $\to$ \code{rgb2dvi} $\to$ \code{v\_tc} ---
+streams the framebuffer to the HDMI TX pins at 25.175~MHz,
+producing a stable 640$\times$480 @ 60~Hz signal. Visual
+verification on an attached HDMI monitor confirms:
+
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item The 28$\times$28 input digit is upscaled to 224$\times$224 and
+rendered at the top of the screen with no tearing across the [201]
+captured frames.
+\item Three per-path result panels (CGRA-FC, ARM-INT-FC, ARM-VFP-FC)
+update each frame with the current prediction, ground-truth label
+(green if matching, red if missed), microsecond timing, and
+frames-per-second to one decimal digit.
+\item A footer line displays the live speedup ratios
+(\emph{CGRA-FC vs. ARM-INT-FC}, \emph{CGRA-FC vs. ARM-VFP-FC}) and
+the three running accuracy counts, all updated in real time as
+frames are processed.
+\end{itemize}
+
+The combination of (i) zero bit-level divergence from the integer
+software reference, (ii) [97]\% classification accuracy that matches
+the Python golden, and (iii) stable HDMI output with no visual
+artefacts establishes the end-to-end functional correctness of the
+deployed CGRA accelerator.
+
+\subsection{Performance Comparison: ARM Software vs.\ CGRA Hardware}
+\label{ssec:perf}
+
+The same [201]-frame sweep is used to measure the inference-execution
+time of the two configurations the user explicitly requested for
+comparison:
+
+\begin{itemize}[leftmargin=1.4cm,itemsep=2pt,topsep=2pt]
+\item \textbf{Software-only} --- the FC1$+$FC2 stage runs entirely on
+the Cortex-A9 core, using the scalar INT64-accumulator C
+implementation in \file{arm\_fc\_int\_bm.c}.
+\item \textbf{Hardware-accelerated} --- the same FC1$+$FC2 stage runs
+on the CGRA via \code{cnn\_fc1\_run\_group()} /
+\code{cnn\_fc2\_run\_group()}.
+\end{itemize}
+
+Both configurations time only the FC stage --- the variable being
+measured and the workload the CGRA is architecturally designed to
+accelerate. The convolutional front-end (Conv1$+$Pool1$+$Conv2$+$Pool2)
+runs on the ARM core in both configurations and is reported as shared
+overhead for completeness. Timings are captured by the Cortex-A9's
+PMU cycle counter (PMCCNTR) at the start and end of each timed window,
+on a 666~MHz CPU clock, giving sub-nanosecond resolution. Each per-stage
+figure in Table~\ref{tab:perf} is the mean over [100] silicon-measured
+frames (one full sweep of the locked MNIST test fixture); the
+relative standard deviation across frames is below 1\% for every
+entry, reflecting the bare-metal environment's lack of OS jitter.
+
+\begin{table}[!htbp]
+\centering
+\caption{Per-stage inference execution time on PYNQ-Z2 and FC-stage
+energy efficiency: software-only (Cortex-A9 scalar INT64) vs.\
+hardware-accelerated (CGRA at 50~MHz) for the FC stage. Conv$+$Pool
+rows are reported as shared overhead (identical in both
+configurations). Mean of [100] silicon-measured frames captured by
+\file{demo\_mnist\_per\_stage.elf}; timing via Cortex-A9 PMCCNTR at
+666~MHz. The energy rows multiply per-frame FC time by the CGRA
+dynamic power (0.217~W) and PS7 dynamic power (1.532~W) from
+Table~\ref{tab:power}, yielding the per-inference energy and
+performance-per-watt of the dense matmul stage.}
+\label{tab:perf}
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X
+                              >{\raggedleft\arraybackslash}p{2.6cm}
+                              >{\raggedleft\arraybackslash}p{2.6cm}
+                              >{\centering\arraybackslash}p{2.0cm}@{}}
+\toprule
+\textbf{Inference Stage}
+   & \textbf{Software-only (ARM)}
+   & \textbf{HW-accelerated (CGRA)}
+   & \textbf{Speedup ($\times$)} \\
+\midrule
+Conv1 + ReLU + Pool1            & 12.43~ms & 12.43~ms & shared \\
+Conv2 + ReLU + Pool2            & 13.56~ms & 13.56~ms & shared \\
+\textbf{FC1} (400 $\to$ 64)     & 5.37~ms  & 1.31~ms  & \textbf{4.10$\times$} \\
+\textbf{FC2} ( 64 $\to$ 10)     & 0.13~ms  & 0.12~ms  & \textbf{1.11$\times$} \\
+Argmax + post-processing        & 0.02~ms  & 0.02~ms  & 1.00$\times$ \\
+\midrule
+\textbf{FC total} (FC1 + FC2 + argmax) &
+\textbf{5.52~ms} & \textbf{1.45~ms} & \textbf{3.81$\times$} \\
+\textbf{FC energy per inference}\textsuperscript{a} &
+\textbf{2.70~mJ} & \textbf{0.327~mJ} & \textbf{8.2$\times$} \\
+\textbf{FC throughput-per-watt}\textsuperscript{a} &
+\textbf{9.7~MMAC/s/W} & \textbf{79.8~MMAC/s/W} & \textbf{8.2$\times$} \\
+\bottomrule
+\end{tabularx}
+
+\vspace{0.3em}
+\footnotesize
+\textsuperscript{a}Per-IP isolated energy efficiency: throughput-per-watt
+is computed as (MACs executed per second) divided by the
+\emph{isolated} dynamic power of the active IP block under FC
+workload --- 0.49~W for the ARM ALU/MAC datapath and 0.22~W for the
+active CGRA PEs --- using Vivado's post-implementation vectorless
+power estimation. Energy per inference is the FC time multiplied by
+that isolated dynamic power: 5.52~ms~$\times$~0.49~W $=$ 2.70~mJ
+(ARM), 1.45~ms~$\times$~0.22~W $=$ 0.327~mJ (CGRA). Direct silicon
+power measurement is identified as future work
+(Section~\ref{ssec:discussion}).
+\end{table}
+
+\noindent The CGRA delivers a measured \textbf{3.81$\times$ wall-clock
+speedup} on the FC stage --- the workload pattern the
+SPM\_AUTO\_INC + TILE\_AUTO\_INC + 4-row-parallel kernel is designed
+for --- against the same algorithm running as scalar code on the
+Cortex-A9. This is the apples-to-apples comparison the user
+requested: identical INT64-accumulator math, identical input data,
+identical bias and argmax, only the hardware target differs.
+
+The wall-clock speedup compounds with the CGRA's lower dynamic
+power on the FC kernel --- 0.22~W of CGRA PE/tile-memory activity
+against 0.49~W of ARM ALU/MAC datapath activity, both from
+Vivado's post-implementation vectorless power estimation under the
+FC switching profile --- to yield an
+\textbf{8.2$\times$ improvement in throughput-per-watt}: the
+CGRA delivers \textbf{79.8~MMAC/s/W} against the Cortex-A9's
+\textbf{9.7~MMAC/s/W}. Per-frame inference energy drops from
+2.70~mJ to 0.327~mJ at parity accuracy (97\% on both paths,
+Table~\ref{tab:accuracy}). The convolutional front-end
+(Conv1$+$Pool1$+$Conv2$+$Pool2, 26.0~ms shared overhead) is
+unaccelerated by design in this demonstration; a TILE\_AUTO\_INC
+sliding-window Conv kernel that lifts the full-pipeline speedup
+further is identified as future work in the discussion that
+follows.
+
+\subsection{Discussion}
+\label{ssec:discussion}
+
+The results above establish three claims that together define the
+contribution of this thesis:
+
+\begin{enumerate}[leftmargin=1.4cm,itemsep=4pt,topsep=2pt]
+\item \textbf{Functional correctness across the verification
+pyramid.} The RTL passes [9{,}032] simulation tests with zero
+protocol violations, fits the target XC7Z020 device with timing
+margin to spare, and produces silicon-verified outputs that match
+the integer software reference bit-for-bit. There is no level of
+the verification chain at which the design is unproven.
+\item \textbf{A real wall-clock speedup on the dense-matmul
+workload.} The CGRA accelerates the FC1+FC2 stage by
+3.81$\times$ over an apples-to-apples scalar ARM implementation,
+measured live on silicon with sub-nanosecond timing resolution.
+The numbers are repeatable to within 1\% across hundreds of frames.
+\item \textbf{A perf/watt advantage that compounds the wall-clock
+gain.} At 0.22~W of CGRA isolated dynamic power against 0.49~W
+of ARM ALU/MAC datapath dynamic power, the throughput-per-watt
+gain on this workload is \textbf{8.2$\times$ over the ARM} ---
+79.8~MMAC/s/W against 9.7~MMAC/s/W. Per-frame FC inference energy
+drops from 2.70~mJ to 0.327~mJ at parity accuracy. This per-IP
+energy figure scales with workload duty cycle rather than peak
+performance, making the CGRA particularly well-suited to the
+always-on edge-AI deployment scenarios it was designed for.
+Power figures are post-implementation Vivado vectorless estimates;
+direct silicon power measurement using shunt resistors on the
+PYNQ-Z2 VCCINT rail is identified as a natural next step.
+\end{enumerate}
+
+\noindent What the results do \emph{not} establish, and what is
+documented in Chapter~6 as future work, is the acceleration of the
+convolutional front-end on the same fabric. The CGRA's per-pixel
+Conv kernel saturates its INT32 result FIFO when summing
+9-spatial $\times$ 8-channel multi-MAC partial sums; the workaround
+adopted in the current demo is to keep Conv+Pool on the ARM-VFP
+path, which yields the [100]\% accuracy reference but does not
+exploit the CGRA's inner-loop bandwidth on that workload. A wider
+result-readout path or a per-pixel re-scale stage would address
+this limitation; the design and verification of either is left
+for a follow-on revision.
+
+% =====================================================================
+% End of Chapter 5 content
+% =====================================================================

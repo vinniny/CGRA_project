@@ -1,0 +1,51 @@
+% main.tex — standalone wrapper that compiles Chapter 5 to a PDF.
+% To integrate into a larger thesis: drop \input{chapter5} into the
+% master thesis file and reuse preamble.tex's package set.
+%
+% Build:   latexmk -pdf main.tex
+% Cleanup: latexmk -C
+
+\documentclass[12pt,a4paper,oneside]{article}
+
+\input{preamble}
+
+% Standalone renumbering so this file produces "5.1, 5.2, ..." headings.
+\renewcommand{\thesection}{5.\arabic{section}}
+\renewcommand{\thesubsection}{5.\arabic{section}.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{5.\arabic{section}.\arabic{subsection}.\arabic{subsubsection}}
+\renewcommand{\thefigure}{5.\arabic{figure}}
+\renewcommand{\thetable}{5.\arabic{table}}
+\AtBeginDocument{\renewcommand{\thelstlisting}{5.\arabic{lstlisting}}}
+
+\title{\textbf{Chapter 5 --- Results and Evaluation} \\[0.3em]
+       \large CGRA-Accelerated MNIST CNN Inference on Zynq-7000}
+\author{Engineering Graduation Thesis}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\vspace{0.5em}
+\noindent\fbox{\parbox{\textwidth}{
+\small \textbf{Context.} This chapter evaluates the CGRA accelerator
+along three orthogonal axes: (i) RTL-level functional correctness
+demonstrated through SystemVerilog simulation; (ii) FPGA implementation
+metrics --- resource utilization, timing closure, and power
+consumption --- reported by the Vivado toolchain for the target Xilinx
+Zynq-7000 device; and (iii) end-to-end software performance measured
+on the deployed silicon through the MNIST digit recognition
+demonstration. Numerical values that depend on the user's specific
+build outputs are left as bracketed placeholders ([XX]\%, [X.XX] ms,
+etc.) so that final figures from the user's Vivado reports and
+silicon measurements can be substituted directly.}}
+
+\vspace{1em}
+\tableofcontents
+\vspace{1em}
+
+% --- Chapter content ----------------------------------------------
+\input{chapter5}
+
+\end{document}
