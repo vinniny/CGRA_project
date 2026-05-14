@@ -1,0 +1,30 @@
+/*
+ * zynq-ebf-cgra-minimal-overlay.dts — Minimal overlay for the 4×4 CGRA
+ * This version contains NO memory reservations to prevent kernel crashes.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "xlnx,zynq-7000";
+
+    /* ── UIO node for the CGRA APB CSR only ──────────────────────────── */
+    fragment@0 {
+        target-path = "/amba_pl";
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            cgra@43cd0000 {
+                compatible = "generic-uio";
+                reg = <0x43cd0000 0x10000>;
+                interrupt-parent = <&intc>;
+                interrupts = <0 29 4>;  /* SPI 29, level-high (4) */
+                clocks = <&clkc 15>;    /* FCLK_CLK0 (50 MHz) */
+                clock-names = "aclk";
+                status = "okay";
+            };
+        };
+    };
+};

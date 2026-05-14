@@ -1,0 +1,62 @@
+/*
+ * zynq-ebf-cgra-overlay.dts — Device-tree overlay for the 4×4 CGRA accelerator
+ * on the Wildfire Haoyue Zynq-7020 board.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "xlnx,zynq-7000";
+
+    /* ── 1. Reserved-memory CMA pool (Dynamic Allocation) ────────────── */
+    fragment@0 {
+        target-path = "/reserved-memory";
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            cgra_cma_pool: cgra_cma_pool {
+                compatible = "shared-dma-pool";
+                reusable;
+                size = <0x04000000>;      /* 64 MB */
+                alignment = <0x01000000>; /* 16 MB aligned */
+                linux,cma-default;
+            };
+        };
+    };
+
+    /* ── 2. UIO node for the CGRA APB CSR ─────────────────────────────── */
+    fragment@1 {
+        target-path = "/amba_pl";
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            cgra@43cd0000 {
+                compatible = "generic-uio";
+                reg = <0x43cd0000 0x10000>;
+                interrupt-parent = <&intc>;
+                interrupts = <0 29 4>;  /* SPI 29, level-high (4) */
+                clocks = <&clkc 15>;    /* FCLK_CLK0 (50 MHz) */
+                clock-names = "aclk";
+                status = "okay";
+            };
+        };
+    };
+
+    /* ── 3. udmabuf instance for ARM↔CGRA bulk transfers ──────────────── */
+    fragment@2 {
+        target-path = "/";
+        __overlay__ {
+            udmabuf-cgra {
+                compatible = "ikwzm,udmabuf-0.10.a";
+                device-name = "udmabuf-cgra-buf0";
+                size = <0x01000000>;    /* 16 MB — one 640×480×4 frame + work area */
+                memory-region = <&cgra_cma_pool>;
+                sync-mode = <3>;        /* AUTO */
+                dma-coherent;
+            };
+        };
+    };
+};
