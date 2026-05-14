@@ -428,3 +428,33 @@ bitstreams/
 # ==============================================================================
 07_sw/baremetal/*.elf
 07_sw/cnn_eval/data/
+
+# ==============================================================================
+# Large local-state directories (board deploy staging, SD-card snapshots,
+# Copilot handover, reference design data — kept on disk, not in VCS)
+# ==============================================================================
+.handover/
+pynq_deploy/
+sd_backup/
+wildfire_ref/
+
+# ==============================================================================
+# Linux userspace build output
+# ==============================================================================
+07_sw/linux/build/
+07_sw/linux/petalinux_installation_log
+
+# ==============================================================================
+# LaTeX intermediates inside any 06_doc subdirectory
+# (depth-1 rules above only catch 06_doc/*.aux; these extend to chapter dirs)
+# ==============================================================================
+06_doc/**/*.aux
+06_doc/**/*.fdb_latexmk
+06_doc/**/*.fls
+06_doc/**/*.lot
+06_doc/**/*.synctex.gz
+06_doc/**/*.toc
+06_doc/**/*.log
+06_doc/**/*.out
+06_doc/**/*.bbl
+06_doc/**/*.blg
