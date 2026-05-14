@@ -1,0 +1,136 @@
+% preamble.tex — packages, styles, and macros shared by main.tex
+% Compile with: latexmk -pdf main.tex
+% Tested with TeX Live 2023, pdflatex engine.
+
+% --------------------------------------------------------------------
+% Document class is set by main.tex; everything below is loaded after.
+% --------------------------------------------------------------------
+
+% ---- Encoding and language -----------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[english]{babel}
+\usepackage{microtype}
+
+% ---- Page geometry -------------------------------------------------
+\usepackage[a4paper,top=2.5cm,bottom=2.5cm,left=3cm,right=2.5cm]{geometry}
+\usepackage{parskip}
+\setlength{\parskip}{0.5em}
+
+% Relax line-breaking so monospace identifiers and dense code-style
+% paragraphs don't trigger overfull boxes. emergencystretch allows
+% additional stretch on the last attempt; tolerance bumps the
+% acceptable badness threshold.
+\setlength{\emergencystretch}{3em}
+\tolerance=1500
+\hbadness=10000
+
+% ---- Math / symbols ------------------------------------------------
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{textcomp}
+
+% ---- Cross-references and links -----------------------------------
+% NOTE: hyperref and cleveref must be loaded AFTER `listings` so cleveref
+% can auto-detect the `lstlisting` counter. The `\usepackage{listings}`
+% line is moved up to the Code-listings block below this one.
+\usepackage[hidelinks,colorlinks=false]{hyperref}
+
+% ---- Floats, tables, captions -------------------------------------
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage[font=small,labelfont=bf,format=plain,justification=centering]{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+
+% ---- Colors --------------------------------------------------------
+\usepackage{xcolor}
+\definecolor{armblue}{RGB}{30,80,160}
+\definecolor{cgrared}{RGB}{180,40,50}
+\definecolor{ddrgreen}{RGB}{40,130,70}
+\definecolor{hdmipurple}{RGB}{120,40,140}
+\definecolor{codebg}{RGB}{245,245,248}
+\definecolor{codeframe}{RGB}{200,200,210}
+\definecolor{codecomment}{RGB}{60,120,60}
+\definecolor{codekeyword}{RGB}{160,30,140}
+\definecolor{codestring}{RGB}{180,80,30}
+\definecolor{codenum}{RGB}{120,120,120}
+
+% ---- Code listings -------------------------------------------------
+% Loaded HERE (before cleveref) so cleveref sees the lstlisting counter.
+\usepackage{listings}
+\usepackage[capitalise,noabbrev]{cleveref}
+\crefname{lstlisting}{Listing}{Listings}
+\Crefname{lstlisting}{Listing}{Listings}
+\lstdefinestyle{cstyle}{
+    language=C,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{codekeyword}\bfseries,
+    commentstyle=\color{codecomment}\itshape,
+    stringstyle=\color{codestring},
+    numberstyle=\tiny\color{codenum},
+    backgroundcolor=\color{codebg},
+    rulecolor=\color{codeframe},
+    showstringspaces=false,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    framesep=4pt,
+    numbers=left,
+    numbersep=8pt,
+    captionpos=b,
+    xleftmargin=12pt,
+    morekeywords={uint8_t,uint16_t,uint32_t,uint64_t,int8_t,int16_t,int32_t,int64_t,size_t,asm,volatile}
+}
+\lstset{style=cstyle}
+
+% ---- TikZ ---------------------------------------------------------
+\usepackage{tikz}
+\usetikzlibrary{
+    arrows.meta,
+    calc,
+    chains,
+    decorations.pathmorphing,
+    fit,
+    positioning,
+    shapes.geometric,
+    shapes.symbols,
+    backgrounds,
+    shadows.blur
+}
+
+% TikZ styles for the swim-lane flowchart in Section 4.2.
+\tikzset{
+    armnode/.style    = {rectangle, draw=armblue!80, fill=armblue!10, very thick,
+                         minimum width=5.5cm, minimum height=0.9cm, align=center,
+                         font=\small, rounded corners=2pt},
+    cgranode/.style   = {rectangle, draw=cgrared!80, fill=cgrared!10, very thick,
+                         minimum width=5.5cm, minimum height=0.9cm, align=center,
+                         font=\small, rounded corners=2pt},
+    ddrbox/.style     = {rectangle, draw=ddrgreen!80, fill=ddrgreen!10, thick,
+                         minimum width=2.4cm, minimum height=0.7cm, align=center,
+                         font=\scriptsize, rounded corners=2pt},
+    hdminode/.style   = {rectangle, draw=hdmipurple!80, fill=hdmipurple!10, very thick,
+                         minimum width=5.5cm, minimum height=0.9cm, align=center,
+                         font=\small, rounded corners=2pt},
+    decision/.style   = {diamond, draw=armblue!80, fill=armblue!10, very thick,
+                         aspect=2, inner sep=1pt, minimum width=4cm, font=\small,
+                         align=center},
+    arrow/.style      = {->, >=Latex, thick},
+    handoff/.style    = {->, >=Latex, very thick, dashed, draw=ddrgreen!70!black},
+    lanetitle/.style  = {font=\bfseries\large, align=center},
+    lanebox/.style    = {rectangle, draw=gray!50, fill=gray!5, thick, rounded corners=4pt}
+}
+
+% ---- Convenience macros -------------------------------------------
+\newcommand{\file}[1]{\texttt{\small #1}}
+\newcommand{\reg}[1]{\texttt{\small #1}}
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\addr}[1]{\texttt{\small 0x#1}}
+
+% Standard fixed widths for the register-map table.
+\newcolumntype{R}[1]{>{\raggedright\arraybackslash}p{#1}}

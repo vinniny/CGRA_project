@@ -1,0 +1,52 @@
+% main.tex — standalone wrapper that compiles Chapter 4 to a PDF.
+% To integrate into a larger thesis: drop \input{chapter4} into the
+% master thesis file and reuse preamble.tex's package set.
+%
+% Build:   latexmk -pdf main.tex
+% Cleanup: latexmk -C
+
+\documentclass[12pt,a4paper,oneside]{article}
+
+\input{preamble}
+
+% Section depth and numbering depth for a 1-chapter standalone build:
+% start with section level (4.1, 4.2, ...) by re-numbering manually.
+\renewcommand{\thesection}{4.\arabic{section}}
+\renewcommand{\thesubsection}{4.\arabic{section}.\arabic{subsection}}
+\renewcommand{\thesubsubsection}{4.\arabic{section}.\arabic{subsection}.\arabic{subsubsection}}
+\renewcommand{\thefigure}{4.\arabic{figure}}
+\renewcommand{\thetable}{4.\arabic{table}}
+% Listings counter is created on first use by the `listings` package;
+% renumber it via \AtBeginDocument so the counter exists at that point.
+\AtBeginDocument{\renewcommand{\thelstlisting}{4.\arabic{lstlisting}}}
+
+\title{\textbf{Chapter 4 — Software Design and Implementation} \\[0.3em]
+       \large CGRA-Accelerated MNIST CNN Inference on Zynq-7000}
+\author{Engineering Graduation Thesis}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\vspace{0.5em}
+\noindent\fbox{\parbox{\textwidth}{
+\small \textbf{Context.} The chapter that follows documents the software stack
+of a silicon-validated bare-metal demo running on a PYNQ-Z2 development board
+(Xilinx Zynq XC7Z020, Cortex-A9 @ 666~MHz, custom CGRA @ 50~MHz). The
+locked-demo head commit is tagged \texttt{baremetal-mnist-fc-demo-locked};
+all code references and register addresses in this chapter were verified
+against that commit. Measured silicon results on 201 frames:
+\textbf{CGRA-FC 1.50~ms (668 FPS), ARM-INT-FC 5.60~ms (179 FPS),
+ARM-VFP-FC 4.36~ms (230 FPS); 3.74$\times$ wall-clock speedup of CGRA-FC over
+scalar-INT ARM at 97\% classification accuracy.}}}
+
+\vspace{1em}
+\tableofcontents
+\vspace{1em}
+
+% --- Chapter content ----------------------------------------------
+\input{chapter4}
+
+\end{document}
