@@ -139,6 +139,15 @@ MNIST_FULL_SRCS   := start.s demo_mnist_full.c cnn_conv_bm.c \
                      demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
 MNIST_FULL_TARGET := demo_mnist_full.elf
 
+# ── demo_mnist_per_stage: Table 5.6 per-stage cycle accounting ──────────
+# Times Conv1/Pool1/Conv2/Pool2/quant + FC1/FC2/argmax on both ARM-INT
+# and CGRA paths over the 100-image sweep. Prints averaged hex cycles
+# at the end; convert to ms with cycles / 666_000 at 666 MHz.
+MNIST_PER_STAGE_SRCS   := start.s demo_mnist_per_stage.c arm_fc_int_bm.c \
+                          arm_cnn_int_bm.c \
+                          demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
+MNIST_PER_STAGE_TARGET := demo_mnist_per_stage.elf
+
 # ── demo_mnist_hdmi_bm: B6 HDMI demo (Option A: CGRA-FC head-to-head) ──
 # ARM-VFP runs Conv+Pool (accuracy-of-record). Three FC implementations
 # compete on the same act400: CGRA-FC, ARM-INT-FC (INT64 acc), ARM-VFP-FC.
@@ -174,7 +183,7 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test hdmi_text mnist_full mnist_compare mnist_hdmi
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test hdmi_text mnist_full mnist_compare mnist_hdmi mnist_per_stage
 
 all: $(TARGET)
 
@@ -193,6 +202,8 @@ mnist_full: $(MNIST_FULL_TARGET)
 mnist_compare: $(MNIST_CMP_TARGET)
 
 mnist_hdmi: $(MNIST_HDMI_TARGET)
+
+mnist_per_stage: $(MNIST_PER_STAGE_TARGET)
 
 demo: $(DEMO_TARGET)
 
@@ -299,6 +310,15 @@ $(MNIST_CMP_TARGET): $(MNIST_CMP_CORE_SRCS) $(MNIST_CMP_VFP_OBJ) \
 	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(MNIST_CMP_CORE_SRCS) \
 	      $(MNIST_CMP_VFP_OBJ) -lgcc -o $@
 	@echo "[BUILD] $(MNIST_CMP_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+# ── demo_mnist_per_stage build rule ────────────────────────────────────
+$(MNIST_PER_STAGE_TARGET): $(MNIST_PER_STAGE_SRCS) \
+                           uart.h cgra.h cgra_kernels_cnn.h arm_fc_bm.h \
+                           mnist_sweep_fixture.h linker_cnn.ld
+	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) \
+	      $(MNIST_PER_STAGE_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(MNIST_PER_STAGE_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # ── demo_mnist_hdmi_bm build rule ──────────────────────────────────────
