@@ -60,7 +60,7 @@ int im2col_4x4_tile(const int32_t *data_im,
     int total_cols = out_h * out_w;
 
     /* Full Im2Col into temporary buffer */
-    int32_t *col = (int32_t *)calloc((size_t)total_rows * total_cols,
+    int32_t *col = (int32_t *)calloc((size_t)total_rows * (size_t)total_cols,
                                       sizeof(int32_t));
     if (!col) return -1;
 
@@ -68,7 +68,7 @@ int im2col_4x4_tile(const int32_t *data_im,
 
     /* Slice into 4-row tiles; last tile zero-padded if needed */
     int nt = (total_rows + 3) / 4;
-    int32_t *tile_buf = (int32_t *)calloc((size_t)nt * 4 * total_cols,
+    int32_t *tile_buf = (int32_t *)calloc((size_t)nt * 4 * (size_t)total_cols,
                                            sizeof(int32_t));
     if (!tile_buf) { free(col); return -1; }
 

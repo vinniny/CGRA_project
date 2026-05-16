@@ -206,6 +206,7 @@ int main(int argc, char **argv)
         if (cgra_init(&cgra_dev, NULL) < 0) return 1;
         cgra_shim_attach(&cgra_dev);
         memfd = open("/dev/mem", O_RDWR | O_SYNC);
+        if (memfd < 0) { perror("/dev/mem"); return 1; }
         if (mmap((void *)(uintptr_t)LPR_CGRA_POOL2_Q_DDR,   0x1000, PROT_READ|PROT_WRITE,
                  MAP_SHARED|MAP_FIXED, memfd, LPR_CGRA_POOL2_Q_DDR) == MAP_FAILED) return 1;
         if (mmap((void *)(uintptr_t)LPR_CGRA_STAGING_DDR, 0x1000, PROT_READ|PROT_WRITE,
@@ -213,7 +214,13 @@ int main(int argc, char **argv)
         FILE *wf = fopen("golden_weights_int16.bin", "rb");
         if (!wf) { perror("golden_weights_int16.bin"); return 1; }
         fseek(wf, 0, SEEK_END); long sz = ftell(wf); fseek(wf, 0, SEEK_SET);
-        int16_blob = malloc(sz); fread(int16_blob, 1, sz, wf); fclose(wf);
+        if (sz < 0) { perror("ftell"); fclose(wf); return 1; }
+        int16_blob = malloc((size_t)sz);
+        if (!int16_blob) { perror("malloc int16_blob"); fclose(wf); return 1; }
+        if (fread(int16_blob, 1, (size_t)sz, wf) != (size_t)sz) {
+            fprintf(stderr, "int16 short read\n"); fclose(wf); return 1;
+        }
+        fclose(wf);
     }
 #endif
 

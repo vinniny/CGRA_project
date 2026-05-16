@@ -106,8 +106,12 @@ int main(int argc, char **argv)
         fseek(f, 0, SEEK_END);
         long sz = ftell(f);
         fseek(f, 0, SEEK_SET);
-        int16_blob = malloc(sz);
-        if (fread(int16_blob, 1, sz, f) != (size_t)sz) { fprintf(stderr, "int16 short read\n"); return 1; }
+        if (sz < 0) { perror("ftell"); fclose(f); return 1; }
+        int16_blob = malloc((size_t)sz);
+        if (!int16_blob) { perror("malloc int16_blob"); fclose(f); return 1; }
+        if (fread(int16_blob, 1, (size_t)sz, f) != (size_t)sz) {
+            fprintf(stderr, "int16 short read\n"); fclose(f); return 1;
+        }
         fclose(f);
         fprintf(stderr, "[eval] CGRA mode: scratch @ 0x%08lx (pool2) + 0x%08lx (staging), int16 blob %ld B\n",
                 LPR_CGRA_POOL2_Q_DDR, LPR_CGRA_STAGING_DDR, sz);
@@ -201,5 +205,12 @@ int main(int argc, char **argv)
     free(images);
     free(ctx);
     free(w);
+#ifdef USE_CGRA_INFER
+    if (use_cgra) {
+        free(int16_blob);
+        if (memfd >= 0) close(memfd);
+        /* pool2_va / staging_va kernel-reclaimed at exit */
+    }
+#endif
     return (correct == N_IMAGES) ? 0 : (correct >= N_IMAGES * 89 / 100 ? 0 : 2);
 }
