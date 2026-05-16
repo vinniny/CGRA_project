@@ -35,7 +35,7 @@ make program BIT=bitstreams/cgra_top.bit      # Program PL + init PS (current bi
 make program BIT=... PS_INIT=0                # Program PL only (no PS init)
 make fpga_status                              # Read FPGA state + CGRA registers
 make run_elf ELF=07_sw/build/app BIT=...      # Load & run bare-metal ELF on ARM
-make reg_dump                                 # Dump all 28 CGRA APB registers
+make reg_dump                                 # Dump all 30 CGRA APB registers
 make reg_read REG=DMA_STATUS                  # Read single register
 make reg_write REG=DMA_SRC VAL=0x10000000     # Write register
 make hw_server_start                          # Start Xilinx hw_server daemon
@@ -70,8 +70,9 @@ make demo_lpr            # Build demo_lpr.elf — VN plate OCR ARM-only golden i
 make demo_lpr_cgra       # Build demo_lpr_cgra.elf — LPR v1 with CGRA FC (INT16 tiled)
 make demo_lpr_cgra_v2    # Build demo_lpr_cgra_v2.elf — LPR v2 with DMA→SPM + SPM_AUTO_INC
 make demo_lpr_cgra_v2_smoke  # Build demo_lpr_cgra_v2_smoke.elf — first-image smoke test
-make mnist_smoke         # Build demo_mnist_smoke.elf — CGRA FC kernel D3 smoke test
 make mnist_sweep         # Build demo_mnist_sweep.elf — full MNIST accuracy sweep
+make mnist_per_stage     # Build demo_mnist_per_stage.elf — per-stage cycle accounting (Ch5 Table 5.6)
+make mnist_hdmi          # Build demo_mnist_hdmi_bm.elf — locked head-to-head HDMI demo
 make bench_compare       # Build bench_compare.elf — ARM vs CGRA cycle comparison
 ```
 The demo (`07_sw/baremetal/demo_ascii_inverter.c`) is a Vitis-BSP-style
@@ -119,11 +120,11 @@ device to capture traces if any future test fails.
 - **04_syn/** — Synthesis outputs (Genus)
 - **05_lec/** — Logical equivalence check outputs (Conformal)
 - **06_doc/** — Thesis documentation (LaTeX)
-- **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model), app/ (lpr_demo, lpr_cgra_accel, lpr_live_demo, test_tiler, dump_cgra_hex)
+- **07_sw/** — C software: driver/ (UIO+CMA+devmem Linux driver), lib/ (cgra_tiler for im2col/convolution tiling, lpr_golden model, cgra_baremetal_shim), app/ (lpr_golden_test, test_tiler, dump_cgra_hex — host-side helpers)
 - **07_sw/baremetal/** — Bare-metal hardware regression for the CGRA. arm-none-eabi-gcc built ELF that runs from OCM, configures UART0, and exercises the CGRA over the AXI GP0 APB interface. Files: start.s (vectors + VBAR + VFP enable + IRQ-mode SP + BSS + IRQ vector saving caller-saved regs and dispatching via gic_irq_entry), linker.ld (OCM 0x4000 + vectors + IRQ stack at 0x1EFC0 + SVC stack at 0x1FFC0 + DDR scratch at 0x100000), cgra.h (full ISA opcodes, 1D/2D DMA + async helpers, single-slot and multi-slot PE config double-pump, cgra_wait_dma_and_cu for concurrency tests), gic.h / gic.c (bare-metal ARMv7 GIC v1 driver targeting Zynq distributor 0xF8F01000 + CPU interface 0xF8F00100, ~150 LOC, no Vitis BSP — gic_init / gic_register_isr / gic_enable_irq_id and a gic_irq_dispatch top-half for the IRQ vector), uart.h (Zynq UART0 driver, baud divisors matching ps7_init, per-line drain), main.c (25-group / 96-check regression covering registers, DMA, ALU, MAC, multi-context, all 4 routing directions, multicast, concurrency, error path, and end-to-end GIC interrupt delivery).
 - **scripts/** — TCL scripts for synthesis, LEC, and FPGA deployment (xsdb_program.tcl, xsdb_status.tcl, xsdb_run_elf.tcl, xsdb_regmap.tcl, xsdb_debug_uart.tcl). Requires ps7_init.tcl exported from Vivado block design for PS initialization. uart_monitor.py is a pyserial reader for the CH340 UART (/dev/ttyUSB2 in WSL2).
 - **07_sw/cnn_eval/** — Python training + quantization pipeline for MNIST CNN demo (train_mnist.py, quantize_cgra.py, emit_smoke_fixture.py, emit_sweep_fixture.py, golden_sim.py). Generates `mnist_weights_spm.bin` (weight blob for DMA→SPM), `mnist_smoke_fixture.h`, and `mnist_sweep_fixture.h`.
-- **07_sw/linux/** — PetaLinux userspace tools (lpr_eval.c, cgra_dmatest.c, cgra_smoke.c, lpr_hdmi_demo.c)
+- **07_sw/linux/** — PetaLinux userspace tools (lpr_eval.c, lpr_live_demo_v2.c, lpr_hdmi_demo.c, lpr_fc_probe.c, fclk2_enable.c, run_demo_{arm,cgra}.sh)
 - **bitstreams/** — Staging directory for .bit files generated from Windows Vivado (current: cgra_top.bit)
 
 ## Architecture

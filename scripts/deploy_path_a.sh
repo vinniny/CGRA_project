@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # =============================================================================
 # deploy_path_a.sh — Deploy Vivado-2022.2 merged HDMI+CGRA bitstream to Haoyue
 # and verify both subsystems live in a single boot.

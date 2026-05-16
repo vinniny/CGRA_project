@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # =============================================================================
 # deploy_cgra_bitstream.sh — Push the new CGRA+HDMI bitstream + CGRA DT overlay
 # to the Haoyue board, then reboot and run the smoke test.

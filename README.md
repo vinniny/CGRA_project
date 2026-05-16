@@ -924,9 +924,9 @@ void cgra_get_results(uint32_t results[4]) {
 | **CGRA Driver** | driver/cgra_driver.{c,h} | ~740 | UIO+CMA Linux driver for Zynq-7000 (target-board agnostic); full register API, IRQ handling, `/dev/udmabuf` buffer allocation |
 | **Tiler Library** | lib/cgra_tiler.{c,h} | ~340 | Im2Col + CSC conversion; CGRA-aware 4-row tile chunking |
 | **LPR Golden Model** | lib/lpr_golden.{c,h} | ~460 | Pure-C reference CNN (no ONNX, no float); bit-exact int32 output |
-| **LPR Demo** | app/lpr_demo.c | ~426 | HW/SW latency comparison: FC MatMul on CGRA vs. ARM |
-| **CGRA Accelerator** | app/lpr_cgra_accel.c | ~590 | Production classifier: Conv/Pool on ARM, FC on CGRA (Q8.8 activations) |
-| **Live LPR Demo** | app/lpr_live_demo.c | ~640 | Video/webcam pipeline: plate detection + CGRA-offloaded OCR, per-frame latency stats |
+| **LPR Linux Eval** | linux/lpr_eval.c + run_demo_{arm,cgra}.sh | ~600 | 4500-image VN plate dataset eval; built twice (lpr_eval, lpr_eval_cgra) for ARM-only vs ARM+CGRA-FC head-to-head |
+| **LPR v2 Live Demo** | linux/lpr_live_demo_v2.c | ~600 | V4L2/PL camera pipeline: plate detection + CGRA-offloaded OCR, per-frame latency stats |
+| **LPR HDMI Demo** | linux/lpr_hdmi_demo.c | ~500 | HDMI three-panel LPR with CGRA FC offload + framebuffer overlay |
 | **Hex Dumper** | app/dump_cgra_hex.c | ~375 | Generates config.mem / image.mem / golden.mem for the RAP testbench suite |
 | **Golden Model Test** | app/lpr_golden_test.c | ~255 | Standalone golden model validation (no hardware required) |
 | **Tiler Test** | app/test_tiler.c | ~222 | Tiler library unit tests |
