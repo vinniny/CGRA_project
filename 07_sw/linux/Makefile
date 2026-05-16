@@ -40,9 +40,9 @@ PROBE_BIN := $(BUILD)/lpr_fc_probe
 
 ALL_BINS := $(DEMO_BIN) $(EVAL_BIN) $(EVAL_CGRA_BIN) $(HDMI_DEMO_BIN) $(FCLK2_BIN) $(PROBE_BIN)
 
-.PHONY: all clean demo eval eval_cgra hdmi_demo fclk2 fcprobe deploy
+.PHONY: all clean demo eval eval_cgra hdmi_demo fclk2 fcprobe deploy info
 
-all: demo
+all: $(ALL_BINS)
 
 demo: $(DEMO_BIN)
 

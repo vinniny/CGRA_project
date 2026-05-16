@@ -111,11 +111,11 @@ DEMO_LPR_CGRA_V2_TARGET       := demo_lpr_cgra_v2.elf
 DEMO_LPR_CGRA_V2_SMOKE_TARGET := demo_lpr_cgra_v2_smoke.elf
 
 # ── CNN build flags (used by mnist_sweep, mnist_per_stage, mnist_hdmi) ──
-CNN_SMOKE_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
+CNN_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
                    -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
                    -ffunction-sections -fdata-sections \
                    -I. $(BOARD_DEFS)
-CNN_SMOKE_LDFLAGS := -T linker_cnn.ld -nostdlib -Wl,--gc-sections
+CNN_LDFLAGS := -T linker_cnn.ld -nostdlib -Wl,--gc-sections
 
 # ── demo_mnist_sweep: N-image sweep on FC1+FC2 (D4) ─────────────────────
 CNN_SWEEP_SRCS    := start.s demo_mnist_sweep.c demo_mnist_weights.S gic.c
@@ -149,7 +149,7 @@ MNIST_HDMI_TARGET    := demo_mnist_hdmi_bm.elf
 MNIST_HDMI_INC       := -I../linux/demo_mnist_hdmi
 
 # ── arm_cnn_bm.c built as VFP variant — used by demo_mnist_hdmi_bm ──────
-MNIST_CMP_VFP_OBJ   := arm_cnn_bm_vfp.o
+ARM_CNN_VFP_OBJ   := arm_cnn_bm_vfp.o
 
 ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
                        -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
@@ -239,7 +239,7 @@ $(DEMO_LPR_CGRA_V2_SMOKE_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_l
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 $(CNN_SWEEP_TARGET): $(CNN_SWEEP_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_sweep_fixture.h linker_cnn.ld ../cnn_eval/mnist_weights_spm.bin
-	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(CNN_SWEEP_SRCS) -lgcc -o $@
+	$(CC) $(CNN_CFLAGS) $(CNN_LDFLAGS) $(CNN_SWEEP_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(CNN_SWEEP_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
@@ -253,26 +253,25 @@ $(HDMI_TEXT_TARGET): $(HDMI_TEXT_SRCS) uart.h hdmi_bm.h fb_lib_bm.h gic.h linker
 	@echo "[BUILD] $(HDMI_TEXT_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
-# arm_cnn_bm.c built as the VFP variant. ARM-INT scalar lives in
-# arm_cnn_int_bm.c (no floats → no ABI conflict).
-$(MNIST_CMP_VFP_OBJ): arm_cnn_bm.c arm_cnn_bm.h
+# arm_cnn_bm.c built as the VFP variant — linked into demo_mnist_hdmi_bm.
+$(ARM_CNN_VFP_OBJ): arm_cnn_bm.c arm_cnn_bm.h
 	$(CC) $(ARM_CNN_VFP_CFLAGS) -c $< -o $@
 
 # ── demo_mnist_per_stage build rule ────────────────────────────────────
 $(MNIST_PER_STAGE_TARGET): $(MNIST_PER_STAGE_SRCS) \
                            uart.h cgra.h cgra_kernels_cnn.h arm_fc_bm.h \
                            mnist_sweep_fixture.h linker_cnn.ld
-	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) \
+	$(CC) $(CNN_CFLAGS) $(CNN_LDFLAGS) \
 	      $(MNIST_PER_STAGE_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(MNIST_PER_STAGE_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # ── demo_mnist_hdmi_bm build rule ──────────────────────────────────────
-$(MNIST_HDMI_TARGET): $(MNIST_HDMI_CORE_SRCS) $(MNIST_CMP_VFP_OBJ) \
+$(MNIST_HDMI_TARGET): $(MNIST_HDMI_CORE_SRCS) $(ARM_CNN_VFP_OBJ) \
                       uart.h cgra.h cgra_kernels_cnn.h arm_cnn_bm.h arm_fc_bm.h \
                       hdmi_bm.h fb_lib_bm.h mnist_sweep_fixture.h linker_cnn.ld
-	$(CC) $(CNN_SMOKE_CFLAGS) $(MNIST_HDMI_INC) $(CNN_SMOKE_LDFLAGS) \
-	      $(MNIST_HDMI_CORE_SRCS) $(MNIST_CMP_VFP_OBJ) -lgcc -o $@
+	$(CC) $(CNN_CFLAGS) $(MNIST_HDMI_INC) $(CNN_LDFLAGS) \
+	      $(MNIST_HDMI_CORE_SRCS) $(ARM_CNN_VFP_OBJ) -lgcc -o $@
 	@echo "[BUILD] $(MNIST_HDMI_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
@@ -280,4 +279,4 @@ dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) $(CNN_SWEEP_TARGET) $(MNIST_PER_STAGE_TARGET) $(MNIST_HDMI_TARGET) $(MNIST_CMP_VFP_OBJ) *.o
+	rm -f *.elf *.o

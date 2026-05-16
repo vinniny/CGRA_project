@@ -23,7 +23,6 @@ CFLAGS   = -Wall -Wextra -O2 -std=c11
 LDFLAGS  = -lrt -lm
 
 # ── Directories ───────────────────────────────────────────────────
-DRIVER_DIR = driver
 LIB_DIR    = lib
 APP_DIR    = app
 BUILD_DIR  = build
@@ -32,7 +31,6 @@ BUILD_DIR  = build
 TILER_SRC   = $(LIB_DIR)/cgra_tiler.c
 GOLDEN_SRC  = $(LIB_DIR)/lpr_golden.c
 
-TILER_OBJ   = $(BUILD_DIR)/cgra_tiler.o
 GOLDEN_OBJ  = $(BUILD_DIR)/lpr_golden.o
 
 # ── Targets ───────────────────────────────────────────────────────
