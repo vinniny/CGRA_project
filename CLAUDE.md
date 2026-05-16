@@ -183,13 +183,13 @@ Protected registers: DMA_SRC/DST/SIZE/STRIDE/ROWS/COLS rejected while DMA busy. 
 
 Clocking blocks: `apb_cb` (drive #1, sample #1step), `axi_cb` (sample-only). Watchdog: TB_WATCHDOG_NS (100ms default). Error threshold: MAX_ERRORS (50 default). Verbosity: +define+TB_VERBOSE or +VERBOSITY=N plusarg.
 
-## HDMI Pipeline Integration (scripts/add_cgra_hdmi_v157.tcl)
+## HDMI Pipeline Integration (scripts/build_cgra_hdmi_pynqz2_clean.tcl)
 
-Live HDMI video output integration into the PYNQ-Z2 Vivado block design (separate project at `C:\Users\thanh\Desktop\CGRA_PYNQ\`). Pipeline: `axi_vdma` + `axi_dynclk` + `rgb2dvi` + `v_tc`, sharing PS7 HP0 with CGRA DMA. Current script: `scripts/add_cgra_hdmi_v157.tcl`.
+Live HDMI video output integration into the PYNQ-Z2 Vivado block design (separate project at `C:\Users\thanh\Desktop\CGRA_PYNQ\`). Pipeline: `axi_vdma` + `axi_dynclk` + `rgb2dvi` + `v_tc`, sharing PS7 HP0 with CGRA DMA. Current script: `scripts/build_cgra_hdmi_pynqz2_clean.tcl`.
 
 Run sequence in Vivado Tcl console:
 ```tcl
-source C:/Users/thanh/Desktop/CGRA_project/scripts/add_cgra_hdmi_v157.tcl
+source C:/Users/thanh/Desktop/CGRA_project/scripts/build_cgra_hdmi_pynqz2_clean.tcl
 # then: Reset Output Products → Generate Output Products → Create HDL Wrapper → Generate Bitstream
 ```
 

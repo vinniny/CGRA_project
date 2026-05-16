@@ -14,7 +14,7 @@
 //   SAI03: LOAD_SPM with auto-inc reads advancing addresses across iterations
 // =============================================================================
 
-localparam logic [31:0] ADDR_SPM_AUTO_INC = 32'h84;
+// ADDR_SPM_AUTO_INC defined in tb_defs.svh
 
 // Start CU and wait for done — does NOT soft-reset so spm_iter_cnt is readable.
 task automatic run_cgra_wait_done(input int timeout_cyc);

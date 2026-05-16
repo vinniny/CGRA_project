@@ -81,7 +81,7 @@ module cgra_apb_csr #(
     output logic                  tile_auto_inc_en,
 
     // Result FIFO
-    output logic [7:0]            result_skip_count,    // warmup skip (default 13)
+    output logic [7:0]            result_skip_count,    // warmup skip (default 12)
     output logic [3:0]            cu_pc_end,            // last PC slot before array_done (default 15)
 
     // Scatter-Gather DMA
@@ -137,7 +137,7 @@ module cgra_apb_csr #(
     localparam ADDR_TILE_BANK_SEL = 8'h74; // RW: PE buffer selector (bit[0])
 
     // Result FIFO
-    localparam ADDR_RESULT_SKIP   = 8'h54; // RW: [3:0] warmup skip count (default 11)
+    localparam ADDR_RESULT_SKIP   = 8'h54; // RW: [7:0] warmup skip count (default 12)
 
     // Tile Auto-Increment
     localparam ADDR_TILE_AUTO_INC = 8'h78; // RW: bit[0] = enable tile addr auto-inc on loop wrap

@@ -217,11 +217,14 @@ localparam logic [31:0] ADDR_TILE_AUTO_INC  = 32'h78;  // [0] Enable tile addr a
 localparam logic [31:0] ADDR_DMA_DESC_HEAD   = 32'h7C; // RW: descriptor chain head pointer
 localparam logic [31:0] ADDR_DMA_DESC_STATUS = 32'h80; // RO: [0] chain_active, [15:8] completed
 
+// --- SPM Auto-Increment (0x84) ---
+localparam logic [31:0] ADDR_SPM_AUTO_INC   = 32'h84;  // [0] Enable spm_iter_cnt on loop wrap
+
 // --- Result FIFO Skip (0x54) ---
 localparam logic [31:0] ADDR_RESULT_SKIP    = 32'h54;  // [7:0] warmup skip count (default 12)
 
 // --- Unmapped address for negative testing ---
-localparam logic [31:0] ADDR_UNMAPPED       = 32'h88;  // Beyond register space
+localparam logic [31:0] ADDR_UNMAPPED       = 32'h8C;  // Beyond register space
 
 // ============================================================================
 // 7. DMA ADDRESS SPACE PREFIXES
