@@ -110,22 +110,16 @@ LPR_CGRA_V2_SMOKE_CFLAGS := $(LPR_CFLAGS) -DUSE_CGRA_INFER_V2 -DLPR_CGRA_PROFILE
 DEMO_LPR_CGRA_V2_TARGET       := demo_lpr_cgra_v2.elf
 DEMO_LPR_CGRA_V2_SMOKE_TARGET := demo_lpr_cgra_v2_smoke.elf
 
-# ── demo_mnist_smoke: CGRA MNIST FC kernel smoke test (D3) ──────────────
-CNN_SMOKE_SRCS   := start.s demo_mnist_smoke.c demo_mnist_weights.S gic.c
+# ── CNN build flags (used by mnist_sweep, mnist_per_stage, mnist_hdmi) ──
 CNN_SMOKE_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
                    -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
                    -ffunction-sections -fdata-sections \
                    -I. $(BOARD_DEFS)
 CNN_SMOKE_LDFLAGS := -T linker_cnn.ld -nostdlib -Wl,--gc-sections
-CNN_SMOKE_TARGET  := demo_mnist_smoke.elf
 
 # ── demo_mnist_sweep: N-image sweep on FC1+FC2 (D4) ─────────────────────
 CNN_SWEEP_SRCS    := start.s demo_mnist_sweep.c demo_mnist_weights.S gic.c
 CNN_SWEEP_TARGET  := demo_mnist_sweep.elf
-
-# ── demo_hdmi_test: B2 bare-metal HDMI smoke (port of hdmi_first_light) ─
-HDMI_TEST_SRCS    := start.s demo_hdmi_test.c hdmi_bm.c gic.c
-HDMI_TEST_TARGET  := demo_hdmi_test.elf
 
 # ── demo_hdmi_text: B3 bare-metal HDMI text + image rendering smoke ─────
 HDMI_TEXT_SRCS    := start.s demo_hdmi_text.c hdmi_bm.c fb_lib_bm.c \
@@ -133,11 +127,6 @@ HDMI_TEXT_SRCS    := start.s demo_hdmi_text.c hdmi_bm.c fb_lib_bm.c \
 HDMI_TEXT_DEFS    := -DSWEEP_RODATA=
 HDMI_TEXT_INC     := -I../linux/demo_mnist_hdmi
 HDMI_TEXT_TARGET  := demo_hdmi_text.elf
-
-# ── demo_mnist_full: B4 end-to-end MNIST CNN on CGRA (Conv+Pool+FC) ────
-MNIST_FULL_SRCS   := start.s demo_mnist_full.c cnn_conv_bm.c \
-                     demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
-MNIST_FULL_TARGET := demo_mnist_full.elf
 
 # ── demo_mnist_per_stage: Table 5.6 per-stage cycle accounting ──────────
 # Times Conv1/Pool1/Conv2/Pool2/quant + FC1/FC2/argmax on both ARM-INT
@@ -159,19 +148,7 @@ MNIST_HDMI_CORE_SRCS := start.s demo_mnist_hdmi_bm.c \
 MNIST_HDMI_TARGET    := demo_mnist_hdmi_bm.elf
 MNIST_HDMI_INC       := -I../linux/demo_mnist_hdmi
 
-# ── demo_mnist_compare: B5 three-way CGRA / ARM-VFP / ARM-INT bench ────
-# Three ARM-side baselines for the CGRA comparison:
-#   1. CGRA: cnn_full_inference (CGRA Conv+Pool + CGRA FC)
-#   2. ARM-VFP: arm_cnn_vfp_run, -mfpu=vfpv3 -mfloat-abi=hard (default mod-
-#      ern compile — the honest asterisk against an FP-tuned ARM).
-#   3. ARM-INT: arm_cnn_int_run, pure scalar INT16 MAC (no VFP, no NEON)
-#      — this is the thesis-abstract "8-12 FPS unoptimized ARM" baseline.
-# Soft-float mixed-ABI in one ELF doesn't link with arm-none-eabi-ld, so
-# the no-VFP path is implemented with hand-written integer code instead.
-MNIST_CMP_CORE_SRCS := start.s demo_mnist_compare.c cnn_conv_bm.c \
-                       arm_cnn_int_bm.c \
-                       demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
-MNIST_CMP_TARGET    := demo_mnist_compare.elf
+# ── arm_cnn_bm.c built as VFP variant — used by demo_mnist_hdmi_bm ──────
 MNIST_CMP_VFP_OBJ   := arm_cnn_bm_vfp.o
 
 ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
@@ -183,23 +160,15 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_smoke mnist_sweep bench_compare hdmi_test hdmi_text mnist_full mnist_compare mnist_hdmi mnist_per_stage
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep bench_compare hdmi_text mnist_hdmi mnist_per_stage
 
 all: $(TARGET)
-
-mnist_smoke: $(CNN_SMOKE_TARGET)
 
 mnist_sweep: $(CNN_SWEEP_TARGET)
 
 bench_compare: $(BCMP_TARGET)
 
-hdmi_test: $(HDMI_TEST_TARGET)
-
 hdmi_text: $(HDMI_TEXT_TARGET)
-
-mnist_full: $(MNIST_FULL_TARGET)
-
-mnist_compare: $(MNIST_CMP_TARGET)
 
 mnist_hdmi: $(MNIST_HDMI_TARGET)
 
@@ -269,11 +238,6 @@ $(DEMO_LPR_CGRA_V2_SMOKE_TARGET): $(LPR_SRCS) uart.h cgra.h linker_lpr.ld demo_l
 	@echo "[BUILD] $(DEMO_LPR_CGRA_V2_SMOKE_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
-$(CNN_SMOKE_TARGET): $(CNN_SMOKE_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_smoke_fixture.h linker_cnn.ld ../cnn_eval/mnist_weights_spm.bin
-	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(CNN_SMOKE_SRCS) -lgcc -o $@
-	@echo "[BUILD] $(CNN_SMOKE_TARGET) OK"
-	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
-
 $(CNN_SWEEP_TARGET): $(CNN_SWEEP_SRCS) uart.h cgra.h cgra_kernels_cnn.h mnist_sweep_fixture.h linker_cnn.ld ../cnn_eval/mnist_weights_spm.bin
 	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(CNN_SWEEP_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(CNN_SWEEP_TARGET) OK"
@@ -284,33 +248,15 @@ $(BCMP_TARGET): $(BCMP_SRCS) uart.h cgra.h gic.h linker.ld
 	@echo "[BUILD] $(BCMP_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
-$(HDMI_TEST_TARGET): $(HDMI_TEST_SRCS) uart.h hdmi_bm.h gic.h linker.ld
-	$(CC) $(CFLAGS) $(LDFLAGS) $(HDMI_TEST_SRCS) -lgcc -o $@
-	@echo "[BUILD] $(HDMI_TEST_TARGET) OK"
-	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
-
 $(HDMI_TEXT_TARGET): $(HDMI_TEXT_SRCS) uart.h hdmi_bm.h fb_lib_bm.h gic.h linker_cnn.ld
 	$(CC) $(CFLAGS) $(HDMI_TEXT_INC) $(HDMI_TEXT_DEFS) -T linker_cnn.ld -nostdlib $(HDMI_TEXT_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(HDMI_TEXT_TARGET) OK"
-	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
-
-$(MNIST_FULL_TARGET): $(MNIST_FULL_SRCS) uart.h cgra.h cgra_kernels_cnn.h cnn_conv_bm.h cnn_requant_bm.h mnist_sweep_fixture.h linker_cnn.ld
-	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(MNIST_FULL_SRCS) -lgcc -o $@
-	@echo "[BUILD] $(MNIST_FULL_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # arm_cnn_bm.c built as the VFP variant. ARM-INT scalar lives in
 # arm_cnn_int_bm.c (no floats → no ABI conflict).
 $(MNIST_CMP_VFP_OBJ): arm_cnn_bm.c arm_cnn_bm.h
 	$(CC) $(ARM_CNN_VFP_CFLAGS) -c $< -o $@
-
-$(MNIST_CMP_TARGET): $(MNIST_CMP_CORE_SRCS) $(MNIST_CMP_VFP_OBJ) \
-                     uart.h cgra.h cgra_kernels_cnn.h cnn_conv_bm.h cnn_requant_bm.h \
-                     arm_cnn_bm.h arm_cnn_int_bm.h mnist_sweep_fixture.h linker_cnn.ld
-	$(CC) $(CNN_SMOKE_CFLAGS) $(CNN_SMOKE_LDFLAGS) $(MNIST_CMP_CORE_SRCS) \
-	      $(MNIST_CMP_VFP_OBJ) -lgcc -o $@
-	@echo "[BUILD] $(MNIST_CMP_TARGET) OK"
-	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # ── demo_mnist_per_stage build rule ────────────────────────────────────
 $(MNIST_PER_STAGE_TARGET): $(MNIST_PER_STAGE_SRCS) \
@@ -334,4 +280,4 @@ dis: $(TARGET)
 	$(OBJDUMP) -d $@ | less
 
 clean:
-	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) $(CNN_SMOKE_TARGET) *.o
+	rm -f $(TARGET) $(DEMO_TARGET) $(BENCH_TARGET) $(BENCH_RES_TARGET) $(BENCH_TAI_TARGET) $(DEMO_LPR_TARGET) $(DEMO_LPR_CGRA_TARGET) $(DEMO_LPR_CGRA_V2_TARGET) $(CNN_SWEEP_TARGET) $(MNIST_PER_STAGE_TARGET) $(MNIST_HDMI_TARGET) $(MNIST_CMP_VFP_OBJ) *.o

@@ -20,9 +20,6 @@ DRIVER_SRC := ../driver/cgra_driver.c
 GOLDEN_SRC := ../lib/lpr_golden.c
 
 # ── Targets ──────────────────────────────────────────────────────────────
-SMOKE_SRC  := cgra_smoke.c $(DRIVER_SRC)
-SMOKE_BIN  := $(BUILD)/cgra_smoke
-
 DEMO_SRC   := lpr_live_demo_v2.c $(DRIVER_SRC)
 DEMO_BIN   := $(BUILD)/lpr_live_demo_v2
 
@@ -35,22 +32,17 @@ EVAL_CGRA_BIN := $(BUILD)/lpr_eval_cgra
 HDMI_DEMO_SRC := lpr_hdmi_demo.c $(GOLDEN_SRC) ../lib/cgra_baremetal_shim.c $(DRIVER_SRC)
 HDMI_DEMO_BIN := $(BUILD)/lpr_hdmi_demo
 
-DMATEST_SRC := cgra_dmatest.c $(DRIVER_SRC)
-DMATEST_BIN := $(BUILD)/cgra_dmatest
-
 FCLK2_SRC := fclk2_enable.c
 FCLK2_BIN := $(BUILD)/fclk2_enable
 
 PROBE_SRC := lpr_fc_probe.c $(DRIVER_SRC) ../lib/cgra_baremetal_shim.c
 PROBE_BIN := $(BUILD)/lpr_fc_probe
 
-ALL_BINS := $(SMOKE_BIN) $(DEMO_BIN) $(EVAL_BIN) $(DMATEST_BIN) $(FCLK2_BIN) $(PROBE_BIN)
+ALL_BINS := $(DEMO_BIN) $(EVAL_BIN) $(EVAL_CGRA_BIN) $(HDMI_DEMO_BIN) $(FCLK2_BIN) $(PROBE_BIN)
 
-.PHONY: all clean smoke demo eval dmatest fclk2 fcprobe deploy
+.PHONY: all clean demo eval eval_cgra hdmi_demo fclk2 fcprobe deploy
 
-all: smoke
-
-smoke: $(SMOKE_BIN)
+all: demo
 
 demo: $(DEMO_BIN)
 
@@ -60,19 +52,12 @@ eval_cgra: $(EVAL_CGRA_BIN)
 
 hdmi_demo: $(HDMI_DEMO_BIN)
 
-dmatest: $(DMATEST_BIN)
-
 fclk2: $(FCLK2_BIN)
 
 fcprobe: $(PROBE_BIN)
 
 $(BUILD):
 	mkdir -p $(BUILD)
-
-$(SMOKE_BIN): $(SMOKE_SRC) | $(BUILD)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SMOKE_SRC)
-	@echo "[BUILD] $@"
-	@$(SIZE) $@
 
 $(DEMO_BIN): $(DEMO_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(DEMO_SRC)
@@ -101,11 +86,6 @@ $(HDMI_DEMO_BIN): $(HDMI_DEMO_SRC) | $(BUILD)
 	@echo "[BUILD] $@"
 	@$(SIZE) $@
 
-$(DMATEST_BIN): $(DMATEST_SRC) | $(BUILD)
-	$(CC) $(CFLAGS) -o $@ $(DMATEST_SRC) $(LDFLAGS)
-	@echo "[BUILD] $@"
-	@$(SIZE) $@
-
 $(FCLK2_BIN): $(FCLK2_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(FCLK2_SRC) $(LDFLAGS)
 	@echo "[BUILD] $@"
@@ -117,8 +97,8 @@ $(PROBE_BIN): $(PROBE_SRC) | $(BUILD)
 	@$(SIZE) $@
 
 # Push compiled binary onto the board via SSH (uses ~/.ssh/config "haoyue" host).
-deploy: smoke
-	scp $(SMOKE_BIN) haoyue:/home/root/cgra/
+deploy: demo
+	scp $(DEMO_BIN) haoyue:/home/root/cgra/
 
 clean:
 	rm -rf $(BUILD)

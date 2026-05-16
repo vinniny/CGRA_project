@@ -1,13 +1,15 @@
 # ===================================================================
-#  Makefile – CGRA 4×4 LPR Demo Software (PYNQ-Z2 / PetaLinux)
+#  Makefile – CGRA 4×4 host-side test utilities
 #
 #  Targets:
-#    make all            – Build everything (native or cross-compile)
-#    make lpr_demo       – Build demo application (requires CGRA HW)
+#    make all             – Build everything (native or cross-compile)
 #    make lpr_golden_test – Build golden model test (no HW needed)
-#    make lpr_cgra_accel – Build CGRA-accelerated classifier (requires HW)
-#    make test_tiler     – Build standalone tiler unit test
-#    make clean          – Remove build artifacts
+#    make dump_cgra_hex   – Build CGRA hex dump utility (no HW)
+#    make test_tiler      – Build standalone tiler unit test
+#    make clean           – Remove build artifacts
+#
+#  For the live LPR demo, see 07_sw/linux/Makefile (lpr_live_demo_v2,
+#  lpr_eval, lpr_hdmi_demo, lpr_fc_probe).
 #
 #  Cross-compilation for Zynq ARM:
 #    make CROSS=arm-linux-gnueabihf-
@@ -27,68 +29,35 @@ APP_DIR    = app
 BUILD_DIR  = build
 
 # ── Sources ───────────────────────────────────────────────────────
-DRIVER_SRC  = $(DRIVER_DIR)/cgra_driver.c
 TILER_SRC   = $(LIB_DIR)/cgra_tiler.c
 GOLDEN_SRC  = $(LIB_DIR)/lpr_golden.c
-APP_SRC     = $(APP_DIR)/lpr_demo.c
 
-DRIVER_OBJ  = $(BUILD_DIR)/cgra_driver.o
 TILER_OBJ   = $(BUILD_DIR)/cgra_tiler.o
 GOLDEN_OBJ  = $(BUILD_DIR)/lpr_golden.o
-APP_OBJ     = $(BUILD_DIR)/lpr_demo.o
-
-ALL_OBJS    = $(DRIVER_OBJ) $(TILER_OBJ) $(APP_OBJ)
 
 # ── Targets ───────────────────────────────────────────────────────
-.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex lpr_live_demo
+.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex
 
-all: $(BUILD_DIR) lpr_demo lpr_cgra_accel lpr_golden_test lpr_live_demo dump_cgra_hex
+all: $(BUILD_DIR) lpr_golden_test dump_cgra_hex test_tiler
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
-
-# LPR Demo application (requires CGRA hardware)
-lpr_demo: $(ALL_OBJS)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
-	@echo "[BUILD] $(BUILD_DIR)/lpr_demo ready"
-
-# CGRA-accelerated LPR classifier (INT8/16 quantized FC offload)
-lpr_cgra_accel: $(DRIVER_OBJ) $(TILER_OBJ) $(GOLDEN_OBJ) $(BUILD_DIR)/lpr_cgra_accel.o
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
-	@echo "[BUILD] $(BUILD_DIR)/lpr_cgra_accel ready"
-
-$(BUILD_DIR)/lpr_cgra_accel.o: $(APP_DIR)/lpr_cgra_accel.c $(DRIVER_DIR)/cgra_driver.h $(LIB_DIR)/cgra_tiler.h $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(DRIVER_DIR) -I$(LIB_DIR) -c $< -o $@
 
 # Golden model test (no HW dependencies — runs anywhere)
 lpr_golden_test: $(BUILD_DIR)/lpr_golden_test.o $(GOLDEN_OBJ)
 	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
 	@echo "[BUILD] $(BUILD_DIR)/lpr_golden_test ready (no HW needed)"
 
-# Live camera demo (PS-only, no HW — uses framebuffer + V4L2)
-lpr_live_demo: $(BUILD_DIR)/lpr_live_demo.o $(GOLDEN_OBJ)
-	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $^ $(LDFLAGS)
-	@echo "[BUILD] $(BUILD_DIR)/lpr_live_demo ready (camera + HDMI)"
-
-$(BUILD_DIR)/lpr_live_demo.o: $(APP_DIR)/lpr_live_demo.c $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
-
 # Convenience alias
 test: lpr_golden_test
 	$(BUILD_DIR)/lpr_golden_test
 
 # Object files
-$(BUILD_DIR)/cgra_driver.o: $(DRIVER_SRC) $(DRIVER_DIR)/cgra_driver.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(DRIVER_DIR) -c $< -o $@
-
 $(BUILD_DIR)/cgra_tiler.o: $(TILER_SRC) $(LIB_DIR)/cgra_tiler.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
 
 $(BUILD_DIR)/lpr_golden.o: $(GOLDEN_SRC) $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
-
-$(BUILD_DIR)/lpr_demo.o: $(APP_SRC) $(DRIVER_DIR)/cgra_driver.h $(LIB_DIR)/cgra_tiler.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(DRIVER_DIR) -I$(LIB_DIR) -c $< -o $@
 
 $(BUILD_DIR)/lpr_golden_test.o: $(APP_DIR)/lpr_golden_test.c $(LIB_DIR)/lpr_golden.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
