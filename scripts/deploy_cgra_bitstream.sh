@@ -8,7 +8,6 @@ set -euo pipefail
 #   ./scripts/deploy_cgra_bitstream.sh [path/to/bitstream.bit]
 # Default: /mnt/c/Users/thanh/Desktop/FPGA_CGRA/cgra_ip.runs/impl_1/design_1_wrapper.bit
 # =============================================================================
-set -euo pipefail
 
 BIT="${1:-/mnt/c/Users/thanh/Desktop/zynq7020_2022/zynq7020/zynq7020.runs/impl_1/zynq_wrapper.bit}"
 [ -f "$BIT" ] || { echo "ERROR: bitstream not found: $BIT"; exit 1; }

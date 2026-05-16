@@ -287,5 +287,11 @@ int main(int argc, char **argv)
                     seen, 100.0 * correct / seen, seen / dur);
         }
     }
+#ifdef USE_CGRA_INFER
+    if (use_cgra) {
+        free(int16_blob);
+        if (memfd >= 0) close(memfd);
+    }
+#endif
     return 0;
 }

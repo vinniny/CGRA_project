@@ -13,7 +13,6 @@ set -euo pipefail
 # Default Vivado output:
 #   /mnt/c/Users/thanh/Desktop/zynq7020_clean/zynq7020/zynq7020.runs/impl_1/zynq_wrapper.bit
 # =============================================================================
-set -euo pipefail
 
 BIT="${1:-/mnt/c/Users/thanh/Desktop/zynq7020_clean/zynq7020/zynq7020.runs/impl_1/zynq_wrapper.bit}"
 BOARD="${BOARD:-haoyue}"
