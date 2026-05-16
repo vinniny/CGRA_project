@@ -84,7 +84,7 @@ module cgra_dma_chain_ctrl #(
         end else begin
             cmd_start_o <= 1'b0;
 
-            case (state)
+            unique case (state)
                 C_IDLE: begin
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready  <= 1'b0;

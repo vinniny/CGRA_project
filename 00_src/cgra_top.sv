@@ -577,7 +577,7 @@ module cgra_top #(
     );
 
     // synopsys translate_off
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (rst_n && dma_tile_we && (dma_tile_addr[1:0] != 2'b00))
             $error("[CGRA_TOP] DMA tile WRITE address 0x%08h is not word-aligned", dma_tile_addr);
         if (rst_n && dma_tile_re && (dma_tile_addr[1:0] != 2'b00))
