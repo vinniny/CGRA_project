@@ -90,7 +90,7 @@ that the user replaces with their own Vivado / silicon outputs:
 
 | Placeholder family | Source |
 |---|---|
-| `[9,032]`, `[X,XXX]` tests | `02_log/sim.log` regression summary |
+| `[9,148]`, `[X,XXX]` tests | `02_log/sim.log` regression summary |
 | `[XX]` minutes runtime | `02_log/sim.log` end-to-end time |
 | `[XX.X]%` coverage | `xrun -coverage report` |
 | `[XX,XXX]` LUTs / FFs, `[XX]` BRAM / DSP, `[XX.X]%` | Vivado `utilization_post_implementation.rpt` |

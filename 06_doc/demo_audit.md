@@ -2,8 +2,9 @@
 ## Feature × Demo Matrix
 
 Validates that every capability exercised by the proposed demos is
-**silicon-confirmed** (on Haoyue Zynq-7000 at 2026-04-25, SPM_DEPTH=1024
-bitstream, 9113/9113 sim suites green, 96/96 bare-metal checks passing).
+**silicon-confirmed** (Haoyue Zynq-7000, SPM_DEPTH=1024 bitstream,
+9148/9148 sim suites green per `make sim` 2026-05-18, 96/96 bare-metal
+checks passing).
 
 ---
 

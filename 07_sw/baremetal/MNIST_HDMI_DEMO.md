@@ -344,7 +344,7 @@ color_convert 0x43C60000, pixel_unpack 0x43C70000). PS7 init via
 | `arm_fc_int_bm.c`        | ARM INT64-acc FC1+FC2 |
 | `arm_fc_vfp_bm.c`        | ARM float-MAC FC1+FC2 (lazy weight conversion to `.cnn_runtime`) |
 | `cgra_kernels_cnn.h`     | `cnn_fc{1,2}_*` silicon-validated kernels (header-only) |
-| `cnn_conv_bm.{h,c}`      | CGRA Conv path (used by alternate `demo_mnist_full` ELF; not in HDMI demo) |
+| `cnn_conv_bm.{h,c}`      | CGRA Conv kernel helpers (not exercised by HDMI demo — ARM-VFP runs Conv here) |
 | `cnn_requant_bm.h`       | per-layer max-abs requant helper |
 | `hdmi_bm.{h,c}`          | HDMI pipeline bring-up, `hdmi_force_idle()` for clean reloads |
 | `fb_lib_bm.{h,c}`        | rectangle / text / image28 primitives |
