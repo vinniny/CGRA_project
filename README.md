@@ -1,242 +1,297 @@
-# CGRA Accelerator for Edge CNN Inference on Zynq-7000
+# A CGRA-Based Accelerator with Multicast Routing for Edge CNN Inference on Zynq-7000
 
-**A 4×4 Coarse-Grained Reconfigurable Array accelerator with multicast routing,
-silicon-validated on the PYNQ-Z2 (XC7Z020) at 50 MHz.**
+Senior Design Project · Department of Electronics · Ho Chi Minh City University of Technology · May 2026
 
-Senior Design Project · Department of Electronics · HCMUT · May 2026
+**Authors**
 
-[![Silicon](https://img.shields.io/badge/Status-Silicon%20Validated-brightgreen)]()
-[![Sim](https://img.shields.io/badge/Sim-9148%20PASS%20%2F%200%20FAIL-brightgreen)]()
-[![HW](https://img.shields.io/badge/Hardware-96%20PASS%20%2F%200%20FAIL-brightgreen)]()
-[![Fmax](https://img.shields.io/badge/Fmax-50.66%20MHz%20(WNS%20%2B0.263%20ns)-blue)]()
-[![Speedup](https://img.shields.io/badge/FC%20Speedup-3.81%C3%97%20vs%20ARM--INT-orange)]()
+- Huynh Pham Anh Duy — 2051095
+- Trieu Thanh Vinh — 2213980
+
+**Supervisor**: Assoc. Prof. PhD. Truong Quang Vinh
 
 ---
 
-## What this is
+## Overview
 
-The accelerator targets the FC (fully-connected) stage of CNN inference — the
-matrix–vector dot products that dominate per-image runtime — and offloads them
-from the Cortex-A9 to a reconfigurable PE mesh. The case study is **MNIST
-handwritten digit recognition**: Conv+Pool runs on the ARM, FC1 (400→64) and
-FC2 (64→10) run on the CGRA, giving a **3.81× speedup on the FC stage** at
-**97% top-1 accuracy** on a 2,745-frame live test.
+This project implements a 4×4 Coarse-Grained Reconfigurable Array (CGRA)
+accelerator on the Xilinx Zynq-7000 XC7Z020 SoC (PYNQ-Z2 board). The CGRA
+offloads the fully-connected (FC) stage of CNN inference from the
+Cortex-A9 to a reconfigurable mesh of processing elements with multicast
+routing.
 
-The design is fully open-source SystemVerilog plus a complete bare-metal
-software stack (linker, GIC driver, UART, HDMI framebuffer, ISA assembler
-helpers) that runs from on-chip memory without any operating system.
+The case study is MNIST handwritten digit recognition. Conv+Pool runs on
+the ARM in software; FC1 (400→64) and FC2 (64→10) run on the CGRA. The
+result is a measured FC-stage speedup over the ARM software baseline at
+competitive accuracy.
 
-## Headline results
+## Measured Results
+
+All numbers verified on silicon (PYNQ-Z2, XC7Z020) and via `make sim`
+on Cadence Xcelium 20.09 on 2026-05-18.
 
 | Metric | Value |
 |---|---|
-| FC stage speedup (vs ARM-INT) | **3.81×** (5.52 ms → 1.45 ms) |
-| Per-frame throughput | **665 FPS** (CGRA-FC) vs 180 FPS (ARM-INT) |
-| Classification accuracy | **97%** (2664 / 2745) |
-| Clock frequency | **50 MHz** (Fmax 50.66 MHz, WNS +0.263 ns) |
-| Power | 2.46 W total (2.29 W dynamic + 0.17 W static) |
+| FC-stage speedup (CGRA vs ARM-INT) | 3.81× (5.52 ms → 1.45 ms) |
+| Per-image throughput | 665 FPS (CGRA-FC) vs 180 FPS (ARM-INT) vs 235 FPS (ARM-VFP) |
+| Top-1 accuracy on 2,745-frame live test | 97.0% (CGRA-FC) · 96.9% (ARM-INT) · 100% (ARM-VFP reference) |
+| Achieved Fmax | 50.66 MHz (target 50 MHz, WNS +0.263 ns) |
 | LUT utilization | 83.5% of XC7Z020 |
 | BRAM utilization | 31.4% |
 | DSP utilization | 75.0% |
-| Simulation tests | **9,148 PASS / 0 FAIL** |
-| Bare-metal regression | **96 checks / 0 failures** across 25 test groups |
-| ISA opcodes implemented | 21 (NOP, ADD, SUB, MUL, MAC, AND, OR, XOR, SHL, SHR, CMP_GT/LT/EQ, LOAD_SPM, STORE_SPM, ACC_CLR, PASS0/1, LIF, RELU, MAX) |
+| Total power | 2.46 W (2.29 W dynamic + 0.17 W static) |
+| Simulation tests | 9,148 PASS / 0 FAIL / 0 violations |
+| Bare-metal regression | 96 checks PASS across 25 groups |
+| ISA opcodes | 21 implemented |
 
-## Architecture
+## Hardware
 
-```
-┌─────────────────────────  PS (ARM Cortex-A9 @ 666 MHz)  ──────────────────────────┐
-│                                                                                    │
-│   APB control plane                          AXI4 data plane                       │
-│        │                                          │                                │
-└────────┼──────────────────────────────────────────┼────────────────────────────────┘
-         │ (register reads/writes)                  │ (DMA bursts ↔ DDR3)
-┌────────▼─── PL (XC7Z020 fabric @ 50 MHz) ─────────▼────────────────────────────────┐
-│                                                                                    │
-│   cgra_apb_csr ──── 29 registers ──── cgra_control_unit (IDLE → RUN → FINISH)      │
-│        │                                          │                                │
-│        └─── cgra_dma_subsystem ──── 2 FSMs ──── cgra_tile_memory (4-bank, 2-buf)   │
-│                                                          │                         │
-│                                            west edge ────▼────────────────────┐    │
-│   cgra_config_broadcaster (slot-0 → all 16 PEs replay)   ┌──────┬──────┐      │    │
-│                       │                                  │ PE00 │ PE01 │ ...  │    │
-│                       ▼                                  ├──────┼──────┤      │    │
-│   cgra_array (4×4 mesh, multicast NoC) ◄──────────────── │ PE10 │ PE11 │ ...  │    │
-│                       │                       east edge  ├──────┼──────┤      │    │
-│                       ▼                                  │ ...  │ ...  │      │    │
-│   cgra_result_fifo (4 banks × 256 entries, lockstep push)                     │    │
-│                                                                               │    │
-└───────────────────────────────────────────────────────────────────────────────┘────┘
-```
+- 4×4 mesh of identical processing elements (16 PEs total)
+- Each PE: 3-stage pipeline, 21-opcode ISA, 40-bit saturating accumulator,
+  16-entry register file, 1024-word scratchpad, 16-slot configuration BRAM
+- INT32 scalar plus INT16×2 and INT8×4 SIMD modes
+- Multicast NoC: 5-bit route mask drives single-cycle broadcast to any
+  combination of N/E/S/W neighbours
+- Two-level hardware loop counters (L1 inner, L2 outer) with zero-overhead
+  branching and a watchdog timeout
+- Double-buffered tile memory (4 banks × 4096 × 32 bits) for zero-stall
+  layer reconfiguration
+- Scatter-gather AXI4 DMA with descriptor-chain weight movement
 
-- **AXI4 + APB decoupled planes** — zero bus contention between control and data
-- **4×4 PE mesh** with broadcast topology (one PE result fans out N/E/S/W per cycle)
-- **40-bit MAC accumulator** in every PE with INT8×4 / INT16×2 / INT32 SIMD modes
-- **2-level hardware loops** (L1 inner, L2 outer) with zero-overhead branching
-- **Double-buffered tile memory** for zero-stall layer reconfiguration
-- **Scatter-Gather DMA** — descriptor-chain CPU-free weight movement
-- **Config broadcaster** — 15× DDR bandwidth reduction on shared-kernel workloads
+## Software
 
-## Repository layout
+- Bare-metal stack on Cortex-A9: custom `start.s`, linker scripts, GIC v1
+  interrupt driver, UART0 driver, HDMI framebuffer + 5×7 font rendering,
+  no operating system, no dynamic allocation
+- PetaLinux userspace alternative under `07_sw/linux/` with UIO and
+  `/dev/mem` access paths
+- Python training and INT16 quantization pipeline under `07_sw/cnn_eval/`
+
+## Repository Layout
 
 ```
-00_src/        SystemVerilog RTL (13 modules, 4655 LOC)
-01_bench/      Xcelium testbench — UVM-inspired, 9,148 tests
-06_doc/        Thesis + supplementary documentation
-07_sw/         Software stack
-   baremetal/   Cortex-A9 bare-metal (start.s, gic, uart, hdmi, demos)
-   linux/       PetaLinux userspace (lpr_eval, lpr_live_demo_v2, lpr_hdmi_demo)
-   driver/      UIO + /dev/mem driver wrapper
-   lib/         cgra_tiler, lpr_golden, cgra_baremetal_shim
-   cnn_eval/    MNIST training + INT16 quantization pipeline (PyTorch)
-   lprnet_eval/ LPR training + ONNX export + quantization
-   dts/         PetaLinux device-tree overlays
+00_src/        SystemVerilog RTL (13 modules)
+01_bench/      Cadence Xcelium testbench (UVM-inspired, layered)
+06_doc/        Thesis documentation (active chapters in thesis_ch4/, thesis_ch5/)
+07_sw/         Software
+  baremetal/   Cortex-A9 bare-metal demos, drivers, regression
+  linux/       PetaLinux userspace tools
+  driver/      UIO + /dev/mem wrapper
+  lib/         Shared C: tiler, golden model, bare-metal shim
+  cnn_eval/    MNIST training + quantization (PyTorch)
+  lprnet_eval/ LPR training + ONNX export + quantization
+  dts/         Device-tree overlays
 bitstreams/    Pre-built FPGA bitstreams (silicon-validated)
 scripts/       Vivado / Genus / Conformal / XSDB / deploy scripts
-Makefile       Top-level orchestration (sim + synth + LEC + FPGA deploy)
+Makefile       Top-level orchestration
 ```
 
-## Quick start
+## Build
 
-### Run the full simulation suite
+The top-level `Makefile` drives every flow.
 
 ```bash
-make sim                # Compile + elaborate + run all 9,148 tests
-make cov                # Same, with coverage collection
-make cov_report         # Text coverage summary
-make gui                # Interactive SimVision waveform debugging
+make sim              # Compile, elaborate, and run all 9,148 simulation tests
+make cov              # Same, with coverage collection
+make lint_static      # Xcelium, Genus, and Vivado lint checks
+make syn              # Cadence Genus synthesis
+make lec              # Cadence Conformal logical equivalence check
+make full             # sim + syn + lec
 ```
 
-> **Note**: simulation uses Cadence Xcelium 20.09 on a CentOS 7 VM. From WSL2,
-> tunnel through `ssh -p 2222 admin@127.0.0.1` (alias `vm`). Project source is
-> SSHFS-mounted so edits on either side are live.
+Simulation requires Cadence Xcelium 20.09. The host environment used
+during development is a CentOS 7 VM (`ssh -p 2222 admin@127.0.0.1`),
+because Xcelium is not present on the WSL2 host that holds the working
+copy. The project is SSHFS-mounted from WSL2 into the VM so edits on
+either side propagate live.
 
-### Build the bare-metal MNIST HDMI demo
+## Running on the FPGA
 
 ```bash
+# Build the bare-metal MNIST HDMI demo
 cd 07_sw/baremetal
-make BOARD=PYNQ_BASE mnist_hdmi              # → demo_mnist_hdmi_bm.elf
+make BOARD=PYNQ_BASE mnist_hdmi
 cd ../..
+
+# Program FPGA + load ELF + start execution via XSDB
 make run_elf ELF=07_sw/baremetal/demo_mnist_hdmi_bm.elf \
              BIT=bitstreams/cgra_pynq_base/base.bit
+
+# Watch UART telemetry (CH340 USB-UART, 115200 baud)
 python3 scripts/uart_monitor.py /dev/ttyUSB1 115200 30
 ```
 
-Plug an HDMI monitor into the PYNQ-Z2 J11 connector. The three-panel demo
-shows CGRA-FC vs ARM-INT-FC vs ARM-VFP-FC, with per-image cycle counts and a
-running 97% accuracy counter.
+An HDMI monitor on the PYNQ-Z2 J11 connector shows the three-panel
+demo: CGRA-FC, ARM-INT-FC, ARM-VFP-FC running the same MNIST FC stage
+side by side with per-image cycle counts.
 
-Full walkthrough: [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md)
+Walkthrough: [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md)
 
-### Re-build the bitstream from RTL
+## APB Register Map
 
-```bash
-# Vivado 2024.1+ (Windows host) — PYNQ-base bolt-on flow
-source scripts/bootstrap_pynq_base_cgra.tcl   # builds platform + adds CGRA
-# Run synthesis + implementation from the Vivado GUI
+Base address `0x43C8_0000` on the PYNQ-base bolt-on bitstream.
+Zero wait-state APB slave.
+
+### Registers implemented in `cgra_apb_csr.sv` (29)
+
+| Offset | Name | Type | Description |
+|---|---|---|---|
+| 0x00 | DMA_CTRL | RW pulse | [0] Start, [1] Chain start (both auto-clear) |
+| 0x04 | DMA_STATUS | RO | [0] busy, [1] done latch |
+| 0x08 | DMA_SRC | RW | Source address |
+| 0x0C | DMA_DST | RW | Destination address (upper nibble selects routing) |
+| 0x10 | DMA_SIZE | RW | Transfer size in bytes |
+| 0x14 | DMA_SRC_STRIDE | RW | 2D source row stride |
+| 0x18 | DMA_ROWS | RW | 2D row count (0 = 1D mode) |
+| 0x1C | DMA_COLS | RW | 2D bytes per row |
+| 0x20 | CU_CTRL | RW pulse | [0] Start, [1] Soft Reset |
+| 0x24 | CU_STATUS | RO | [0] busy, [1] done latch |
+| 0x28 | CU_CYCLES | RO | Active cycle count since last cu_start |
+| 0x2C | CU_TIMEOUT | RW | Watchdog limit (0 = disabled) |
+| 0x30 | IRQ_STATUS | W1C | [0] DMA Done, [1] CU Done, [2] DMA Error |
+| 0x34 | IRQ_MASK | RW | IRQ enable mask |
+| 0x38 | DMA_ERROR | RO | [0] error flag, [2:1] AXI BRESP/RRESP |
+| 0x3C | CU_PC_END | RW | [3:0] last PC slot before array_done (default 15) |
+| 0x48 | LOOP_START | RW | Inner loop start PC |
+| 0x4C | LOOP_END | RW | Inner loop end PC |
+| 0x50 | LOOP_COUNT | RW | Inner loop iterations (total = count + 1) |
+| 0x54 | RESULT_SKIP | RW | [7:0] FIFO warmup skip count (default 12) |
+| 0x68 | LOOP2_START | RW | Outer loop start PC |
+| 0x6C | LOOP2_END | RW | Outer loop end PC |
+| 0x70 | LOOP2_COUNT | RW | Outer loop iterations (0 = disabled) |
+| 0x74 | TILE_BANK_SEL | RW | [0] active tile memory half |
+| 0x78 | TILE_AUTO_INC | RW | [0] enable tile addr auto-increment on loop wrap |
+| 0x7C | DMA_DESC_HEAD | RW | Scatter-gather descriptor chain head pointer |
+| 0x80 | DMA_DESC_STATUS | RO | [0] chain_active, [23:8] descriptors completed |
+| 0x84 | SPM_AUTO_INC | RW | [0] enable spm_iter_cnt auto-increment on loop wrap |
+
+### Result read window (decoded in `cgra_top.sv`)
+
+These addresses are part of the public APB map but are currently
+implemented in the top-level read/write multiplexer rather than inside
+`cgra_apb_csr.sv`. Moving them into the CSR module — and splitting the
+overloaded behaviour at `0x44` into separate named registers — is left
+as a maintenance task.
+
+| Offset | Read returns | Write effect | Notes |
+|---|---|---|---|
+| 0x40 | `global_result` — registered east-edge value of PE[3][3] | — | Legacy single-cell debug latch, not FIFO data |
+| 0x44 | FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow | Pops one FIFO entry **and** W1C-clears overflow/underflow bits | One write address overloaded with three semantics: status-read, pop-pulse, error-clear |
+| 0x58 | `result_fifo_pop_data[0]` — pre-fetched result, PE row 0 | — | Non-destructive |
+| 0x5C | `result_fifo_pop_data[1]` — pre-fetched result, PE row 1 | — | Non-destructive |
+| 0x60 | `result_fifo_pop_data[2]` — pre-fetched result, PE row 2 | — | Non-destructive |
+| 0x64 | `result_fifo_pop_data[3]` — pre-fetched result, PE row 3 | — | Non-destructive |
+
+Correct read sequence per FIFO entry: read 0x58 → 0x5C → 0x60 → 0x64
+(non-destructive), then **write to 0x44** to pop the entry and advance
+the pre-fetch.
+
+A clean redesign would split 0x44 into three separately-named addresses
+(`RESULT_STATUS` read-only, `RESULT_POP` write-pulse, `RESULT_ERR_W1C`
+write-one-to-clear) and either retire `0x40` or document it as
+`PE3_EAST_LAST`. The current bitstream ships with the overloaded
+addressing intact.
+
+## Implementation Notes & Known Limitations
+
+The following items are real and documented as-is. They do not block
+the demonstrated functionality; cleaning them up is left for a future
+revision.
+
+### Result FIFO register decode lives in `cgra_top.sv`, not `cgra_apb_csr.sv`
+
+The six addresses in the result read window (`0x40`, `0x44`,
+`0x58`–`0x64`) are multiplexed into `prdata` and decoded for writes by
+the top-level always-comb block in `cgra_top.sv:801–829`. Every other
+APB register sits inside the CSR module proper.
+
+Architecturally these belong in `cgra_apb_csr.sv` like everything else.
+Moving them is a refactor with non-trivial verification fallout (every
+test suite that touches result reads would re-run against a new module
+boundary), so the project ships them in the top module for now.
+
+### Naming weirdness at `0x44` — overloaded address
+
+`0x44` is currently doing three jobs on the same physical APB
+transaction:
+
+| Operation | Effect |
+|---|---|
+| Read `0x44` | Returns FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow |
+| Write `0x44` (any value) | (a) pops one FIFO entry and advances the pre-fetch register; (b) W1C-clears the overflow + underflow bits |
+
+A conventional design would split this into three distinctly-named
+registers — call them `RESULT_STATUS` (RO), `RESULT_POP` (W-pulse), and
+`RESULT_ERR_W1C` (W1C). The current implementation has none of those
+names exposed individually; software just sees address `0x44` doing
+all three jobs.
+
+When reading the source (`cgra_top.sv:807`) the relevant signals are:
+
+```systemverilog
+result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
+result_fifo_pop_read    = result_fifo_pop_trigger;
 ```
 
-The canonical clean-rebuild path is `scripts/build_cgra_hdmi_pynqz2_clean.tcl`.
-Detailed flow: [`docs/petalinux_hdmi_backup.md`](06_doc/petalinux_hdmi_backup.md).
+### `0x40` returns `PE[3][3]` east-edge, not "RESULT_DATA"
 
-### Linux userspace path (PetaLinux)
+Address `0x40` returns `global_result`, which `cgra_top.sv:737–744`
+defines as the registered east-edge output of PE row 3 (the bottom-row
+rightmost cell). This is a single-cell debug latch left over from an
+earlier scalar-result API and is unrelated to the four-row Result FIFO.
 
-```bash
-cd 07_sw/linux
-make CROSS=arm-linux-gnueabihf- all          # builds 6 binaries into build/
-# Deploy to board and run head-to-head LPR eval:
-./run_demo_arm.sh    # ARM-only baseline
-./run_demo_cgra.sh   # ARM + CGRA-FC offload
-```
+The address is still mapped because removing it would break any test
+or demo that polls `0x40` expecting a result-shaped value. A future
+rename would be either `PE3_EAST_LAST` (descriptive) or retirement
+(retire the address and reclaim the offset).
 
-## APB Register Map (summary)
+### Convolution stage runs on ARM, not the CGRA
 
-29 registers across 0x00–0x84, base address `0x43C8_0000` on the
-PYNQ-base bolt-on (`0x43C0_0000` on Haoyue). Zero wait-state APB slave.
+The MNIST demo's Conv1 and Conv2 layers execute on the Cortex-A9 with
+VFP, not on the CGRA. The reason is documented in the `cnn_conv3x3_pixel`
+kernel: the 9-MAC reduction in a 3×3 convolution saturates the INT32
+accumulator on realistic input magnitudes, dropping accuracy below the
+97% target. Widening the result-readout path so that Conv can keep its
+40-bit partial-sum precision is listed as future work in the thesis.
 
-| Group | Range | Registers |
-|---|---|---|
-| DMA control / status | `0x00–0x1C` | DMA_CTRL, DMA_STATUS, DMA_SRC, DMA_DST, DMA_SIZE, DMA_SRC_STRIDE, DMA_ROWS, DMA_COLS |
-| Control Unit | `0x20–0x2C` | CU_CTRL, CU_STATUS, CU_CYCLES, CU_TIMEOUT |
-| IRQ + error | `0x30–0x3C` | IRQ_STATUS (W1C), IRQ_MASK, DMA_ERROR, CU_PC_END |
-| Inner loop (L1) | `0x48–0x50` | LOOP_START, LOOP_END, LOOP_COUNT |
-| Result FIFO skip | `0x54` | RESULT_SKIP (default 12) |
-| Result read window | `0x40, 0x44, 0x58–0x64` | RESULT_DATA, RESULT_STATUS, RESULT_ROW0–3 |
-| Outer loop (L2) | `0x68–0x70` | LOOP2_START, LOOP2_END, LOOP2_COUNT |
-| Memory control | `0x74, 0x78, 0x84` | TILE_BANK_SEL, TILE_AUTO_INC, SPM_AUTO_INC |
-| Scatter-Gather DMA | `0x7C–0x80` | DMA_DESC_HEAD, DMA_DESC_STATUS |
+The FC stage — which dominates per-image runtime — is fully on the
+CGRA and delivers the 3.81× speedup that drives the headline result.
 
-Full bitfield documentation: [`06_doc/CGRA_Design_Documentation.docx`](06_doc/).
-Authoritative source: [`00_src/cgra_apb_csr.sv`](00_src/cgra_apb_csr.sv).
+### MAC pipeline RF read-after-write hazard
 
-## DMA Destination Routing
-
-The upper nibble of `DMA_DST` selects the target memory:
-
-| Prefix | Destination | Use |
-|---|---|---|
-| `0x1xxx_xxxx` | Tile memory | Activation rows for FC layers |
-| `0x2xxx_xxxx` | PE config BRAM | Instruction words (double-pumped, broadcast-replayed) |
-| `0x4xxx_xxxx` | PE scratchpad (SPM) | Weight data; offset `[15:12]` = PE ID |
-| `0x0xxx_xxxx` | DDR3 (AXI write) | General memory transfer |
-
-## Build flows
-
-| Target | Tool | Command |
-|---|---|---|
-| Simulation | Xcelium 20.09 | `make sim` |
-| RTL lint | Xcelium / Genus / Vivado | `make lint_static` |
-| X-prop check | Xcelium | `make lint_all` |
-| Coverage | Xcelium UCDB | `make cov && make cov_report` |
-| Synthesis | Cadence Genus | `make syn` |
-| LEC | Cadence Conformal | `make lec` |
-| Full flow | sim + syn + lec | `make full` |
-| FPGA program | Xilinx XSDB | `make program BIT=…` |
-| Bare-metal run | XSDB + UART | `make run_elf ELF=… BIT=…` |
-| FPGA status | XSDB | `make fpga_status` |
-| Register dump | XSDB | `make reg_dump` |
+The 3-stage PE pipeline (decode → `_r` → `_r2`) has no register-file
+bypass. A dependent RF read in slot N+1 sees stale data because slot
+N's writeback has not landed yet. Effective MAC throughput is roughly
+86% (13 of 15 back-to-back MACs contribute) on the canonical FC kernel
+program. Routing through neighbour mesh ports or inserting spacing
+slots is the documented workaround.
 
 ## Verification
 
-9,148 tests across 11 suites, all PASSING (verified `make sim` 2026-05-18):
+Two independent regressions are run against every bitstream.
 
-| Suite | Tests | Coverage |
-|---|---|---|
-| Smoke / sanity | 80 | Basic register access, reset |
-| AXI4 + APB protocol | 400+ | Bursts, 4 KB boundary, backpressure, W1C |
-| DMA 1D + 2D transfers | 1,200 | All destination prefixes (TILE, CONFIG, SPM, AXI) |
-| Scatter-Gather DMA | 50 | Linked-list chains, NULL termination, abort |
-| PE ISA full regression | 8,500 | All 21 opcodes × all source/destination combos |
-| 40-bit MAC saturation | 50 | Overflow, INT8×4 / INT16×2 / INT32 SIMD |
-| Hardware loops L1 + L2 | 9 | Invalid bounds, mid-run stability, nesting |
-| CNN end-to-end | 61 | Full MNIST inference (DMA + CU + IRQ) |
-| CNN kernel suite | 300+ | FC1 + FC2 with known weights and activations |
+**Pre-silicon (Cadence Xcelium)**: 9,148 tests across 11 suites covering
+APB and AXI4 protocol, 1D and 2D DMA, scatter-gather DMA, the full
+21-opcode ISA, 40-bit MAC saturation, hardware loops, and end-to-end
+CNN inference. All passing; zero failures, zero protocol violations.
 
-Plus a **silicon-validated bare-metal regression** of 96 checks across 25 test
-groups running on real hardware via UART (see `07_sw/baremetal/main.c`).
+**Silicon (bare-metal on PYNQ-Z2)**: 96 checks across 25 test groups
+running directly on the Cortex-A9 against the live FPGA. Results
+streamed over UART0; full pass on the current bitstream.
 
 ## Documentation
 
-- [`CLAUDE.md`](CLAUDE.md) — Project context and AI tool instructions
-- [`06_doc/CGRA_Design_Documentation.docx`](06_doc/) — Complete RTL design doc
-- [`06_doc/petalinux_hdmi_backup.md`](06_doc/petalinux_hdmi_backup.md) — PetaLinux + HDMI flow
-- [`06_doc/demo_audit.md`](06_doc/demo_audit.md) — Demo viability audit
+- [`CLAUDE.md`](CLAUDE.md) — Project context for AI tools
 - [`06_doc/thesis_ch4/`](06_doc/thesis_ch4/) — Thesis Chapter 4 (software design)
 - [`06_doc/thesis_ch5/`](06_doc/thesis_ch5/) — Thesis Chapter 5 (results)
+- [`06_doc/demo_audit.md`](06_doc/demo_audit.md) — Feature × demo silicon-confirmation matrix
+- [`06_doc/petalinux_hdmi_backup.md`](06_doc/petalinux_hdmi_backup.md) — PetaLinux + HDMI fallback flow
 - [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md) — Headline demo walkthrough
-
-## Authors
-
-- **Huynh Pham Anh Duy** — 2051095
-- **Trieu Thanh Vinh** — 2213980
-
-**Supervisor**: Assoc. Prof. PhD. Truong Quang Vinh
-**Institution**: Department of Electronics · Faculty of Computer Science and Engineering · Ho Chi Minh City University of Technology (HCMUT)
 
 ## License
 
 Copyright © 2026 the authors. All rights reserved.
 
-This work was developed as a senior design project at HCMUT. The IP core
-is provided for educational and evaluation purposes. Commercial licensing
-is available upon request via the supervisor.
+This work was developed as a senior design project at the Ho Chi Minh
+City University of Technology. The source is provided for educational
+and evaluation purposes. Commercial licensing is available upon request
+via the supervisor.
