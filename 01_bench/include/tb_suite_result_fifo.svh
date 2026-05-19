@@ -97,7 +97,7 @@ task automatic run_suite_RF_result_fifo;
         // Check count > 0
         apb_read(8'h44, rd);
         $display("  RF02: RESULT_STATUS = 0x%08h (count=%0d)", rd, rd[9:1]);
-        if (rd[8:1] > 8'd0) pass("RF02a: FIFO has entries after auto-inc run");
+        if (rd[9:1] > 9'd0) pass("RF02a: FIFO has entries after auto-inc run");
         else fail("RF02a: FIFO empty", "count=0");
 
         // Pop first value, pop second, verify second > first
@@ -138,7 +138,7 @@ task automatic run_suite_RF_result_fifo;
 
         // Verify FIFO has many entries and CU completed
         apb_read(8'h44, rd);
-        $display("  RF03: FIFO count=%0d", rd[8:1]);
+        $display("  RF03: FIFO count=%0d", rd[9:1]);
         apb_read(ADDR_CU_STATUS, rd);
         if (rd[1]) pass("RF03: CU completed with near-full FIFO");
         else fail("RF03: CU stuck", $sformatf("CU_STATUS=%08h", rd));
@@ -277,12 +277,12 @@ task automatic run_suite_RF_result_fifo;
         wait_cycles(50);
 
         apb_read(8'h44, rd);
-        $display("  RF07: FIFO count = %0d (16 CU slots - %0d skip)", rd[8:1], 13);
+        $display("  RF07: FIFO count = %0d (16 CU slots - %0d skip)", rd[9:1], 13);
         // 16 contexts - 13 skip = 3 valid entries
-        if (rd[8:1] == 8'd3)
+        if (rd[9:1] == 9'd3)
             pass("RF07: Count = 3 (16 - 13 skip)");
         else
-            pass($sformatf("RF07: Count = %0d (warmup skip active)", rd[8:1]));
+            pass($sformatf("RF07: Count = %0d (warmup skip active)", rd[9:1]));
 
         // ─────────────────────────────────────────────────────────────
         // RF08: Overflow sticky (informational — backpressure prevents it)
@@ -389,7 +389,7 @@ task automatic run_suite_RF_result_fifo;
         begin
             int fifo_cnt, drained, prev_val, cur_val;
             logic monotonic;
-            fifo_cnt = rd[8:1];
+            fifo_cnt = rd[9:1];
             $display("  RF11: FIFO count = %0d", fifo_cnt);
 
             // Drain all entries, verify values are monotonically non-decreasing
