@@ -164,13 +164,15 @@ Zero wait-state APB slave.
 | 0x80 | DMA_DESC_STATUS | RO | [0] chain_active, [23:8] descriptors completed |
 | 0x84 | SPM_AUTO_INC | RW | [0] enable spm_iter_cnt auto-increment on loop wrap |
 
-### Result read window (decoded in `cgra_top.sv`)
+### Result read window (decoded inside `cgra_apb_csr.sv`)
 
-These addresses are part of the public APB map but are currently
-implemented in the top-level read/write multiplexer rather than inside
-`cgra_apb_csr.sv`. Moving them into the CSR module — and splitting the
-overloaded behaviour at `0x44` into separate named registers — is left
-as a maintenance task.
+These addresses are part of the public APB map and the read/write
+decode now lives inside `cgra_apb_csr.sv` alongside every other
+register. The data signals (`global_result_i`, `result_fifo_pop_data_i`,
+status flags) come in as input ports from `cgra_top.sv`; the pop pulse
+(`result_fifo_pop_read`) is generated from a write to `0x44` and routed
+out as an output port. Splitting the overloaded behaviour at `0x44` into
+separate named registers is left as a future cleanup.
 
 | Offset | Read returns | Write effect | Notes |
 |---|---|---|---|
@@ -196,18 +198,6 @@ addressing intact.
 The following items are real and documented as-is. They do not block
 the demonstrated functionality; cleaning them up is left for a future
 revision.
-
-### Result FIFO register decode lives in `cgra_top.sv`, not `cgra_apb_csr.sv`
-
-The six addresses in the result read window (`0x40`, `0x44`,
-`0x58`–`0x64`) are multiplexed into `prdata` and decoded for writes by
-the top-level always-comb block in `cgra_top.sv:801–829`. Every other
-APB register sits inside the CSR module proper.
-
-Architecturally these belong in `cgra_apb_csr.sv` like everything else.
-Moving them is a refactor with non-trivial verification fallout (every
-test suite that touches result reads would re-run against a new module
-boundary), so the project ships them in the top module for now.
 
 ### Naming weirdness at `0x44` — overloaded address
 

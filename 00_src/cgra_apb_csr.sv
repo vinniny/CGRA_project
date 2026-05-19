@@ -91,7 +91,17 @@ module cgra_apb_csr #(
     input  logic [15:0]           dma_desc_completed_i, // descriptors completed
 
     // SPM Auto-Increment
-    output logic                  spm_auto_inc_en       // bit[0]: enable spm_iter_cnt on loop wrap
+    output logic                  spm_auto_inc_en,      // bit[0]: enable spm_iter_cnt on loop wrap
+
+    // Result FIFO read window — registers physically owned by the FIFO/PE
+    // array but mapped into the APB address space here.
+    input  logic [31:0]           global_result_i,           // 0x40 RO: PE[3][3] east-edge latch (legacy)
+    input  logic [31:0]           result_fifo_pop_data_i [0:3], // 0x58/0x5C/0x60/0x64 RO: row 0..3 pre-fetched
+    input  logic                  result_fifo_pop_valid_i,   // 0x44[0]
+    input  logic [7:0]            result_fifo_count_i,       // 0x44[8:1]
+    input  logic                  result_fifo_overflow_i,    // 0x44[9]
+    input  logic                  result_fifo_underflow_i,   // 0x44[10]
+    output logic                  result_fifo_pop_read       // Pulse on write-to-0x44 (overloaded: pop + W1C)
 );
 
     // =========================================================================
@@ -352,9 +362,26 @@ module cgra_apb_csr #(
             ADDR_DMA_DESC_STATUS: prdata = {16'b0, dma_desc_completed_i,
                                             7'b0, dma_chain_active_i};
             ADDR_SPM_AUTO_INC:   prdata = reg_spm_auto_inc;
+            // Result FIFO read window — physically owned by cgra_result_fifo,
+            // mapped here to keep the APB address map in one module. Naming
+            // overload at 0x44 (status read + pop on write + W1C on overflow
+            // bits) is documented in the project README's Implementation Notes.
+            8'h40:               prdata = global_result_i;
+            8'h44:               prdata = {21'b0, result_fifo_underflow_i,
+                                            result_fifo_overflow_i,
+                                            result_fifo_count_i,
+                                            result_fifo_pop_valid_i};
+            8'h58:               prdata = result_fifo_pop_data_i[0];
+            8'h5C:               prdata = result_fifo_pop_data_i[1];
+            8'h60:               prdata = result_fifo_pop_data_i[2];
+            8'h64:               prdata = result_fifo_pop_data_i[3];
             default:         prdata = 32'h0;           // Undefined address → zero
         endcase
     end
+
+    // Write to 0x44 = pop FIFO + W1C overflow/underflow (overloaded — see README).
+    assign result_fifo_pop_read = psel && penable && pwrite
+                                   && (paddr[7:0] == 8'h44);
     
     // =========================================================================
     // Output Wire Assignments

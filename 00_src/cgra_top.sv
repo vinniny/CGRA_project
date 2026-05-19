@@ -379,7 +379,16 @@ module cgra_top #(
         .dma_chain_start(dma_chain_start),
         .dma_chain_active_i(dma_chain_active),
         .dma_desc_completed_i(dma_desc_completed),
-        .spm_auto_inc_en(spm_auto_inc_en)
+        .spm_auto_inc_en(spm_auto_inc_en),
+
+        // Result FIFO read window (decode now lives in cgra_apb_csr.sv)
+        .global_result_i(global_result),
+        .result_fifo_pop_data_i(result_fifo_pop_data),
+        .result_fifo_pop_valid_i(result_fifo_pop_valid),
+        .result_fifo_count_i(result_fifo_count[7:0]),
+        .result_fifo_overflow_i(result_fifo_overflow),
+        .result_fifo_underflow_i(result_fifo_underflow),
+        .result_fifo_pop_read(result_fifo_pop_read)
     );
     
     // =========================================================================
@@ -795,42 +804,11 @@ module cgra_top #(
     
     // APB read path mux: 0x40/0x44/0x58-0x64 go to Result FIFO / status;
     // every other address falls through to the CSR module.
-    logic [31:0] apb_prdata;
-    logic        apb_pready;
-    
-    // FIFO pop trigger: WRITING to RESULT_STATUS (0x44) pops one FIFO entry.
-    // This decouples pop from read — software reads ROW0-3 (non-destructive),
-    // then writes to 0x44 to advance. This ensures all 4 rows see the same
-    // pre-fetched data before the pop advances to the next entry.
-    // (Note: writing to 0x44 also handles W1C for overflow/underflow bits.)
-    logic result_fifo_pop_trigger;
-    assign result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
-    assign result_fifo_pop_read = result_fifo_pop_trigger;
-
-    always_comb begin
-        // Data multiplexer: result FIFO + status vs CSR module
-        case (paddr[7:0])
-            8'h40: apb_prdata = global_result;
-            8'h44: apb_prdata = {21'b0, result_fifo_underflow, result_fifo_overflow,
-                                 result_fifo_count[7:0], result_fifo_pop_valid};
-            8'h54: apb_prdata = {28'b0, result_skip_count};
-            8'h58: apb_prdata = result_fifo_pop_data[0];
-            8'h5C: apb_prdata = result_fifo_pop_data[1];
-            8'h60: apb_prdata = result_fifo_pop_data[2];
-            8'h64: apb_prdata = result_fifo_pop_data[3];
-            default: apb_prdata = csr_prdata;
-        endcase
-        
-        // Ready signal multiplexer: result registers always ready, CSR module for others
-        case (paddr[7:0])
-            8'h40, 8'h44, 8'h58, 8'h5C, 8'h60, 8'h64: apb_pready = 1'b1;
-            default: apb_pready = csr_pready;                // CSR addresses: use CSR ready
-        endcase
-    end
-    
-    // Output assignments (replace CSR direct connections)
-    assign prdata = apb_prdata;
-    assign pready = apb_pready;
-    assign pslverr = csr_pslverr;  // Slave error only from CSR (result regs don't error)
+    // CSR module now owns the full APB address map including the Result FIFO
+    // read window (0x40, 0x44, 0x58–0x64). The pop pulse is generated inside
+    // the CSR and routed back here as result_fifo_pop_read.
+    assign prdata = csr_prdata;
+    assign pready = csr_pready;
+    assign pslverr = csr_pslverr;
 
 endmodule
