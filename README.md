@@ -167,12 +167,13 @@ Zero wait-state APB slave.
 ### Result read window (decoded inside `cgra_apb_csr.sv`)
 
 These addresses are part of the public APB map and the read/write
-decode now lives inside `cgra_apb_csr.sv` alongside every other
-register. The data signals (`global_result_i`, `result_fifo_pop_data_i`,
-status flags) come in as input ports from `cgra_top.sv`; the pop pulse
-(`result_fifo_pop_read`) is generated from a write to `0x44` and routed
-out as an output port. Splitting the overloaded behaviour at `0x44` into
-separate named registers is left as a future cleanup.
+decode lives inside `cgra_apb_csr.sv` alongside every other register.
+The data signals (`global_result_i`, `result_fifo_pop_data_i`, status
+flags) come in as input ports from `cgra_top.sv`; the pop pulse
+(`result_fifo_pop_read`) is generated from a write to `ADDR_RESULT_POP`
+(`0x88`) and routed out as an output port. Reads from `0x44`
+(`RESULT_STATUS`) return the FIFO status; writes to `0x44` are silent
+no-ops.
 
 | Offset | Read returns | Write effect | Notes |
 |---|---|---|---|

@@ -21,8 +21,8 @@
  *    0x2C  CU_TIMEOUT      RW  Max cycles (0=no limit)
  *    0x30  IRQ_STATUS      RW  W1C: [0]=dma_done, [1]=cu_done
  *    0x34  IRQ_MASK        RW  [0]=dma_done_en, [1]=cu_done_en
- *    0x40  RESULT_DATA     RO  PE[15] output (global_result)
- *    0x44  RESULT_STATUS   RO  [0]=result_valid
+ *    0x40  RESULT_DATA     RO  PE[3][3] east-edge latch (global_result)
+ *    0x44  RESULT_STATUS   RO  [0]=pop_valid, [8:1]=count, [9]=ovf, [10]=undf
  *    0x48  LOOP_START      RW  HW-loop start PC [15:0]
  *    0x4C  LOOP_END        RW  HW-loop end PC   [15:0]
  *    0x50  LOOP_COUNT      RW  HW-loop iteration count [15:0]
@@ -35,6 +35,10 @@
  *    0x70  LOOP2_COUNT     RW  Nested loop iterations [15:0]
  *    0x74  TILE_BANK_SEL   RW  Double-buffer PE selector [0]
  *    0x78  TILE_AUTO_INC   RW  Tile addr auto-advance by 16/loop [0]
+ *    0x7C  DMA_DESC_HEAD   RW  Scatter-gather descriptor chain head
+ *    0x80  DMA_DESC_STATUS RO  [0]=chain_active, [23:8]=descriptors done
+ *    0x84  SPM_AUTO_INC    RW  Enable spm_iter_cnt auto-inc on loop wrap
+ *    0x88  RESULT_POP      W   Write any value to pop one FIFO entry
  * =================================================================== */
 
 #ifndef CGRA_DRIVER_H
@@ -67,7 +71,8 @@ extern "C" {
 #define CGRA_DMA_ERROR        0x38
 
 #define CGRA_RESULT_DATA      0x40
-#define CGRA_RESULT_STATUS    0x44
+#define CGRA_RESULT_STATUS    0x44  /* Pure RO. Writes are no-ops. */
+#define CGRA_RESULT_POP       0x88  /* W: write any value to pop one FIFO entry */
 
 #define CGRA_LOOP_START       0x48
 #define CGRA_LOOP_END         0x4C

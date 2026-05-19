@@ -107,7 +107,7 @@ static void fifo_drain_to_last(void)
     uint32_t count = cgra_rd(CGRA_RESULT_STATUS) >> 1;
     int guard = 256;
     while (count > 1 && guard-- > 0) {
-        cgra_wr(CGRA_RESULT_STATUS, 1u);
+        cgra_wr(CGRA_RESULT_POP, 1u);
         for (volatile int i = 0; i < 50; i++) __asm__("nop");
         count = cgra_rd(CGRA_RESULT_STATUS) >> 1;
     }

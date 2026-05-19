@@ -48,9 +48,9 @@ task automatic run_suite_RF_result_fifo;
         if (rd[0] == 1'b1) pass("RF01a: FIFO not empty after CU run");
         else fail("RF01a: FIFO empty", "RESULT_STATUS[0] = 0");
 
-        // Pop 3 values: read ROW0, then write to 0x44 to pop
+        // Pop 3 values: read ROW0, then write to 0x88 to pop
         apb_read(8'h58, val_a);  // First pop data
-        apb_write(8'h88, 32'd1); // Pop (also clears overflow if set)
+        apb_write(8'h88, 32'd1); // Pop (writes to 0x88 are the pop trigger)
         wait_cycles(5);
 
         apb_read(8'h58, val_b);  // Second value
