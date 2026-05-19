@@ -177,50 +177,22 @@ separate named registers is left as a future cleanup.
 | Offset | Read returns | Write effect | Notes |
 |---|---|---|---|
 | 0x40 | `global_result` — registered east-edge value of PE[3][3] | — | Legacy single-cell debug latch, not FIFO data |
-| 0x44 | FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow | Pops one FIFO entry **and** W1C-clears overflow/underflow bits | One write address overloaded with three semantics: status-read, pop-pulse, error-clear |
+| 0x44 | FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow | — (writes are no-ops; RO) | Pop trigger moved to 0x88 in commit refactoring the overload |
 | 0x58 | `result_fifo_pop_data[0]` — pre-fetched result, PE row 0 | — | Non-destructive |
 | 0x5C | `result_fifo_pop_data[1]` — pre-fetched result, PE row 1 | — | Non-destructive |
 | 0x60 | `result_fifo_pop_data[2]` — pre-fetched result, PE row 2 | — | Non-destructive |
 | 0x64 | `result_fifo_pop_data[3]` — pre-fetched result, PE row 3 | — | Non-destructive |
+| 0x88 | reads as 0 | `RESULT_POP` — write any value to pop one entry | Newly separated from 0x44 (see Implementation Notes) |
 
 Correct read sequence per FIFO entry: read 0x58 → 0x5C → 0x60 → 0x64
-(non-destructive), then **write to 0x44** to pop the entry and advance
-the pre-fetch.
-
-A clean redesign would split 0x44 into three separately-named addresses
-(`RESULT_STATUS` read-only, `RESULT_POP` write-pulse, `RESULT_ERR_W1C`
-write-one-to-clear) and either retire `0x40` or document it as
-`PE3_EAST_LAST`. The current bitstream ships with the overloaded
-addressing intact.
+(non-destructive), then **write to 0x88** (`RESULT_POP`) to advance
+the pre-fetch register. Writes to 0x44 (`RESULT_STATUS`) are no-ops.
 
 ## Implementation Notes & Known Limitations
 
 The following items are real and documented as-is. They do not block
 the demonstrated functionality; cleaning them up is left for a future
 revision.
-
-### Naming weirdness at `0x44` — overloaded address
-
-`0x44` is currently doing three jobs on the same physical APB
-transaction:
-
-| Operation | Effect |
-|---|---|
-| Read `0x44` | Returns FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow |
-| Write `0x44` (any value) | (a) pops one FIFO entry and advances the pre-fetch register; (b) W1C-clears the overflow + underflow bits |
-
-A conventional design would split this into three distinctly-named
-registers — call them `RESULT_STATUS` (RO), `RESULT_POP` (W-pulse), and
-`RESULT_ERR_W1C` (W1C). The current implementation has none of those
-names exposed individually; software just sees address `0x44` doing
-all three jobs.
-
-When reading the source (`cgra_top.sv:807`) the relevant signals are:
-
-```systemverilog
-result_fifo_pop_trigger = psel && penable && pwrite && (paddr[7:0] == 8'h44);
-result_fifo_pop_read    = result_fifo_pop_trigger;
-```
 
 ### `0x40` returns `PE[3][3]` east-edge, not "RESULT_DATA"
 

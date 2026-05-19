@@ -80,7 +80,8 @@
 #define CGRA_DMA_ERROR       0x38
 #define CGRA_CU_PC_END       0x3C
 #define CGRA_RESULT_DATA     0x40
-#define CGRA_RESULT_STATUS   0x44
+#define CGRA_RESULT_STATUS   0x44  /* Pure RO. Writes are no-ops. */
+#define CGRA_RESULT_POP      0x88  /* W: write any value to pop one FIFO entry */
 #define CGRA_LOOP_START      0x48
 #define CGRA_LOOP_END        0x4C
 #define CGRA_LOOP_COUNT      0x50

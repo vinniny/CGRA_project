@@ -95,13 +95,13 @@ module cgra_apb_csr #(
 
     // Result FIFO read window — registers physically owned by the FIFO/PE
     // array but mapped into the APB address space here.
-    input  logic [31:0]           global_result_i,           // 0x40 RO: PE[3][3] east-edge latch (legacy)
+    input  logic [31:0]           global_result_i,              // 0x40 RO: PE[3][3] east-edge latch (legacy)
     input  logic [31:0]           result_fifo_pop_data_i [0:3], // 0x58/0x5C/0x60/0x64 RO: row 0..3 pre-fetched
-    input  logic                  result_fifo_pop_valid_i,   // 0x44[0]
-    input  logic [7:0]            result_fifo_count_i,       // 0x44[8:1]
-    input  logic                  result_fifo_overflow_i,    // 0x44[9]
-    input  logic                  result_fifo_underflow_i,   // 0x44[10]
-    output logic                  result_fifo_pop_read       // Pulse on write-to-0x44 (overloaded: pop + W1C)
+    input  logic                  result_fifo_pop_valid_i,      // 0x44[0]   RO: pop-valid (status)
+    input  logic [7:0]            result_fifo_count_i,          // 0x44[8:1] RO: entries available
+    input  logic                  result_fifo_overflow_i,       // 0x44[9]   RO: 1-cycle overflow pulse
+    input  logic                  result_fifo_underflow_i,      // 0x44[10]  RO: 1-cycle underflow pulse
+    output logic                  result_fifo_pop_read          // Pulse on write to ADDR_RESULT_POP (0x88)
 );
 
     // =========================================================================
@@ -158,6 +158,11 @@ module cgra_apb_csr #(
 
     // SPM Auto-Increment
     localparam ADDR_SPM_AUTO_INC    = 8'h84; // RW: bit[0] = enable spm_iter_cnt on loop wrap
+
+    // Result FIFO pop trigger (separated from RESULT_STATUS at 0x44 — write any
+    // value to advance the pre-fetch register by one entry). RO at 0x44 stays
+    // pure read-only; writes to 0x44 are now no-ops.
+    localparam ADDR_RESULT_POP      = 8'h88;
 
     // =========================================================================
     // Internal Registers
@@ -362,10 +367,9 @@ module cgra_apb_csr #(
             ADDR_DMA_DESC_STATUS: prdata = {16'b0, dma_desc_completed_i,
                                             7'b0, dma_chain_active_i};
             ADDR_SPM_AUTO_INC:   prdata = reg_spm_auto_inc;
+            ADDR_RESULT_POP:     prdata = 32'h0;  // Pop register reads as 0
             // Result FIFO read window — physically owned by cgra_result_fifo,
-            // mapped here to keep the APB address map in one module. Naming
-            // overload at 0x44 (status read + pop on write + W1C on overflow
-            // bits) is documented in the project README's Implementation Notes.
+            // mapped here to keep the APB address map in one module.
             8'h40:               prdata = global_result_i;
             8'h44:               prdata = {21'b0, result_fifo_underflow_i,
                                             result_fifo_overflow_i,
@@ -379,9 +383,10 @@ module cgra_apb_csr #(
         endcase
     end
 
-    // Write to 0x44 = pop FIFO + W1C overflow/underflow (overloaded — see README).
+    // Write to ADDR_RESULT_POP (0x88) = pop one FIFO entry. Writes to
+    // ADDR_RESULT_STATUS (0x44) are no-ops; status is pure RO.
     assign result_fifo_pop_read = psel && penable && pwrite
-                                   && (paddr[7:0] == 8'h44);
+                                   && (paddr[7:0] == ADDR_RESULT_POP);
     
     // =========================================================================
     // Output Wire Assignments

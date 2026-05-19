@@ -50,11 +50,11 @@ task automatic run_suite_RF_result_fifo;
 
         // Pop 3 values: read ROW0, then write to 0x44 to pop
         apb_read(8'h58, val_a);  // First pop data
-        apb_write(8'h44, 32'd1); // Pop (also clears overflow if set)
+        apb_write(8'h88, 32'd1); // Pop (also clears overflow if set)
         wait_cycles(5);
 
         apb_read(8'h58, val_b);  // Second value
-        apb_write(8'h44, 32'd1);
+        apb_write(8'h88, 32'd1);
         wait_cycles(3);
 
         apb_read(8'h58, val_c);  // Third value
@@ -102,7 +102,7 @@ task automatic run_suite_RF_result_fifo;
 
         // Pop first value, pop second, verify second > first
         apb_read(8'h58, val_a);
-        apb_write(8'h44, 32'd1);
+        apb_write(8'h88, 32'd1);
         wait_cycles(3);
         apb_read(8'h58, val_b);
         if (val_b > val_a)
@@ -230,7 +230,7 @@ task automatic run_suite_RF_result_fifo;
 
         // Drain run A's FIFO
         apb_read(8'h58, val_a);
-        apb_write(8'h44, 32'd1); // pop all (simplified: just pop once)
+        apb_write(8'h88, 32'd1); // pop all (simplified: just pop once)
         wait_cycles(3);
 
         // Run B: tile data 800+
@@ -306,7 +306,7 @@ task automatic run_suite_RF_result_fifo;
         else fail("RF09a: FIFO not empty", $sformatf("status=0x%08h", rd));
 
         // Pop from empty (trigger underflow)
-        apb_write(8'h44, 32'd1);
+        apb_write(8'h88, 32'd1);
         wait_cycles(3);
 
         apb_read(8'h44, rd);
@@ -314,7 +314,7 @@ task automatic run_suite_RF_result_fifo;
         else pass("RF09b: Underflow check (sticky may not fire on explicit pop)");
 
         // W1C clear
-        apb_write(8'h44, 32'h400); // Write 1 to bit 10
+        apb_write(8'h88, 32'h400); // Write 1 to bit 10
         wait_cycles(3);
         apb_read(8'h44, rd);
         if (rd[10] == 1'b0) pass("RF09c: Underflow W1C cleared");
@@ -400,7 +400,7 @@ task automatic run_suite_RF_result_fifo;
                 cur_val = rd;
                 if (cur_val < prev_val) monotonic = 1'b0;
                 prev_val = cur_val;
-                apb_write(8'h44, 32'd1); // pop
+                apb_write(8'h88, 32'd1); // pop
                 wait_cycles(5);
             end
 
@@ -487,7 +487,7 @@ task automatic run_suite_RF_result_fifo;
         begin
             int j;
             for (j = 0; j < 100; j++) begin
-                apb_write(8'h44, 32'd1); // pop
+                apb_write(8'h88, 32'd1); // pop
                 wait_cycles(2);
             end
         end

@@ -220,11 +220,16 @@ localparam logic [31:0] ADDR_DMA_DESC_STATUS = 32'h80; // RO: [0] chain_active, 
 // --- SPM Auto-Increment (0x84) ---
 localparam logic [31:0] ADDR_SPM_AUTO_INC   = 32'h84;  // [0] Enable spm_iter_cnt on loop wrap
 
+// --- Result FIFO pop trigger (0x88) ---
+//     Separated from RESULT_STATUS (0x44) so the status read at 0x44 is
+//     pure RO. Writing any value to ADDR_RESULT_POP pops one entry.
+localparam logic [31:0] ADDR_RESULT_POP     = 32'h88;
+
 // --- Result FIFO Skip (0x54) ---
 localparam logic [31:0] ADDR_RESULT_SKIP    = 32'h54;  // [7:0] warmup skip count (default 12)
 
 // --- Unmapped address for negative testing ---
-localparam logic [31:0] ADDR_UNMAPPED       = 32'h8C;  // Beyond register space
+localparam logic [31:0] ADDR_UNMAPPED       = 32'h90;  // Beyond register space
 
 // ============================================================================
 // 7. DMA ADDRESS SPACE PREFIXES
