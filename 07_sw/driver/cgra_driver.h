@@ -22,7 +22,7 @@
  *    0x30  IRQ_STATUS      RW  W1C: [0]=dma_done, [1]=cu_done
  *    0x34  IRQ_MASK        RW  [0]=dma_done_en, [1]=cu_done_en
  *    0x40  RESULT_DATA     RO  PE[3][3] east-edge latch (global_result)
- *    0x44  RESULT_STATUS   RO  [0]=pop_valid, [8:1]=count, [9]=ovf, [10]=undf
+ *    0x44  RESULT_STATUS   RO  [0]=pop_valid, [9:1]=count, [10]=ovf, [11]=undf
  *    0x48  LOOP_START      RW  HW-loop start PC [15:0]
  *    0x4C  LOOP_END        RW  HW-loop end PC   [15:0]
  *    0x50  LOOP_COUNT      RW  HW-loop iteration count [15:0]

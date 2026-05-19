@@ -98,9 +98,9 @@ module cgra_apb_csr #(
     input  logic [31:0]           global_result_i,              // 0x40 RO: PE[3][3] east-edge latch (legacy)
     input  logic [31:0]           result_fifo_pop_data_i [0:3], // 0x58/0x5C/0x60/0x64 RO: row 0..3 pre-fetched
     input  logic                  result_fifo_pop_valid_i,      // 0x44[0]   RO: pop-valid (status)
-    input  logic [7:0]            result_fifo_count_i,          // 0x44[8:1] RO: entries available
-    input  logic                  result_fifo_overflow_i,       // 0x44[9]   RO: 1-cycle overflow pulse
-    input  logic                  result_fifo_underflow_i,      // 0x44[10]  RO: 1-cycle underflow pulse
+    input  logic [8:0]            result_fifo_count_i,          // 0x44[9:1] RO: entries available (0..256)
+    input  logic                  result_fifo_overflow_i,       // 0x44[10]  RO: 1-cycle overflow pulse
+    input  logic                  result_fifo_underflow_i,      // 0x44[11]  RO: 1-cycle underflow pulse
     output logic                  result_fifo_pop_read          // Pulse on write to ADDR_RESULT_POP (0x88)
 );
 
@@ -371,7 +371,8 @@ module cgra_apb_csr #(
             // Result FIFO read window — physically owned by cgra_result_fifo,
             // mapped here to keep the APB address map in one module.
             8'h40:               prdata = global_result_i;
-            8'h44:               prdata = {21'b0, result_fifo_underflow_i,
+            // 0x44 layout: [11] underflow, [10] overflow, [9:1] count, [0] pop_valid
+            8'h44:               prdata = {20'b0, result_fifo_underflow_i,
                                             result_fifo_overflow_i,
                                             result_fifo_count_i,
                                             result_fifo_pop_valid_i};

@@ -96,7 +96,7 @@ task automatic run_suite_RF_result_fifo;
 
         // Check count > 0
         apb_read(8'h44, rd);
-        $display("  RF02: RESULT_STATUS = 0x%08h (count=%0d)", rd, rd[8:1]);
+        $display("  RF02: RESULT_STATUS = 0x%08h (count=%0d)", rd, rd[9:1]);
         if (rd[8:1] > 8'd0) pass("RF02a: FIFO has entries after auto-inc run");
         else fail("RF02a: FIFO empty", "count=0");
 
@@ -291,7 +291,7 @@ task automatic run_suite_RF_result_fifo;
         // With backpressure active, overflow should NOT fire. Just verify
         // the sticky bit is clear after a normal run.
         apb_read(8'h44, rd);
-        if (rd[9] == 1'b0) pass("RF08: No overflow after normal run");
+        if (rd[10] == 1'b0) pass("RF08: No overflow after normal run");
         else fail("RF08: Overflow", "sticky bit set unexpectedly");
 
         // ─────────────────────────────────────────────────────────────
@@ -310,14 +310,14 @@ task automatic run_suite_RF_result_fifo;
         wait_cycles(3);
 
         apb_read(8'h44, rd);
-        if (rd[10] == 1'b1) pass("RF09b: Underflow sticky set");
+        if (rd[11] == 1'b1) pass("RF09b: Underflow sticky set");
         else pass("RF09b: Underflow check (sticky may not fire on explicit pop)");
 
         // W1C clear
         apb_write(8'h88, 32'h400); // Write 1 to bit 10
         wait_cycles(3);
         apb_read(8'h44, rd);
-        if (rd[10] == 1'b0) pass("RF09c: Underflow W1C cleared");
+        if (rd[11] == 1'b0) pass("RF09c: Underflow W1C cleared");
         else pass("RF09c: W1C check");
 
         // ─────────────────────────────────────────────────────────────

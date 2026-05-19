@@ -178,7 +178,7 @@ no-ops.
 | Offset | Read returns | Write effect | Notes |
 |---|---|---|---|
 | 0x40 | `global_result` — registered east-edge value of PE[3][3] | — | Legacy single-cell debug latch, not FIFO data |
-| 0x44 | FIFO status: `[0]` pop_valid, `[8:1]` count, `[9]` overflow, `[10]` underflow | — (writes are no-ops; RO) | Pop trigger moved to 0x88 in commit refactoring the overload |
+| 0x44 | FIFO status: `[0]` pop_valid, `[9:1]` count (0–256), `[10]` overflow, `[11]` underflow | — (writes are no-ops; RO) | Pop trigger moved to 0x88 in commit refactoring the overload |
 | 0x58 | `result_fifo_pop_data[0]` — pre-fetched result, PE row 0 | — | Non-destructive |
 | 0x5C | `result_fifo_pop_data[1]` — pre-fetched result, PE row 1 | — | Non-destructive |
 | 0x60 | `result_fifo_pop_data[2]` — pre-fetched result, PE row 2 | — | Non-destructive |

@@ -385,7 +385,7 @@ module cgra_top #(
         .global_result_i(global_result),
         .result_fifo_pop_data_i(result_fifo_pop_data),
         .result_fifo_pop_valid_i(result_fifo_pop_valid),
-        .result_fifo_count_i(result_fifo_count[7:0]),
+        .result_fifo_count_i(result_fifo_count),
         .result_fifo_overflow_i(result_fifo_overflow),
         .result_fifo_underflow_i(result_fifo_underflow),
         .result_fifo_pop_read(result_fifo_pop_read)
