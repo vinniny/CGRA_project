@@ -191,29 +191,45 @@ mode against a saved BMP/RAW frame (no board needed) on Day 1-2.
 
 ## Bring-up checklist
 
-1. [ ] Bitstream synthesises with no failed constraints
+1. [ ] Bitstream synthesises with no failed constraints (`source scripts/build_cgra_hdmi_pynqz2_clean.tcl` + `source scripts/add_hdmi_in_pynqz2.tcl`)
 2. [ ] `make program` loads new bitstream, PS7 boot survives
 3. [ ] Probe `dvi2rgb_0` lock bit via XSDB after laptop plug-in
 4. [ ] Probe `v_tc_1` detect register (htotal/vtotal nonzero)
 5. [ ] `xsdb mrd 0x1F80_0000 256` shows non-zero data while laptop screens content
-6. [ ] Bare-metal `fb_paint`-style host program saves one HDMI-in frame to a BMP for visual sanity check
+6. [ ] Dump one full frame: `xsdb> mrd -bin -file frame_raw.bin 0x1F800000 921600`, then `python3 scripts/hdmi_in_dump_to_bmp.py frame_raw.bin -o frame.bmp` and confirm the laptop screen content matches visually
 7. [ ] `demo_mnist_hdmi_bm -live` shows the captured ROI as the 28×28 inset on the output panel
 8. [ ] First "0" drawn in Paint is recognised correctly
 9. [ ] Stress: rapidly change digit; check no frame-tearing artefacts
 10. [ ] Lock + record for thesis revision
 
+## Pre-silicon verification (host-side)
+
+Before touching the board, two host-side tools shake out C and Tcl bugs:
+
+- `make -C 07_sw test_frame_to_mnist` — exercises `downsample_roi_to_mnist`
+  against synthetic 640×480 BGR frames (solid white, solid black, midline
+  bar, plus-sign) and prints the 28×28 result as ASCII. Already caught a
+  +14% background-pixel bias from using limited-range BT.601 coefficients
+  (commit f172aee).
+- `python3 scripts/hdmi_in_dump_to_bmp.py <raw.bin>` — converts any 640×480
+  BGR binary blob into a viewable BMP. Useful both for visualising a
+  silicon-captured frame and for synthesising test inputs.
+
 ## Files added/modified by this work
 
 ```
-scripts/add_hdmi_in_pynqz2.tcl       NEW   Vivado BD extension
-scripts/edid_640x480.bin             NEW   EDID payload for dvi2rgb
-01_bench/constrs_pynq_z2.xdc         MOD   J10 HDMI-RX pin LOCs
+scripts/add_hdmi_in_pynqz2.tcl       NEW   Vivado BD extension (commit 5b7bede)
+scripts/edid_640x480.bin             TBD   EDID payload (deferred; kEmulateDDC=false for first bring-up)
+scripts/hdmi_in_dump_to_bmp.py       NEW   raw frame → BMP host viewer (commit 646fb2f)
+01_bench/constrs_pynq_z2.xdc         MOD   J10 HDMI-RX pin LOCs (commit 302e920)
 07_sw/baremetal/hdmi_in_bm.h         NEW   driver API
 07_sw/baremetal/hdmi_in_bm.c         NEW   driver implementation
 07_sw/baremetal/frame_to_mnist.h     NEW   downsample API
-07_sw/baremetal/frame_to_mnist.c     NEW   downsample impl
+07_sw/baremetal/frame_to_mnist.c     NEW   downsample impl (luma fix commit f172aee)
 07_sw/baremetal/demo_mnist_hdmi_bm.c MOD   add live mode
 07_sw/baremetal/Makefile             MOD   wire new sources into mnist_hdmi target
+07_sw/app/test_frame_to_mnist.c      NEW   host-side downsample smoke test
+07_sw/Makefile                       MOD   test_frame_to_mnist target
 06_doc/hdmi_in_plan.md               NEW   this document
 ```
 
