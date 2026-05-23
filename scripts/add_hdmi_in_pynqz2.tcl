@@ -118,10 +118,13 @@ connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins dvi2
 # ----- 5. v_tc_1 in detector mode ----------------------------------------
 puts "\n=== 5. v_tc_1 (detector mode, clocked on dvi2rgb PixelClk) ==="
 create_bd_cell -type ip -vlnv $IP_VTC v_tc_1
+# Detection-only: v_tc_1 observes the vtiming_out interface emitted by
+# v_vid_in_axi4s_0 (which itself extracts timing from dvi2rgb sync signals).
+# Detected htotal/vtotal/active are reported back to PS via AXI-Lite at
+# 0x43C9_0000 — that's how the SW driver decides "source locked".
 set_property -dict [list \
     CONFIG.enable_generation {false} \
     CONFIG.enable_detection  {true} \
-    CONFIG.GEN_F0_VSYNC_VSTART {0} \
 ] [get_bd_cells v_tc_1]
 connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M06_AXI] [get_bd_intf_pins v_tc_1/ctrl]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_tc_1/s_axi_aclk]
@@ -131,11 +134,9 @@ connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_t
 # Reset for the pixel-clock side of v_tc — leave at hi (no reset wire); the IP
 # tolerates a free-run as long as ctrl regs are not active
 
-# Drive v_tc detector inputs from dvi2rgb sync signals
-# (v_tc detect ports: hsync_in, vsync_in, vblank_in, active_video_in)
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_tc_1/hsync_in]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_tc_1/vsync_in]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_tc_1/active_video_in]
+# Wiring v_tc_1 inputs is done after v_vid_in_axi4s_0 is created (step 6),
+# since the detected vtiming comes from v_vid_in_axi4s_0's vtiming_out
+# interface, not from dvi2rgb sync signals directly. See step 6.
 
 # ----- 6. v_vid_in_axi4s_0 (parallel → AXIS) -----------------------------
 puts "\n=== 6. v_vid_in_axi4s_0 (parallel RGB → AXIS, aligned to v_tc_1 timing) ==="
@@ -152,15 +153,20 @@ set_property -dict [list \
 connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_vid_in_axi4s_0/vid_io_in_clk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_vid_in_axi4s_0/aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
+# vid_io_in_reset is ACTIVE_HIGH on this IP — use peripheral_reset (the
+# active-high sibling of peripheral_aresetn from the same proc_sys_reset).
+connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_reset]    [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
 
-# Parallel input from dvi2rgb (24-bit RGB + hsync/vsync/VDE)
+# Parallel input from dvi2rgb (24-bit RGB + hsync/vsync/VDE).
+# Direct pin connections (Vivado warns about overriding the vid_io_in interface
+# bundle — non-fatal; the bundle is reconstructed by the connection).
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pData]  [get_bd_pins v_vid_in_axi4s_0/vid_data]
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_vid_in_axi4s_0/vid_hsync]
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_vid_in_axi4s_0/vid_vsync]
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_vid_in_axi4s_0/vid_active_video]
-# vtiming from v_tc detector (locked sync info)
-connect_bd_intf_net [get_bd_intf_pins v_tc_1/vtiming_out]       [get_bd_intf_pins v_vid_in_axi4s_0/vtiming_in]
+# Detected timing flows FROM v_vid_in_axi4s_0 TO v_tc_1 (which reports
+# htotal/vtotal/active to PS via AXI-Lite ctrl regs at 0x43C9_0000).
+connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/vtiming_out] [get_bd_intf_pins v_tc_1/vtiming_in]
 # vid_io_in_ce / vid_io_in_clk_en: tie to constant 1 (we don't gate the pixel clock)
 create_bd_cell -type ip -vlnv $IP_CONST xlconst_vidin_ce
 set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] [get_bd_cells xlconst_vidin_ce]
