@@ -13,9 +13,11 @@
 #   - HDMI constraint file constrs_pynq_z2.xdc (already in 01_bench/)
 #
 # Verbatim from Haoyue (the parts that fixed our V162-V169 hangs):
-#   * PCW_FCLK_CLK0_FREQ = 100 MHz, BUF = TRUE
+#   * PCW_FCLK_CLK0_FREQ = 50 MHz, BUF = TRUE
+#     (CGRA's silicon-validated target — 100 MHz violates 25 logic-level
+#     DMA path read_words_remaining→m_axi_araddr by -5.155 ns)
 #   * PCW_FCLK_CLK1_FREQ = 150 MHz, BUF = TRUE  (separate from FCLK0!)
-#   * PCW_M_AXI_GP0_FREQMHZ = 100 (matches FCLK0 -> no [BD 41-702] mismatch)
+#   * PCW_M_AXI_GP0_FREQMHZ tracks FCLK0 automatically
 #   * smartconnect (modern) instead of axi_interconnect 2.1 for HP paths
 #   * separate proc_sys_reset for 100M and 150M clock domains
 #   * HP0 + HP1 both enabled (one VDMA per HP port -> no contention)
@@ -109,7 +111,7 @@ set_property -dict [list \
     CONFIG.PCW_EN_CLK1_PORT        {1} \
     CONFIG.PCW_EN_CLK2_PORT        {0} \
     CONFIG.PCW_EN_CLK3_PORT        {0} \
-    CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {100} \
+    CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {50}  \
     CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ {150} \
     CONFIG.PCW_FCLK_CLK0_BUF       {TRUE} \
     CONFIG.PCW_FCLK_CLK1_BUF       {TRUE} \
