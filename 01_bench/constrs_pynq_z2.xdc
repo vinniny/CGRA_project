@@ -19,6 +19,29 @@ set_property -dict { PACKAGE_PIN R19   IOSTANDARD LVCMOS33 } [get_ports { hdmi_t
 set_property -dict { PACKAGE_PIN M17   IOSTANDARD LVCMOS33 } [get_ports { hdmi_tx_scl }];
 set_property -dict { PACKAGE_PIN M18   IOSTANDARD LVCMOS33 } [get_ports { hdmi_tx_sda }];
 
+## ============================================================================
+## HDMI RX Constraints (J10 — bank 34) — added for the HDMI-in live demo
+## Reference: PYNQ-Z2 board reference v1.1 schematic.
+## ============================================================================
+
+## HDMI RX TMDS Clock
+set_property -dict { PACKAGE_PIN N18   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_clk_p }];
+set_property -dict { PACKAGE_PIN P19   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_clk_n }];
+
+## HDMI RX TMDS Data Lanes
+set_property -dict { PACKAGE_PIN V20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_p[0] }];
+set_property -dict { PACKAGE_PIN W20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_n[0] }];
+set_property -dict { PACKAGE_PIN T20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_p[1] }];
+set_property -dict { PACKAGE_PIN U20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_n[1] }];
+set_property -dict { PACKAGE_PIN N20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_p[2] }];
+set_property -dict { PACKAGE_PIN P20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx_d_n[2] }];
+
+## HDMI RX Control Signals
+set_property -dict { PACKAGE_PIN T19   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_hpd }];
+set_property -dict { PACKAGE_PIN H17   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_cec }];
+set_property -dict { PACKAGE_PIN U14   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_scl }];
+set_property -dict { PACKAGE_PIN U15   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_sda }];
+
 ## CGRA Clocks (if needed, but usually FCLK is used)
 ## PS_CLK is 50MHz on PYNQ-Z2
 
