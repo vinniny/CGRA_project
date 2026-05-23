@@ -234,6 +234,15 @@ connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins v_ax
 # 6e. rgb2dvi (Digilent) -- replaces Haoyue's HDMI_Transmitter_0
 puts "  NOTE: rgb2dvi VLNV must match what is in your ip_repo. Adjust below."
 create_bd_cell -type ip -vlnv $IP_RGB rgb2dvi_0
+# Disable internal SerialClk generation so the external SerialClk pin appears
+# and can be driven by axi_dynclk_0/PXL_CLK_5X_O. Default (kGenerateSerialClk=true)
+# hides the pin, which trips the Linux Vivado build.
+set_property -dict [list \
+    CONFIG.kGenerateSerialClk {false} \
+    CONFIG.kRstActiveHigh     {false} \
+] [get_bd_cells rgb2dvi_0]
+# kGenerateSerialClk=false → SerialClk becomes external (drivable by PXL_CLK_5X_O)
+# kRstActiveHigh=false     → aRst_n becomes visible (matches active-low resets here)
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins rgb2dvi_0/PixelClk]
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_5X_O]         [get_bd_pins rgb2dvi_0/SerialClk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins rgb2dvi_0/aRst_n]

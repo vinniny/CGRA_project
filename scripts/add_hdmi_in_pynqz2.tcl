@@ -7,16 +7,17 @@
 # End state after sourcing:
 #   - dvi2rgb_0     (J10 TMDS → parallel RGB + recovered pixel clock)
 #   - v_tc_1        (detector mode, hsync/vsync from dvi2rgb pixel domain)
-#   - v_axi4s_vid_in_0 (parallel video to AXIS video, vsync-aligned)
-#   - pixel_pack_in (AXIS 24b → 32b for VDMA write side)
+#   - v_vid_in_axi4s_0 (parallel video to AXIS video, vsync-aligned)
+#   - axis_subset_converter_in (AXIS 24b → 32b zero-pad for VDMA write side,
+#                               replaces PYNQ-HLS pixel_pack which isn't in
+#                               the standard Xilinx catalog)
 #   - axi_vdma_1    (S2MM-only, 3-frame ring at 0x1F80_0000)
 #   - Detector clock = dvi2rgb PixelClk; AXIS-MM clock = FCLK_CLK0
 #   - VDMA S2MM ↔ HP1 (shares with CGRA m_axi via smartconnect_1, NUM_SI=2)
-#   - AXI-Lite control fabric (ps7_0_axi_periph) expanded NUM_MI 5 → 9
+#   - AXI-Lite control fabric (ps7_0_axi_periph) expanded NUM_MI 5 → 7
 #       M05 axi_vdma_1
 #       M06 v_tc_1
-#       M07 pixel_pack_in
-#       M08 reserved (axi_iic for live EDID — currently spare)
+#       (subset_converter is config-time only, no AXI-Lite slave)
 #   - dvi2rgb RefClk = FCLK_CLK2 (200 MHz, enabled here on PS7)
 #   - IRQ_F2P xlconcat extended 3 → 4 ports (In3 = vdma_1 s2mm_introut)
 #
@@ -59,18 +60,13 @@ proc _pick_ip {vendor library name} {
 set IP_RST    [_pick_ip xilinx.com   ip   proc_sys_reset]
 set IP_DVI2   [_pick_ip digilentinc.com ip dvi2rgb]
 set IP_VTC    [_pick_ip xilinx.com   ip   v_tc]
-set IP_VIDIN  [_pick_ip xilinx.com   ip   v_axi4s_vid_in]
-set IP_PIXPK  [_pick_ip xilinx.com   user pixel_pack]
-if {[catch {get_ipdefs -filter "VLNV =~ \"xilinx.com:user:pixel_pack:*\""} _]} {
-    # Fall back: keep symmetric with output chain, which already has a pixel_pack
-    # If the user has only the HLS pixel_pack from the output side, reuse it.
-    set IP_PIXPK [_pick_ip xilinx.com hls pixel_pack]
-}
+set IP_VIDIN  [_pick_ip xilinx.com   ip   v_vid_in_axi4s]
+set IP_SUBCV  [_pick_ip xilinx.com   ip   axis_subset_converter]
 set IP_VDMA   [_pick_ip xilinx.com   ip   axi_vdma]
 set IP_CONST  [_pick_ip xilinx.com   ip   xlconstant]
 
 puts "  IPs:"
-foreach v {IP_DVI2 IP_VTC IP_VIDIN IP_PIXPK IP_VDMA} {
+foreach v {IP_DVI2 IP_VTC IP_VIDIN IP_SUBCV IP_VDMA} {
     puts [format "    %-10s = %s" $v [set $v]]
 }
 
@@ -89,9 +85,9 @@ create_bd_cell -type ip -vlnv $IP_RST rst_ps7_0_200M
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins rst_ps7_0_200M/slowest_sync_clk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_200M/ext_reset_in]
 
-# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 5 → 9 ----------
-puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 5 → 9 ==="
-set_property CONFIG.NUM_MI {9} [get_bd_cells ps7_0_axi_periph]
+# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 5 → 7 ----------
+puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 5 → 7 ==="
+set_property CONFIG.NUM_MI {7} [get_bd_cells ps7_0_axi_periph]
 
 # ----- 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 also serves vdma_1) ----
 puts "\n=== 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 carries CGRA + vdma_1) ==="
@@ -141,45 +137,54 @@ connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_tc_1/hsync_in]
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_tc_1/vsync_in]
 connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_tc_1/active_video_in]
 
-# ----- 6. v_axi4s_vid_in_0 (parallel → AXIS) -----------------------------
-puts "\n=== 6. v_axi4s_vid_in_0 (parallel RGB → AXIS, aligned to v_tc_1 timing) ==="
-create_bd_cell -type ip -vlnv $IP_VIDIN v_axi4s_vid_in_0
+# ----- 6. v_vid_in_axi4s_0 (parallel → AXIS) -----------------------------
+puts "\n=== 6. v_vid_in_axi4s_0 (parallel RGB → AXIS, aligned to v_tc_1 timing) ==="
+create_bd_cell -type ip -vlnv $IP_VIDIN v_vid_in_axi4s_0
 set_property -dict [list \
     CONFIG.C_HAS_ASYNC_CLK {1} \
     CONFIG.C_PIXELS_PER_CLOCK {1} \
     CONFIG.C_M_AXIS_VIDEO_FORMAT {2} \
-] [get_bd_cells v_axi4s_vid_in_0]
+] [get_bd_cells v_vid_in_axi4s_0]
 
 # Clock domains:
 #   vid_io_in_clk = dvi2rgb PixelClk  (pixel domain)
 #   aclk          = FCLK_CLK0         (memory/AXIS domain) — async crossing inside IP
-connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_axi4s_vid_in_0/vid_io_in_clk]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_axi4s_vid_in_0/aclk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_axi4s_vid_in_0/aresetn]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_axi4s_vid_in_0/vid_io_in_reset]
+connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_vid_in_axi4s_0/vid_io_in_clk]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_vid_in_axi4s_0/aclk]
+connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
+connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
 
 # Parallel input from dvi2rgb (24-bit RGB + hsync/vsync/VDE)
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pData]  [get_bd_pins v_axi4s_vid_in_0/vid_data]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_axi4s_vid_in_0/vid_hsync]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_axi4s_vid_in_0/vid_vsync]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_axi4s_vid_in_0/vid_active_video]
+connect_bd_net [get_bd_pins dvi2rgb_0/vid_pData]  [get_bd_pins v_vid_in_axi4s_0/vid_data]
+connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_vid_in_axi4s_0/vid_hsync]
+connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_vid_in_axi4s_0/vid_vsync]
+connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_vid_in_axi4s_0/vid_active_video]
 # vtiming from v_tc detector (locked sync info)
-connect_bd_intf_net [get_bd_intf_pins v_tc_1/vtiming_out]       [get_bd_intf_pins v_axi4s_vid_in_0/vtiming_in]
+connect_bd_intf_net [get_bd_intf_pins v_tc_1/vtiming_out]       [get_bd_intf_pins v_vid_in_axi4s_0/vtiming_in]
 # vid_io_in_ce / vid_io_in_clk_en: tie to constant 1 (we don't gate the pixel clock)
 create_bd_cell -type ip -vlnv $IP_CONST xlconst_vidin_ce
 set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] [get_bd_cells xlconst_vidin_ce]
-connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_axi4s_vid_in_0/vid_io_in_ce]
-connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_axi4s_vid_in_0/axis_enable]
+connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_vid_in_axi4s_0/vid_io_in_ce]
+connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_vid_in_axi4s_0/axis_enable]
 
-# ----- 7. pixel_pack_in (AXIS 24b → 32b, for VDMA word alignment) --------
-puts "\n=== 7. pixel_pack_in (AXIS 24b → 32b stream) ==="
-create_bd_cell -type ip -vlnv $IP_PIXPK pixel_pack_in
-# Typical Digilent/Xilinx config: input 24-bit RGB, output 32-bit (XRGB, X = padding)
-set_property -dict [list CONFIG.kAXIS_OUT_WIDTH {32}] [get_bd_cells pixel_pack_in]
-connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M07_AXI] [get_bd_intf_pins pixel_pack_in/s_axi_AXILiteS]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins pixel_pack_in/ap_clk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins pixel_pack_in/ap_rst_n]
-connect_bd_intf_net [get_bd_intf_pins v_axi4s_vid_in_0/video_out] [get_bd_intf_pins pixel_pack_in/stream_in_24]
+# ----- 7. axis_subset_converter_in (AXIS 24b → 32b, byte-padded) --------
+puts "\n=== 7. axis_subset_converter_in (AXIS 24b → 32b zero-pad) ==="
+create_bd_cell -type ip -vlnv $IP_SUBCV axis_subset_converter_in
+# 3-byte (24-bit) in, 4-byte (32-bit) out, with the high byte forced to 0.
+# Remap string syntax: <tdata-out-msb..lsb> = <expr in source bits>
+set_property -dict [list \
+    CONFIG.S_TDATA_NUM_BYTES   {3} \
+    CONFIG.M_TDATA_NUM_BYTES   {4} \
+    CONFIG.TDATA_REMAP         {8'b00000000,tdata[23:0]} \
+    CONFIG.HAS_TKEEP           {0} \
+    CONFIG.HAS_TLAST           {1} \
+    CONFIG.HAS_TUSER           {1} \
+    CONFIG.S_HAS_TSTRB         {0} \
+    CONFIG.M_HAS_TSTRB         {0} \
+] [get_bd_cells axis_subset_converter_in]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins axis_subset_converter_in/aclk]
+connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins axis_subset_converter_in/aresetn]
+connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_pins axis_subset_converter_in/S_AXIS]
 
 # ----- 8. axi_vdma_1 (S2MM only, 3-frame ring) ---------------------------
 puts "\n=== 8. axi_vdma_1 (S2MM-only, 3-frame ring on HP1) ==="
@@ -195,8 +200,8 @@ set_property -dict [list \
 ] [get_bd_cells axi_vdma_1]
 
 connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M05_AXI] [get_bd_intf_pins axi_vdma_1/S_AXI_LITE]
-# S2MM AXIS from pixel_pack
-connect_bd_intf_net [get_bd_intf_pins pixel_pack_in/stream_out_32] [get_bd_intf_pins axi_vdma_1/S_AXIS_S2MM]
+# S2MM AXIS from subset_converter (24→32 padded)
+connect_bd_intf_net [get_bd_intf_pins axis_subset_converter_in/M_AXIS] [get_bd_intf_pins axi_vdma_1/S_AXIS_S2MM]
 # S2MM MM goes to HP1 via smartconnect_1 S01_AXI (S00 already used by CGRA)
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_1/M_AXI_S2MM] [get_bd_intf_pins smartconnect_1/S01_AXI]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axi_lite_aclk]
@@ -261,8 +266,7 @@ set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_
 assign_bd_address [get_bd_addr_segs {v_tc_1/ctrl/Reg }]
 set_property offset 0x43C90000 [get_bd_addr_segs {processing_system7_0/Data/SEG_v_tc_1_Reg}]
 
-assign_bd_address [get_bd_addr_segs {pixel_pack_in/s_axi_AXILiteS/Reg }]
-set_property offset 0x43CB0000 [get_bd_addr_segs {processing_system7_0/Data/SEG_pixel_pack_in_Reg}]
+# subset_converter is config-time only — no AXI-Lite address needed.
 
 # vdma_1 S2MM access into DDR via HP1
 assign_bd_address [get_bd_addr_segs {axi_vdma_1/Data_S2MM/SEG_processing_system7_0_HP1_DDR_LOWOCM }]
@@ -277,10 +281,10 @@ puts ""
 puts "==========================================================="
 puts " HDMI-IN GRAFT COMPLETE"
 puts " Address summary (new):"
-puts "   axi_vdma_1     S_AXI_LITE @ 0x4302_0000"
-puts "   v_tc_1         ctrl       @ 0x43C9_0000"
-puts "   pixel_pack_in  AXILiteS   @ 0x43CB_0000"
-puts "   S2MM target    DDR        @ 0x1F80_0000 (set by SW driver, 3-frame ring)"
+puts "   axi_vdma_1                S_AXI_LITE @ 0x4302_0000"
+puts "   v_tc_1                    ctrl       @ 0x43C9_0000"
+puts "   axis_subset_converter_in              (no AXI-Lite — config at synth time)"
+puts "   S2MM target               DDR        @ 0x1F80_0000 (SW-set, 3-frame ring)"
 puts ""
 puts " Next steps:"
 puts "   1. update_compile_order -fileset sources_1"
