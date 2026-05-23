@@ -298,7 +298,7 @@ module cgra_apb_csr #(
             reg_spm_auto_inc   <= 32'd0;
         end else begin
             if (apb_write) begin
-                case (paddr[7:0])
+                unique case (paddr[7:0])
                     ADDR_DMA_CTRL:       reg_dma_ctrl       <= pwdata;
                     ADDR_DMA_SRC:        if (dma_wr_ok)  reg_dma_src        <= pwdata;
                     ADDR_DMA_DST:        if (dma_wr_ok)  reg_dma_dst        <= pwdata;
@@ -337,7 +337,7 @@ module cgra_apb_csr #(
     // Read Logic - Register Mux
     // =========================================================================
     always_comb begin
-        case (paddr[7:0])
+        unique case (paddr[7:0])
             ADDR_DMA_CTRL:   prdata = reg_dma_ctrl;
             ADDR_DMA_STATUS: prdata = reg_dma_status;
             ADDR_DMA_SRC:    prdata = reg_dma_src;

@@ -184,7 +184,7 @@ module cgra_result_fifo #(
                 rd_ptr <= rd_ptr + 1'b1;
 
             // Count
-            case ({do_push, do_pop})
+            unique case ({do_push, do_pop})
                 2'b10:   fifo_count <= fifo_count + 1'b1;
                 2'b01:   fifo_count <= fifo_count - 1'b1;
                 default: fifo_count <= fifo_count;  // 2'b00 or 2'b11 (simultaneous)

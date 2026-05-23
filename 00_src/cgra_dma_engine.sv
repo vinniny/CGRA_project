@@ -259,7 +259,7 @@ module cgra_dma_engine #(
             if (src_is_tile) begin
                 r_state <= R_IDLE;
                 tile_read_phase <= 1'b0;
-            end else case (r_state)
+            end else unique case (r_state)
                 R_ADDR: r_state <= R_DRAIN;
                 R_DATA: begin
                     r_state <= R_DRAIN;
@@ -272,7 +272,7 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
-            case (r_state)
+            unique case (r_state)
                 R_IDLE: begin
                     m_axi_arvalid <= 1'b0;
                     m_axi_rready <= 1'b0;
@@ -421,7 +421,7 @@ module cgra_dma_engine #(
             local_write_en <= 1'b0;
             local_fifo_pop <= 1'b0;
             axi_fifo_pop <= 1'b0;
-            case (w_state)
+            unique case (w_state)
                 W_ADDR: begin
                     m_axi_bready <= 1'b0;
                     if (!m_axi_awvalid) begin
@@ -455,7 +455,7 @@ module cgra_dma_engine #(
                 end
             endcase
         end else begin
-            case (w_state)
+            unique case (w_state)
                 W_IDLE: begin
                     local_write_en <= 1'b0;
                     local_fifo_pop <= 1'b0;

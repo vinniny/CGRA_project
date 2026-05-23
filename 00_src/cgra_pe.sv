@@ -341,7 +341,7 @@ module cgra_pe #(
 
     // SIMD dot-product (reads _r operands)
     always_comb begin
-        case (data_mode_r)
+        unique case (data_mode_r)
             2'b10:   simd_dot_product = (32'(op0_b3) * 32'(op1_b3)) +
                                         (32'(op0_b2) * 32'(op1_b2)) +
                                         (32'(op0_b1) * 32'(op1_b1)) +
