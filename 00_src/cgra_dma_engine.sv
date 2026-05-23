@@ -708,4 +708,11 @@ module cgra_dma_engine #(
     assign dbg_fifo_empty            = fifo_empty;
     assign dbg_write_words_remaining = write_words_remaining;
 
+    // AXI transaction IDs are received per the AXI4 spec but we don't issue
+    // out-of-order transactions, so the ID returns are not needed. Sink them
+    // to silence Vivado [Synth 8-7129] "port has no load". XOR reduction
+    // collapses to a constant during synth — no fabric cost.
+    logic _unused_axi_ids;
+    assign _unused_axi_ids = ^{m_axi_bid, m_axi_rid};
+
 endmodule

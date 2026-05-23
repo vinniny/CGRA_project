@@ -170,4 +170,10 @@ module cgra_dma_chain_ctrl #(
         end
     end
 
+    // TODO: check m_axi_rresp for SLVERR/DECERR on descriptor fetches and
+    // surface as a chain_error_o. For now the SG-DMA path is experimental
+    // (no demo uses it). Sink the response to silence Vivado [Synth 8-7129].
+    logic _unused_rresp;
+    assign _unused_rresp = ^m_axi_rresp;
+
 endmodule

@@ -107,6 +107,11 @@ module cgra_pe #(
     // - config_valid=0 (idle): Use config_ram_data from BSG SRAM.
     assign active_config = config_valid ? config_frame : config_ram_data;
 
+    // Reserved upper bits — silence Vivado [Synth 8-7129] "port has no load"
+    // (synth folds the XOR reduction to a constant; no fabric cost).
+    logic _unused_config_reserved;
+    assign _unused_config_reserved = ^config_frame[63:51];
+
     // Active whenever a valid config is present (parent-driven or BSG-read).
     logic config_active;
     assign config_active = config_valid || config_ram_valid;
@@ -131,6 +136,7 @@ module cgra_pe #(
         pred_inv   = active_config[23];
         immediate  = active_config[39:24];
         extended   = active_config[50:40];  // [10:0]: data_mode[10:9], branch_en[8], branch_target[7:4]
+        // config_frame[63:51] reserved for future ISA extensions — sink below.
         // B4: Branch target from config frame bits [47:44] = extended[7:4]
         branch_target = extended[PC_WIDTH+3:4];
         branch_en = extended[PC_WIDTH+4];  // bit [48] = extended[8]: enable branch
