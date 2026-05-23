@@ -469,10 +469,10 @@ module cgra_dma_engine #(
                         // cfg_dst[31] = broadcast (multi-bank write)
                         write_addr <= {1'b0, cfg_dst[30:0]};
                         write_words_remaining <= cfg_transfer_words;
-                        dst_kind <= (cfg_dst[31:28] == 4'h4)                     ? DST_SPM    :
-                                    (cfg_dst[31:28] == 4'h2)                     ? DST_CONFIG :
-                                    ((cfg_dst[31:28] == 4'h1) || cfg_dst[31]) ? DST_TILE   :
-                                                                                 DST_AXI;
+                        dst_kind <= ((cfg_dst[31:28] == 4'h4) || (cfg_dst[31:28] == 4'h5)) ? DST_SPM    :
+                                    (cfg_dst[31:28] == 4'h2)                                 ? DST_CONFIG :
+                                    ((cfg_dst[31:28] == 4'h1) || cfg_dst[31])                ? DST_TILE   :
+                                                                                               DST_AXI;
                         dst_broadcast <= cfg_dst[31];
                         w_state <= W_WAIT;
                     end

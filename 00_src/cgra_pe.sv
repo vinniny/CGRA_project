@@ -145,6 +145,12 @@ module cgra_pe #(
     logic [DATA_WIDTH-1:0] spm_wdata;
     logic                  spm_we;
 
+    // Second SPM read port (Port B) for weight access with independent address.
+    // spm_addr2 = immediate + spm_iter_cnt + context_pc (weight base via immediate).
+    // Vivado UG901: two registered reads from same array → TDP BRAM inference.
+    logic [$clog2(SPM_DEPTH)-1:0] spm_addr2;
+    logic [DATA_WIDTH-1:0]        spm_rdata2;
+
     // SPM auto-increment counter: increments by 16 per loop wrap.
     // spm_addr = operand1_r2 + spm_iter_cnt when spm_auto_inc_en_i is set.
     logic [$clog2(SPM_DEPTH)-1:0] spm_iter_cnt;
@@ -180,7 +186,13 @@ module cgra_pe #(
         if (!rst_n)         spm_rdata <= '0;
         else if (!stall)    spm_rdata <= spm_mem[spm_addr];
     end
-    
+
+    // Port B read: same spm_mem, independent address for weight access (SRC_SPM2).
+    always_ff @(posedge clk) begin
+        if (!rst_n)      spm_rdata2 <= '0;
+        else if (!stall) spm_rdata2 <= spm_mem[spm_addr2];
+    end
+
     // Register file (16×32b flip-flops)
     logic [DATA_WIDTH-1:0] rf_mem [0:RF_DEPTH-1];
     logic [3:0]            rf_waddr;
@@ -226,6 +238,7 @@ module cgra_pe #(
             4'd4:    operand1 = data_in_w;
             4'd5:    operand1 = spm_rdata;
             4'd6:    operand1 = {{16{immediate[15]}}, immediate};
+            4'd7:    operand1 = spm_rdata2;  // SRC_SPM2: weight from Port B
             default: operand1 = '0;
         endcase
     end
@@ -617,15 +630,19 @@ module cgra_pe #(
         rf_wdata = alu_result[DATA_WIDTH-1:0];
 
         spm_we = 1'b0;
-        // Auto-inc: spm_addr = imm_base + spm_iter_cnt + context_pc
-        // so each of the 16 slots in a pass reads a unique weight word.
-        // spm_rdata is registered (1-cycle latency), so this decode-stage
-        // address arrives at execute via the spm_rdata pipeline flop — no
-        // extra stage needed.  Max addr = 768+15 = 783 < SPM_DEPTH=1024.
+        // Port A address (activation, base=0): spm_addr = spm_iter_cnt + context_pc.
+        // immediate field is reserved for Port B (weight base) in auto-inc mode.
+        // Non-auto-inc keeps existing behaviour: address from operand1_r2.
         spm_addr = spm_auto_inc_en_i
-                   ? ($clog2(SPM_DEPTH)'(immediate) + spm_iter_cnt
-                      + $clog2(SPM_DEPTH)'(context_pc))
+                   ? (spm_iter_cnt + $clog2(SPM_DEPTH)'(context_pc))
                    : operand1_r2[$clog2(SPM_DEPTH)-1:0];
+        // Port B address (weight): spm_addr2 = immediate + spm_iter_cnt + context_pc.
+        // Caller sets immediate=512 → weights live at spm[512..911].
+        // Max addr = 512+15+384 = 911 < SPM_DEPTH=1024 ✓
+        spm_addr2 = spm_auto_inc_en_i
+                    ? ($clog2(SPM_DEPTH)'(immediate) + spm_iter_cnt
+                       + $clog2(SPM_DEPTH)'(context_pc))
+                    : operand0_r2[$clog2(SPM_DEPTH)-1:0];
         spm_wdata = operand0_r2;
 
         if (config_active_r2 && execute_enable_r2 && !stall) begin

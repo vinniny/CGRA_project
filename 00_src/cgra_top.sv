@@ -302,23 +302,26 @@ module cgra_top #(
     // Config address within 2048-byte block: [2]=HI/LO, [6:3]=slot, [10:7]=PE
     assign dma_cfg_pe_sel = dma_cfg_addr[10:7];
 
-    // Per-PE SPM write enable: only the addressed PE gets the write pulse.
-    assign dma_spm_we[ 0] = dma_spm_raw_en && (dma_spm_pe_id == 4'd0);
-    assign dma_spm_we[ 1] = dma_spm_raw_en && (dma_spm_pe_id == 4'd1);
-    assign dma_spm_we[ 2] = dma_spm_raw_en && (dma_spm_pe_id == 4'd2);
-    assign dma_spm_we[ 3] = dma_spm_raw_en && (dma_spm_pe_id == 4'd3);
-    assign dma_spm_we[ 4] = dma_spm_raw_en && (dma_spm_pe_id == 4'd4);
-    assign dma_spm_we[ 5] = dma_spm_raw_en && (dma_spm_pe_id == 4'd5);
-    assign dma_spm_we[ 6] = dma_spm_raw_en && (dma_spm_pe_id == 4'd6);
-    assign dma_spm_we[ 7] = dma_spm_raw_en && (dma_spm_pe_id == 4'd7);
-    assign dma_spm_we[ 8] = dma_spm_raw_en && (dma_spm_pe_id == 4'd8);
-    assign dma_spm_we[ 9] = dma_spm_raw_en && (dma_spm_pe_id == 4'd9);
-    assign dma_spm_we[10] = dma_spm_raw_en && (dma_spm_pe_id == 4'd10);
-    assign dma_spm_we[11] = dma_spm_raw_en && (dma_spm_pe_id == 4'd11);
-    assign dma_spm_we[12] = dma_spm_raw_en && (dma_spm_pe_id == 4'd12);
-    assign dma_spm_we[13] = dma_spm_raw_en && (dma_spm_pe_id == 4'd13);
-    assign dma_spm_we[14] = dma_spm_raw_en && (dma_spm_pe_id == 4'd14);
-    assign dma_spm_we[15] = dma_spm_raw_en && (dma_spm_pe_id == 4'd15);
+    // Per-PE SPM write enable: addressed (prefix 0x4) or broadcast-all (prefix 0x5).
+    logic dma_spm_bcast_en;
+    assign dma_spm_bcast_en = dma_spm_raw_en && (dma_spm_raw_addr[31:28] == 4'h5);
+
+    assign dma_spm_we[ 0] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd0));
+    assign dma_spm_we[ 1] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd1));
+    assign dma_spm_we[ 2] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd2));
+    assign dma_spm_we[ 3] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd3));
+    assign dma_spm_we[ 4] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd4));
+    assign dma_spm_we[ 5] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd5));
+    assign dma_spm_we[ 6] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd6));
+    assign dma_spm_we[ 7] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd7));
+    assign dma_spm_we[ 8] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd8));
+    assign dma_spm_we[ 9] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd9));
+    assign dma_spm_we[10] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd10));
+    assign dma_spm_we[11] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd11));
+    assign dma_spm_we[12] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd12));
+    assign dma_spm_we[13] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd13));
+    assign dma_spm_we[14] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd14));
+    assign dma_spm_we[15] = dma_spm_bcast_en || (dma_spm_raw_en && (dma_spm_pe_id == 4'd15));
 
     // =========================================================================
     // 1. APB CSR Module

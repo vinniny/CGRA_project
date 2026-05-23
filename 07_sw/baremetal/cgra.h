@@ -62,6 +62,14 @@
 #define CGRA_SPM_PE_ADDR(pe, word) \
     (CGRA_PFX_SPM | (((uint32_t)(pe) & 0xFu) << 12) | (((uint32_t)(word) & 0x3FFu) << 2))
 
+/* SPM activation broadcast: prefix 0x5 writes same word to ALL 16 PEs' spm[word]
+ * simultaneously (cgra_dma_engine routes prefix 0x5 as DST_SPM;
+ * cgra_top.sv dma_spm_bcast_en asserts all 16 dma_spm_we bits).
+ * pe_id field is ignored; word address in bits[11:2]. */
+#define CGRA_PFX_SPM_BCAST   0x50000000UL
+#define CGRA_SPM_BCAST_ADDR(word) \
+    (CGRA_PFX_SPM_BCAST | (((uint32_t)(word) & 0x3FFu) << 2))
+
 /* ── Register offsets (mirrors cgra_driver.h) ─────────────────────────── */
 #define CGRA_DMA_CTRL        0x00
 #define CGRA_DMA_STATUS      0x04
@@ -137,8 +145,9 @@
 #define SRC_E       2u    /* East neighbor output */
 #define SRC_S       3u    /* South neighbor output */
 #define SRC_W       4u    /* West neighbor / tile port */
-#define SRC_SPM     5u    /* Scratchpad */
+#define SRC_SPM     5u    /* Scratchpad Port A (activation, auto-inc base=0) */
 #define SRC_IMM     6u    /* 16-bit immediate (sign-extended) */
+#define SRC_SPM2    7u    /* Scratchpad Port B (weight, auto-inc base=immediate) */
 
 /* ── Route mask bits [21:18] → East=bit20, which is bit2 of the field ─── */
 #define ROUTE_N     0x8u  /* bit 21 */

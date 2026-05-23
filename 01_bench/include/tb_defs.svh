@@ -314,8 +314,9 @@ localparam logic [3:0] SRC_NORTH    = 4'd1;   // North neighbor output
 localparam logic [3:0] SRC_EAST     = 4'd2;   // East neighbor output
 localparam logic [3:0] SRC_SOUTH    = 4'd3;   // South neighbor output
 localparam logic [3:0] SRC_WEST     = 4'd4;   // West neighbor (Tile Memory input)
-localparam logic [3:0] SRC_SPM      = 4'd5;   // Scratchpad Memory (256×32-bit)
+localparam logic [3:0] SRC_SPM      = 4'd5;   // Scratchpad Memory Port A (activation, base=0)
 localparam logic [3:0] SRC_IMM      = 4'd6;   // 16-bit immediate (sign-extended to 32)
+localparam logic [3:0] SRC_SPM2     = 4'd7;   // Scratchpad Memory Port B (weight, base=immediate) — v2
 
 // ============================================================================
 // 10. PE ROUTE DIRECTION MASK (config bits [21:18])
