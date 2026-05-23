@@ -25,24 +25,27 @@ typedef struct {
 #define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 180, .y = 100, .w = 280, .h = 280})
 
 /**
- * Downsample a region of the captured frame into a 28×28 INT16 tensor.
+ * Downsample a region of the captured frame into a 28×28 UINT8 tensor.
+ * The output format matches `sweep_input28[]` in mnist_sweep_fixture.h —
+ * a plain `uint8_t[784]` with 0 = MNIST-black background, 255 = white-ink
+ * digit — which `arm_cnn_vfp_run()` consumes directly.
  *
  * Pipeline:
  *   1. For each of 784 output pixels, compute the BGR average over the
  *      (w/28)×(h/28) source-pixel block.
  *   2. Convert to luma:  Y = (66*R + 129*G + 25*B + 128) >> 8.
- *   3. Invert:           Y = 255 - Y.   (Paint black-on-white → MNIST polarity)
- *   4. Centre on zero:   out = ((Y - 128) << 7).
- *      Matches the INT16 scaling that cnn_eval/emit_sweep_fixture.py applies
- *      to sweep_input28[]: signed [-32768..32767] range with ~128 as neutral.
+ *   3. Invert:           out = 255 - Y.
+ *      (Paint draws black ink on a white canvas; MNIST is white digit
+ *      on black background — invert in software so the existing CGRA
+ *      weights work without retraining.)
  *
  * @param fb      base address of the 640×480 BGR frame (from
  *                hdmi_in_current_frame()).
  * @param roi     region of interest within the frame.
- * @param out784  output buffer of 28*28 = 784 int16_t values.
+ * @param out784  output buffer of 28*28 = 784 uint8_t values.
  */
 void downsample_roi_to_mnist(const uint8_t *fb,
                               hdmi_roi_t      roi,
-                              int16_t         out784[28*28]);
+                              uint8_t         out784[28*28]);
 
 #endif /* FRAME_TO_MNIST_H */

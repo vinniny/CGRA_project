@@ -140,6 +140,11 @@ MNIST_PER_STAGE_TARGET := demo_mnist_per_stage.elf
 # ── demo_mnist_hdmi_bm: B6 HDMI demo (Option A: CGRA-FC head-to-head) ──
 # ARM-VFP runs Conv+Pool (accuracy-of-record). Three FC implementations
 # compete on the same act400: CGRA-FC, ARM-INT-FC (INT64 acc), ARM-VFP-FC.
+#
+# Build with LIVE_INPUT=1 to also wire in hdmi_in_bm + frame_to_mnist so
+# the demo accepts a live HDMI source on J10 (laptop Paint canvas →
+# downsampled 28×28 → CGRA). Requires the bitstream produced by
+# scripts/add_hdmi_in_pynqz2.tcl (else the new MMIO pokes fault).
 MNIST_HDMI_CORE_SRCS := start.s demo_mnist_hdmi_bm.c \
                         arm_fc_int_bm.c arm_fc_vfp_bm.c \
                         hdmi_bm.c fb_lib_bm.c \
@@ -147,6 +152,12 @@ MNIST_HDMI_CORE_SRCS := start.s demo_mnist_hdmi_bm.c \
                         demo_mnist_weights.S demo_mnist_conv_weights.S gic.c
 MNIST_HDMI_TARGET    := demo_mnist_hdmi_bm.elf
 MNIST_HDMI_INC       := -I../linux/demo_mnist_hdmi
+
+LIVE_INPUT ?= 0
+ifeq ($(LIVE_INPUT),1)
+MNIST_HDMI_CORE_SRCS += hdmi_in_bm.c frame_to_mnist.c
+MNIST_HDMI_INC       += -DLIVE_INPUT
+endif
 
 # ── arm_cnn_bm.c built as VFP variant — used by demo_mnist_hdmi_bm ──────
 ARM_CNN_VFP_OBJ   := arm_cnn_bm_vfp.o

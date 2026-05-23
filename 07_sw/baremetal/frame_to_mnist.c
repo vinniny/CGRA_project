@@ -8,7 +8,7 @@
 
 void downsample_roi_to_mnist(const uint8_t *fb,
                               hdmi_roi_t      roi,
-                              int16_t         out784[28*28])
+                              uint8_t         out784[28*28])
 {
     /* Block size (in source pixels) per output cell. */
     const uint32_t bw = roi.w / 28u;
@@ -46,17 +46,11 @@ void downsample_roi_to_mnist(const uint8_t *fb,
             /* BT.601 luma without offset: Y = (66R + 129G + 25B + 128) >> 8. */
             const uint32_t y_lin = (66u * avg_r + 129u * avg_g + 25u * avg_b + 128u) >> 8;
 
-            /* Invert: Paint black-ink on white-canvas → MNIST white-on-black. */
-            const int32_t y_inv = 255 - (int32_t)y_lin;
+            /* Invert: Paint black-ink on white-canvas → MNIST white-on-black.
+             * Result lies in [0..255] — same format as sweep_input28[]. */
+            const uint32_t y_inv = 255u - (y_lin > 255u ? 255u : y_lin);
 
-            /* Centre on zero and scale to INT16 — matches the preprocessing
-             * applied by 07_sw/cnn_eval/emit_sweep_fixture.py:
-             *   int16_t pixel = ((luma_inv - 128) << 7)
-             * Yields range roughly [-16384, 16384] which the CGRA INT16 SIMD
-             * MAC kernel can chew on directly. */
-            const int32_t centred = (y_inv - 128) << 7;
-
-            out784[oy * 28u + ox] = (int16_t)centred;
+            out784[oy * 28u + ox] = (uint8_t)y_inv;
         }
     }
 }

@@ -24,6 +24,10 @@
 #include "fb_lib_bm.h"
 #include "mnist_sweep_fixture.h"
 #include "../cnn_eval/mnist_weights_scale.h"
+#ifdef LIVE_INPUT
+#include "hdmi_in_bm.h"
+#include "frame_to_mnist.h"
+#endif
 
 #include <stdint.h>
 
@@ -301,6 +305,11 @@ int main(void)
     if (hdmi_init() < 0) { uart_puts("FAIL: hdmi_init\n"); for(;;); }
     uart_puts("HDMI ready, building FC chains...\n");
 
+#ifdef LIVE_INPUT
+    hdmi_in_init();
+    uart_puts("HDMI-in initialised, waiting for laptop signal on J10...\n");
+#endif
+
     uint32_t fc1_w_ddr = (uint32_t)(uintptr_t)cnn_spm_start;
     uint32_t fc2_w_ddr = fc1_w_ddr + CNN_FC1_N_OUTPUTS * CNN_FC1_SPM_BPN;
     if (cnn_fc1_build_chains(fc1_w_ddr) || cnn_fc2_build_chains(fc2_w_ddr)) {
@@ -321,8 +330,28 @@ int main(void)
 
         int32_t act400[400];
 
+#ifdef LIVE_INPUT
+        /* Live-input mode: grab the most recent HDMI frame from J10,
+         * downsample its ROI to 28×28, and feed the demo with it instead
+         * of the static sweep_input28[i]. label stays as sweep_labels[i]
+         * for the "fictional GT" display but accuracy counters are
+         * meaningless in live mode and are surfaced as raw prediction
+         * displays rather than running %. */
+        uint8_t live28[28*28];
+        if (hdmi_in_locked()) {
+            const uint8_t *fb = hdmi_in_current_frame();
+            downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
+            arm_cnn_vfp_run(live28, act400);
+            label = -1;                 /* no ground truth in live mode */
+        } else {
+            /* No HDMI signal yet — fall back to fixture so the demo
+             * still shows something on the output panel. */
+            arm_cnn_vfp_run(sweep_input28[i], act400);
+        }
+#else
         /* ARM-VFP Conv+Pool — accuracy-of-record path. */
         arm_cnn_vfp_run(sweep_input28[i], act400);
+#endif
 
         /* ── three FC implementations on the same act400 ── */
         uint32_t t0, t1;
@@ -344,11 +373,23 @@ int main(void)
         t1 = arm_ccnt_read();
         cyc_vfp = t1 - t0;
 
-        if (pred_cgra == label) correct_cgra++;
-        if (pred_int  == label) correct_int++;
-        if (pred_vfp  == label) correct_vfp++;
+        /* Accuracy counter only meaningful in fixture mode (label = -1
+         * in live mode means no ground truth). */
+        if (label >= 0) {
+            if (pred_cgra == label) correct_cgra++;
+            if (pred_int  == label) correct_int++;
+            if (pred_vfp  == label) correct_vfp++;
+        }
 
+#ifdef LIVE_INPUT
+        if (hdmi_in_locked()) {
+            fbm_draw_image28(IMG_X, IMG_Y, live28, IMG_SCALE);
+        } else {
+            fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
+        }
+#else
         fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
+#endif
         render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra);
         render_panel(PANEL_INT_X,  pred_int,  label, cyc_int);
         render_panel(PANEL_VFP_X,  pred_vfp,  label, cyc_vfp);
