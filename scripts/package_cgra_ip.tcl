@@ -74,7 +74,8 @@ set_property version 1.0 $core
 set_property core_revision 1 $core
 set_property name cgra_top $core
 set_property display_name "CGRA 4x4 Top" $core
-set_property description "4x4 CGRA accelerator with APB slave, AXI4 master DMA, IRQ" $core
+# Description must differ from name/display_name or Vivado raises [IP_Flow 19-11888].
+set_property description "4x4 reconfigurable accelerator (16 PEs, 21-op ISA, 40b MAC) — APB slave + AXI4 master DMA + GIC IRQ" $core
 set_property vendor_display_name "CGRA Project" $core
 set_property company_url "https://example.com/cgra" $core
 
@@ -144,6 +145,8 @@ if {[llength $axi_ifs] == 1} {
 
 # Set ASSOCIATED_BUSIF on clk so Vivado knows clk drives both s_apb and m_axi.
 # (When clk was auto-inferred, Vivado likely set ASSOCIATED_BUSIF=m_axi only.)
+# Also set FREQ_HZ so downstream Vivado tooling doesn't raise [IP_Flow 19-11770]
+# (default 100 MHz matches the FCLK0 in our PS7 config).
 set clk_if [_get_ifs $core clk]
 if {$clk_if ne ""} {
     set abp [ipx::get_bus_parameters ASSOCIATED_BUSIF -of_objects $clk_if]
@@ -153,6 +156,9 @@ if {$clk_if ne ""} {
     set arp [ipx::get_bus_parameters ASSOCIATED_RESET -of_objects $clk_if]
     if {$arp eq ""} { ipx::add_bus_parameter ASSOCIATED_RESET $clk_if }
     set_property value "rst_n" [ipx::get_bus_parameters ASSOCIATED_RESET -of_objects $clk_if]
+    set fp [ipx::get_bus_parameters FREQ_HZ -of_objects $clk_if]
+    if {$fp eq ""} { ipx::add_bus_parameter FREQ_HZ $clk_if }
+    set_property value "100000000" [ipx::get_bus_parameters FREQ_HZ -of_objects $clk_if]
 }
 
 # ---------- Save + finalize ----------

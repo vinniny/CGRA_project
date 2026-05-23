@@ -98,7 +98,9 @@ apply_bd_automation -rule xilinx.com:bd_rule:processing_system7 \
         Slave "Disable" } \
     [get_bd_cells processing_system7_0]
 
-# Override clocks/AXI to Haoyue values
+# Override clocks/AXI to Haoyue values.
+# (PCW_M_AXI_GP0_FREQMHZ is read-only — it tracks PCW_FPGA0_PERIPHERAL_FREQMHZ
+# via the GP0 clock tie. Setting it explicitly triggered [BD 41-737].)
 set_property -dict [list \
     CONFIG.PCW_USE_M_AXI_GP0       {1} \
     CONFIG.PCW_USE_S_AXI_HP0       {1} \
@@ -111,7 +113,6 @@ set_property -dict [list \
     CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ {150} \
     CONFIG.PCW_FCLK_CLK0_BUF       {TRUE} \
     CONFIG.PCW_FCLK_CLK1_BUF       {TRUE} \
-    CONFIG.PCW_M_AXI_GP0_FREQMHZ   {100} \
     CONFIG.PCW_USE_FABRIC_INTERRUPT {1} \
     CONFIG.PCW_IRQ_F2P_INTR        {1} \
 ] [get_bd_cells processing_system7_0]
@@ -128,12 +129,14 @@ connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N]  [get_bd_pins rs
 
 # ----- 3. AXI Lite control fabric ---------------------------------------
 puts "\n=== 3. Adding ps7_0_axi_periph (control fabric) ==="
-# Use smartconnect for the control plane too -- modern, no AxPROT cache bug.
-# 5 masters: dynclk, vdma_0, vdma_1, cgra, vtc
+# Use smartconnect for the control plane -- modern, no AxPROT cache bug.
+# 4 masters in the base BD: M00=dynclk, M01=vdma_0, M02=apb_bridge(CGRA),
+# M03=v_tc_0. add_hdmi_in_pynqz2.tcl extends NUM_MI to 6 (M04=vdma_1,
+# M05=v_tc_1). Contiguous to avoid [BD 41-2670] incomplete-address warnings.
 create_bd_cell -type ip -vlnv $IP_SC ps7_0_axi_periph
 set_property -dict [list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {5} \
+    CONFIG.NUM_MI {4} \
     CONFIG.NUM_CLKS {1} \
 ] [get_bd_cells ps7_0_axi_periph]
 connect_bd_intf_net [get_bd_intf_pins processing_system7_0/M_AXI_GP0] [get_bd_intf_pins ps7_0_axi_periph/S00_AXI]
@@ -173,8 +176,8 @@ set_property -dict [list \
     CONFIG.C_APB_NUM_SLAVES {1} \
 ] [get_bd_cells axi_apb_bridge_0]
 
-# AXI-Lite from periph fabric (M03) -> bridge -> CGRA APB
-connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M03_AXI] [get_bd_intf_pins axi_apb_bridge_0/AXI4_LITE]
+# AXI-Lite from periph fabric (M02) -> bridge -> CGRA APB
+connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M02_AXI] [get_bd_intf_pins axi_apb_bridge_0/AXI4_LITE]
 connect_bd_intf_net [get_bd_intf_pins axi_apb_bridge_0/APB_M]   [get_bd_intf_pins cgra_top_0/s_apb]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_apb_bridge_0/s_axi_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_apb_bridge_0/s_axi_aresetn]
@@ -201,13 +204,17 @@ connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_
 # 6b. v_tc_0 (timing generator only)
 create_bd_cell -type ip -vlnv $IP_VTC v_tc_0
 set_property CONFIG.enable_detection {false} [get_bd_cells v_tc_0]
-connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M04_AXI] [get_bd_intf_pins v_tc_0/ctrl]
+connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M03_AXI] [get_bd_intf_pins v_tc_0/ctrl]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins v_tc_0/s_axi_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins v_tc_0/s_axi_aresetn]
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins v_tc_0/clk]
 
 # 6c. axi_vdma_0 (24-bit RGB MM2S)
 create_bd_cell -type ip -vlnv $IP_VDMA axi_vdma_0
+# c_m_axis_mm2s_tdata_width=24 is required to match v_axi4s_vid_out_0/video_in
+# (24-bit RGB stream). NOT read-only on MM2S side — only the s2mm variant on
+# vdma_1 raises [BD 41-737] because its tdata_width is propagated from
+# c_s_axi_s2mm_data_width on this IP version.
 set_property -dict [list \
     CONFIG.c_include_s2mm {0} \
     CONFIG.c_m_axis_mm2s_tdata_width {24} \
@@ -309,24 +316,29 @@ connect_bd_net [get_bd_pins xlconcat_led/dout]       [get_bd_ports led]
 
 # ----- 9. Address map (Haoyue layout) -----------------------------------
 puts "\n=== 9. Assigning addresses ==="
-assign_bd_address [get_bd_addr_segs {axi_vdma_0/S_AXI_LITE/Reg }]
+assign_bd_address [get_bd_addr_segs {axi_vdma_0/S_AXI_LITE/Reg}]
 set_property offset 0x43000000 [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_vdma_0_Reg}]
 set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_vdma_0_Reg}]
 
-assign_bd_address [get_bd_addr_segs {axi_dynclk_0/s00_axi/reg0 }]
+assign_bd_address [get_bd_addr_segs {axi_dynclk_0/s00_axi/reg0}]
 set_property offset 0x43C00000 [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_dynclk_0_reg0}]
 
-assign_bd_address [get_bd_addr_segs {cgra_top_0/s_apb/Reg }]
+assign_bd_address [get_bd_addr_segs {cgra_top_0/s_apb/Reg}]
 set_property offset 0x43C10000 [get_bd_addr_segs {processing_system7_0/Data/SEG_cgra_top_0_Reg}]
 set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_cgra_top_0_Reg}]
 
-# CGRA DMA address space (m_axi -> HP1)
-assign_bd_address [get_bd_addr_segs {cgra_top_0/m_axi/SEG_processing_system7_0_HP1_DDR_LOWOCM }]
+# CGRA DMA address space (m_axi -> HP1).
+# Use -target_address_space form: the SEG_X master-side names only exist
+# AFTER assignment, so passing them by literal name to get_bd_addr_segs
+# raises [BD 5-699]. The target_address_space form is unambiguous.
+assign_bd_address -target_address_space /cgra_top_0/m_axi \
+    [get_bd_addr_segs processing_system7_0/S_AXI_HP1/HP1_DDR_LOWOCM]
 
-assign_bd_address [get_bd_addr_segs {v_tc_0/ctrl/Reg }]
-set_property offset 0x43C20000 [get_bd_addr_segs {processing_system7_0/Data/SEG_v_tc_0_Reg}]
+assign_bd_address [get_bd_addr_segs v_tc_0/ctrl/Reg]
+set_property offset 0x43C20000 [get_bd_addr_segs processing_system7_0/Data/SEG_v_tc_0_Reg]
 
-assign_bd_address [get_bd_addr_segs {axi_vdma_0/Data_MM2S/SEG_processing_system7_0_HP0_DDR_LOWOCM }]
+assign_bd_address -target_address_space /axi_vdma_0/Data_MM2S \
+    [get_bd_addr_segs processing_system7_0/S_AXI_HP0/HP0_DDR_LOWOCM]
 
 # ----- 10. Validate + save ---------------------------------------------
 puts "\n=== 10. Validate + save ==="

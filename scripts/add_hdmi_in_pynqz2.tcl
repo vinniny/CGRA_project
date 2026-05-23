@@ -85,9 +85,9 @@ create_bd_cell -type ip -vlnv $IP_RST rst_ps7_0_200M
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins rst_ps7_0_200M/slowest_sync_clk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_200M/ext_reset_in]
 
-# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 5 → 7 ----------
-puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 5 → 7 ==="
-set_property CONFIG.NUM_MI {7} [get_bd_cells ps7_0_axi_periph]
+# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 4 → 6 ----------
+puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 4 → 6 ==="
+set_property CONFIG.NUM_MI {6} [get_bd_cells ps7_0_axi_periph]
 
 # ----- 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 also serves vdma_1) ----
 puts "\n=== 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 carries CGRA + vdma_1) ==="
@@ -126,7 +126,7 @@ set_property -dict [list \
     CONFIG.enable_generation {false} \
     CONFIG.enable_detection  {true} \
 ] [get_bd_cells v_tc_1]
-connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M06_AXI] [get_bd_intf_pins v_tc_1/ctrl]
+connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M05_AXI] [get_bd_intf_pins v_tc_1/ctrl]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_tc_1/s_axi_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_tc_1/s_axi_aresetn]
 # Detector clock = recovered PixelClk from dvi2rgb
@@ -178,13 +178,13 @@ puts "\n=== 7. axis_subset_converter_in (AXIS 24b → 32b zero-pad) ==="
 create_bd_cell -type ip -vlnv $IP_SUBCV axis_subset_converter_in
 # 3-byte (24-bit) in, 4-byte (32-bit) out, with the high byte forced to 0.
 # Remap string syntax: <tdata-out-msb..lsb> = <expr in source bits>
+# axis_subset_converter_v1_1 doesn't expose HAS_TKEEP/TLAST/TUSER (those are
+# driven by S_HAS_*/M_HAS_* derived from the remap). Setting them triggered
+# [BD 41-1276] parameter-does-not-exist. Set only the widths and remap.
 set_property -dict [list \
     CONFIG.S_TDATA_NUM_BYTES   {3} \
     CONFIG.M_TDATA_NUM_BYTES   {4} \
     CONFIG.TDATA_REMAP         {8'b00000000,tdata[23:0]} \
-    CONFIG.HAS_TKEEP           {0} \
-    CONFIG.HAS_TLAST           {1} \
-    CONFIG.HAS_TUSER           {1} \
     CONFIG.S_HAS_TSTRB         {0} \
     CONFIG.M_HAS_TSTRB         {0} \
 ] [get_bd_cells axis_subset_converter_in]
@@ -195,6 +195,9 @@ connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_p
 # ----- 8. axi_vdma_1 (S2MM only, 3-frame ring) ---------------------------
 puts "\n=== 8. axi_vdma_1 (S2MM-only, 3-frame ring on HP1) ==="
 create_bd_cell -type ip -vlnv $IP_VDMA axi_vdma_1
+# c_s_axis_s2mm_tdata_width is derived from c_s_axi_s2mm_data_width — setting
+# it explicitly raised [BD 41-737] read-only. Default 32-bit matches the
+# subset_converter output, so we let it default.
 set_property -dict [list \
     CONFIG.c_include_mm2s          {0} \
     CONFIG.c_include_s2mm          {1} \
@@ -202,10 +205,9 @@ set_property -dict [list \
     CONFIG.c_s2mm_max_burst_length {64} \
     CONFIG.c_num_fstores           {3} \
     CONFIG.c_include_internal_genlock {0} \
-    CONFIG.c_s_axis_s2mm_tdata_width {32} \
 ] [get_bd_cells axi_vdma_1]
 
-connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M05_AXI] [get_bd_intf_pins axi_vdma_1/S_AXI_LITE]
+connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M04_AXI] [get_bd_intf_pins axi_vdma_1/S_AXI_LITE]
 # S2MM AXIS from subset_converter (24→32 padded)
 connect_bd_intf_net [get_bd_intf_pins axis_subset_converter_in/M_AXIS] [get_bd_intf_pins axi_vdma_1/S_AXIS_S2MM]
 # S2MM MM goes to HP1 via smartconnect_1 S01_AXI (S00 already used by CGRA)
@@ -252,9 +254,13 @@ create_bd_port -dir IO hdmi_rx_sda
 # tristate buffer here. For first bring-up we omit DDC (dvi2rgb's kEmulateDDC=false
 # disables internal DDC slave; the laptop sees no EDID and falls back to its
 # cached profile, which is fine for the demo).
-# Tie unused dvi2rgb DDC pins to safe defaults:
+# Tie unused dvi2rgb DDC pins to safe defaults if they exist. With
+# kEmulateDDC=false (our config), these pins are NOT exposed — the IP's
+# internal DDC slave is disabled. Use -quiet so the absent-pin lookup
+# doesn't itself raise [BD 5-235]. The if guard then skips the tie-off.
 foreach pin {DDC_SDA_I DDC_SCL_I} {
-    if {[llength [get_bd_pins dvi2rgb_0/$pin]] > 0} {
+    set hits [get_bd_pins -quiet dvi2rgb_0/$pin]
+    if {[llength $hits] > 0} {
         create_bd_cell -type ip -vlnv $IP_CONST [format "xlconst_%s" [string tolower $pin]]
         set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] \
             [get_bd_cells [format "xlconst_%s" [string tolower $pin]]]
@@ -265,17 +271,21 @@ foreach pin {DDC_SDA_I DDC_SCL_I} {
 
 # ----- 11. Address map (input chain new entries) ------------------------
 puts "\n=== 11. Address map: input VDMA, v_tc_1, pixel_pack_in, DDR map for S2MM ==="
-assign_bd_address [get_bd_addr_segs {axi_vdma_1/S_AXI_LITE/Reg }]
+assign_bd_address [get_bd_addr_segs {axi_vdma_1/S_AXI_LITE/Reg}]
 set_property offset 0x43020000 [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_vdma_1_Reg}]
 set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_vdma_1_Reg}]
 
-assign_bd_address [get_bd_addr_segs {v_tc_1/ctrl/Reg }]
+assign_bd_address [get_bd_addr_segs {v_tc_1/ctrl/Reg}]
 set_property offset 0x43C90000 [get_bd_addr_segs {processing_system7_0/Data/SEG_v_tc_1_Reg}]
 
 # subset_converter is config-time only — no AXI-Lite address needed.
 
-# vdma_1 S2MM access into DDR via HP1
-assign_bd_address [get_bd_addr_segs {axi_vdma_1/Data_S2MM/SEG_processing_system7_0_HP1_DDR_LOWOCM }]
+# vdma_1 S2MM access into DDR via HP1.
+# Use -target_address_space form: the master-side SEG_X name only exists
+# AFTER assignment, so passing it as a literal to get_bd_addr_segs trips
+# [BD 5-699].
+assign_bd_address -target_address_space /axi_vdma_1/Data_S2MM \
+    [get_bd_addr_segs processing_system7_0/S_AXI_HP1/HP1_DDR_LOWOCM]
 
 # ----- 12. Validate + save ----------------------------------------------
 puts "\n=== 12. validate_bd_design + save ==="
