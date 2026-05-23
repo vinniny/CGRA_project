@@ -124,6 +124,12 @@ module cgra_dma_subsystem #(
     logic        engine_busy;
     logic        engine_done;
 
+    // Per-source error capture (engine vs chain). Subsystem OR-combines.
+    logic        eng_error_valid;
+    logic [1:0]  eng_error_code;
+    logic        chain_error_w;
+    logic [1:0]  chain_error_code_w;
+
     // Muxed command to engine (chain owns while chain_active)
     logic [31:0] eng_cfg_src, eng_cfg_dst, eng_cfg_size;
     logic        eng_cfg_start;
@@ -198,8 +204,8 @@ module cgra_dma_subsystem #(
         .m_axi_rresp(m_axi_rresp),
         .m_axi_rready(eng_rready),
 
-        .error_code(error_code),
-        .error_valid(error_valid),
+        .error_code(eng_error_code),
+        .error_valid(eng_error_valid),
 
         .tile_addr_o(tile_addr_o),
         .tile_bank_sel_o(tile_bank_sel_o),
@@ -226,6 +232,13 @@ module cgra_dma_subsystem #(
     );
 
     assign status_done = engine_done;
+
+    // Subsystem-level error aggregation: engine OR chain. Engine's bresp/rresp
+    // errors take priority for the captured code (more common case); if only
+    // the chain raises, surface its rresp code. This is a pulse-level OR —
+    // the latching/sticky behavior lives in cgra_apb_csr via the IRQ path.
+    assign error_valid = eng_error_valid | chain_error_w;
+    assign error_code  = eng_error_valid ? eng_error_code : chain_error_code_w;
 
     cgra_dma_chain_ctrl #(
         .ADDR_WIDTH(ADDR_WIDTH),
@@ -259,7 +272,9 @@ module cgra_dma_subsystem #(
         .m_axi_rlast(m_axi_rlast),
         .m_axi_rready(chain_rready),
 
-        .fetch_active_o(chain_fetch_active)
+        .fetch_active_o(chain_fetch_active),
+        .chain_error_o(chain_error_w),
+        .chain_error_code_o(chain_error_code_w)
     );
 
 endmodule

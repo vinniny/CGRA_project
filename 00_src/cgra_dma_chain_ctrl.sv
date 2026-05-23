@@ -40,7 +40,13 @@ module cgra_dma_chain_ctrl #(
     output logic                    m_axi_rready,
 
     // Mux control
-    output logic                    fetch_active_o
+    output logic                    fetch_active_o,
+
+    // Sticky error flag + captured response code: latches if any descriptor-
+    // fetch read returns SLVERR (2'b10) or DECERR (2'b11). Cleared on
+    // chain_start_i. Propagates to DMA_ERROR CSR via cgra_dma_subsystem.
+    output logic                    chain_error_o,
+    output logic [1:0]              chain_error_code_o
 );
 
     typedef enum logic [2:0] {
@@ -170,10 +176,31 @@ module cgra_dma_chain_ctrl #(
         end
     end
 
-    // TODO: check m_axi_rresp for SLVERR/DECERR on descriptor fetches and
-    // surface as a chain_error_o. For now the SG-DMA path is experimental
-    // (no demo uses it). Sink the response to silence Vivado [Synth 8-7129].
-    logic _unused_rresp;
-    assign _unused_rresp = ^m_axi_rresp;
+    // Latch SLVERR/DECERR responses on descriptor fetches. Cleared at the
+    // start of a new chain and on reset.
+    //
+    // Note: this does NOT halt the FSM — once a faulty descriptor read
+    // completes, the chain continues with whatever data m_axi_rdata held
+    // at that beat. Halting would require a dedicated error state and
+    // a reset-recovery path; for the experimental SG-DMA path the visible
+    // error flag is sufficient for SW to detect and reset.
+    logic       chain_error_q;
+    logic [1:0] chain_error_code_q;
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            chain_error_q      <= 1'b0;
+            chain_error_code_q <= 2'b00;
+        end else if (chain_start_i) begin
+            chain_error_q      <= 1'b0;
+            chain_error_code_q <= 2'b00;
+        end else if (m_axi_rvalid && m_axi_rready && (m_axi_rresp != 2'b00)
+                     && !chain_error_q) begin
+            // Latch first error only — sticky until next chain_start_i.
+            chain_error_q      <= 1'b1;
+            chain_error_code_q <= m_axi_rresp;
+        end
+    end
+    assign chain_error_o      = chain_error_q;
+    assign chain_error_code_o = chain_error_code_q;
 
 endmodule

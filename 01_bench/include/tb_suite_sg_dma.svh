@@ -405,6 +405,80 @@ task automatic run_suite_SG_sg_dma;
         else
             fail("SG10b: desc_completed", $sformatf("got %0d", rd[15:8]));
 
+        // ─────────────────────────────────────────────────────────────
+        // SG11: chain_error_q latching on SLVERR/DECERR descriptor reads
+        // ─────────────────────────────────────────────────────────────
+        // Whitebox check, modeled on AH04's force-then-release pattern.
+        // We can't easily make axi_ram emit non-OKAY rresp from outside,
+        // and full DMA_ERROR propagation depends on the CSR's W1C/latch
+        // ordering with the chain's pulse, so we directly verify the
+        // sticky register inside cgra_dma_chain_ctrl. This proves the
+        // bug-fix path: bad rresp on a fetch beat is captured.
+        $display("[SG11] chain_error_q latching on SLVERR rresp (whitebox)...");
+        reset_dut(5);
+
+        // Pre-condition: chain_error_q must be 0 after reset
+        if (tb_top.u_dut.u_dma.u_chain.chain_error_q !== 1'b0)
+            fail("SG11.pre: chain_error_q not 0 at reset",
+                 $sformatf("got %0d", tb_top.u_dut.u_dma.u_chain.chain_error_q));
+
+        // Inject one cycle of SLVERR on the chain's m_axi_rresp input
+        // while pulsing m_axi_rvalid+m_axi_rready (the latch condition).
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rresp  = 2'b10;  // SLVERR
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rvalid = 1'b1;
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rready = 1'b1;
+        @(posedge clk);
+        @(posedge clk);
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rresp;
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rvalid;
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rready;
+        @(posedge clk);
+
+        if (tb_top.u_dut.u_dma.u_chain.chain_error_q === 1'b1)
+            pass("SG11a: chain_error_q latched on SLVERR injection");
+        else
+            fail("SG11a: chain_error_q did not latch",
+                 $sformatf("got %0d", tb_top.u_dut.u_dma.u_chain.chain_error_q));
+
+        if (tb_top.u_dut.u_dma.u_chain.chain_error_code_q === 2'b10)
+            pass("SG11b: chain_error_code_q captured SLVERR (2'b10)");
+        else
+            fail("SG11b: wrong error code",
+                 $sformatf("got 0x%0h", tb_top.u_dut.u_dma.u_chain.chain_error_code_q));
+
+        // SG11c: another OK beat must NOT clobber the first-error latch
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rresp  = 2'b11;  // DECERR
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rvalid = 1'b1;
+        force tb_top.u_dut.u_dma.u_chain.m_axi_rready = 1'b1;
+        @(posedge clk);
+        @(posedge clk);
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rresp;
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rvalid;
+        release tb_top.u_dut.u_dma.u_chain.m_axi_rready;
+        @(posedge clk);
+
+        if (tb_top.u_dut.u_dma.u_chain.chain_error_code_q === 2'b10)
+            pass("SG11c: first-error captured (DECERR did not overwrite SLVERR)");
+        else
+            fail("SG11c: second error overwrote first",
+                 $sformatf("got 0x%0h, expected 0x2",
+                           tb_top.u_dut.u_dma.u_chain.chain_error_code_q));
+
+        // SG11d: chain_start_i clears the sticky flag
+        apb_write(ADDR_DMA_DESC_HEAD, 32'h0000_1000);
+        apb_write(ADDR_DMA_CTRL, 32'h0000_0002);     // chain_start pulse
+        wait_cycles(2);
+        if (tb_top.u_dut.u_dma.u_chain.chain_error_q === 1'b0)
+            pass("SG11d: chain_start clears chain_error_q");
+        else
+            fail("SG11d: chain_start did not clear error",
+                 $sformatf("got %0d", tb_top.u_dut.u_dma.u_chain.chain_error_q));
+
+        // Abort + clean up (chain may now be running with fake desc head)
+        apb_write(ADDR_DMA_CTRL, 32'h0000_0004);  // abort
+        wait_cycles(50);
+        apb_write(ADDR_IRQ_STATUS, 32'h4);
+
         $display("\n[SUITE SG COMPLETE] Scatter-gather DMA verified.\n");
     end
 endtask

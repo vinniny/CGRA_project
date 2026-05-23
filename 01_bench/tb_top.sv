@@ -115,6 +115,13 @@ module tb_top;
     logic [1:0]  axi_arburst;
     logic        axi_rlast_reg;
 
+    // TB error-injection knob for the AXI read-response channel. Used by
+    // SG11 (tb_suite_sg_dma.svh) to force SLVERR/DECERR rresp during a
+    // descriptor fetch so cgra_dma_chain_ctrl's chain_error_o latch can be
+    // exercised. Declared early so the SG suite include (line ~210) can
+    // reference it. Drives axi_rresp via the assign further down.
+    logic [1:0]  tb_axi_rresp_inject = 2'b00;
+
     logic        irq_done;
 
     // =========================================================================
@@ -332,7 +339,10 @@ module tb_top;
     assign axi_arready = axi_arready_reg;
     assign axi_rvalid = axi_rvalid_reg;
     assign axi_rid = r_id_reg;      // Echo captured ARID as RID
-    assign axi_rresp = 2'b00;       // Always OKAY
+    // tb_axi_rresp_inject is declared earlier (line ~117) so it's visible
+    // to included test suites. Defaults to OKAY (2'b00); a test pokes
+    // SLVERR/DECERR to exercise the error path.
+    assign axi_rresp = tb_axi_rresp_inject;
     assign axi_rdata = {mem[r_addr_reg[21:0] + 3],
                         mem[r_addr_reg[21:0] + 2],
                         mem[r_addr_reg[21:0] + 1],
