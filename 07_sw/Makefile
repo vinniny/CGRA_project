@@ -6,6 +6,7 @@
 #    make lpr_golden_test – Build golden model test (no HW needed)
 #    make dump_cgra_hex   – Build CGRA hex dump utility (no HW)
 #    make test_tiler      – Build standalone tiler unit test
+#    make test_frame_to_mnist – Build HDMI-in downsample host test
 #    make clean           – Remove build artifacts
 #
 #  For the live LPR demo, see 07_sw/linux/Makefile (lpr_live_demo_v2,
@@ -34,9 +35,9 @@ GOLDEN_SRC  = $(LIB_DIR)/lpr_golden.c
 GOLDEN_OBJ  = $(BUILD_DIR)/lpr_golden.o
 
 # ── Targets ───────────────────────────────────────────────────────
-.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex
+.PHONY: all clean test_tiler lpr_golden_test test dump_cgra_hex dump_hex test_frame_to_mnist
 
-all: $(BUILD_DIR) lpr_golden_test dump_cgra_hex test_tiler
+all: $(BUILD_DIR) lpr_golden_test dump_cgra_hex test_tiler test_frame_to_mnist
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -80,6 +81,18 @@ test_tiler: $(BUILD_DIR) $(BUILD_DIR)/cgra_tiler.o $(BUILD_DIR)/test_tiler.o
 
 $(BUILD_DIR)/test_tiler.o: $(APP_DIR)/test_tiler.c $(LIB_DIR)/cgra_tiler.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(LIB_DIR) -c $< -o $@
+
+# Frame→MNIST downsampler host test (no HW). Compiles frame_to_mnist.c
+# from baremetal/ directly into a host ELF for offline validation.
+test_frame_to_mnist: $(BUILD_DIR) $(BUILD_DIR)/test_frame_to_mnist.o $(BUILD_DIR)/frame_to_mnist.o
+	$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ $(BUILD_DIR)/test_frame_to_mnist.o $(BUILD_DIR)/frame_to_mnist.o $(LDFLAGS)
+	@echo "[BUILD] $(BUILD_DIR)/test_frame_to_mnist ready"
+
+$(BUILD_DIR)/frame_to_mnist.o: baremetal/frame_to_mnist.c baremetal/frame_to_mnist.h baremetal/hdmi_in_bm.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Ibaremetal -c $< -o $@
+
+$(BUILD_DIR)/test_frame_to_mnist.o: $(APP_DIR)/test_frame_to_mnist.c baremetal/frame_to_mnist.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Ibaremetal -c $< -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -33,7 +33,8 @@ typedef struct {
  * Pipeline:
  *   1. For each of 784 output pixels, compute the BGR average over the
  *      (w/28)×(h/28) source-pixel block.
- *   2. Convert to luma:  Y = (66*R + 129*G + 25*B + 128) >> 8.
+ *   2. Convert to luma:  Y = (77*R + 150*G + 29*B + 128) >> 8.
+ *                         (full-range BT.601, coeffs sum to 256 so white→255)
  *   3. Invert:           out = 255 - Y.
  *      (Paint draws black ink on a white canvas; MNIST is white digit
  *      on black background — invert in software so the existing CGRA
