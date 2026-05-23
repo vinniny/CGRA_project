@@ -122,7 +122,7 @@ CNN_SWEEP_SRCS    := start.s demo_mnist_sweep.c demo_mnist_weights.S gic.c
 CNN_SWEEP_TARGET  := demo_mnist_sweep.elf
 
 # ── demo_mnist_cgra_v2: 16-PE FC v2 vs 4-PE v1 timing + accuracy ────────
-CNN_V2_SRCS       := start.s demo_mnist_cgra_v2.c demo_mnist_weights.S gic.c
+CNN_V2_SRCS       := start.s demo_mnist_cgra_v2.c demo_mnist_weights.S gic.c bm_string.c
 CNN_V2_TARGET     := demo_mnist_cgra_v2.elf
 
 # ── demo_hdmi_text: B3 bare-metal HDMI text + image rendering smoke ─────
