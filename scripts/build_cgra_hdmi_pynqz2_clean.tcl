@@ -16,7 +16,9 @@
 #   * PCW_FCLK_CLK0_FREQ = 50 MHz, BUF = TRUE
 #     (CGRA's silicon-validated target — 100 MHz violates 25 logic-level
 #     DMA path read_words_remaining→m_axi_araddr by -5.155 ns)
-#   * PCW_FCLK_CLK1_FREQ = 150 MHz, BUF = TRUE  (separate from FCLK0!)
+#   * PCW_FCLK_CLK1_FREQ = 100 MHz, BUF = TRUE  (axi_dynclk REF_CLK_I expects
+#     100 MHz; 150 MHz drove MMCM VCO to 1500 MHz, above the -1 speed grade
+#     1200 MHz limit → [DRC AVAL-46] critical violation)
 #   * PCW_M_AXI_GP0_FREQMHZ tracks FCLK0 automatically
 #   * smartconnect (modern) instead of axi_interconnect 2.1 for HP paths
 #   * separate proc_sys_reset for 100M and 150M clock domains
@@ -112,7 +114,7 @@ set_property -dict [list \
     CONFIG.PCW_EN_CLK2_PORT        {0} \
     CONFIG.PCW_EN_CLK3_PORT        {0} \
     CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {50}  \
-    CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ {150} \
+    CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ {100} \
     CONFIG.PCW_FCLK_CLK0_BUF       {TRUE} \
     CONFIG.PCW_FCLK_CLK1_BUF       {TRUE} \
     CONFIG.PCW_USE_FABRIC_INTERRUPT {1} \
