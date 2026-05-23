@@ -26,22 +26,46 @@ competitive accuracy.
 
 ## Measured Results
 
-All numbers verified on silicon (PYNQ-Z2, XC7Z020) and via `make sim`
-on Cadence Xcelium 20.09 on 2026-05-18.
+Silicon numbers verified on PYNQ-Z2 (XC7Z020) on 2026-05-18. RTL +
+post-route synthesis numbers re-validated on Linux Vivado 2025.1 on
+2026-05-24 (commit `367ff64`; see `06_doc/quirks_as_design_choices.md`
+for the timing-closure story).
 
 | Metric | Value |
 |---|---|
 | FC-stage speedup (CGRA vs ARM-INT) | 3.81× (5.52 ms → 1.45 ms) |
 | Per-image throughput | 665 FPS (CGRA-FC) vs 180 FPS (ARM-INT) vs 235 FPS (ARM-VFP) |
 | Top-1 accuracy on 2,745-frame live test | 97.0% (CGRA-FC) · 96.9% (ARM-INT) · 100% (ARM-VFP reference) |
-| Achieved Fmax | 50.66 MHz (target 50 MHz, WNS +0.263 ns) |
-| LUT utilization | 83.5% of XC7Z020 |
-| BRAM utilization | 31.4% |
-| DSP utilization | 75.0% |
-| Total power | 2.46 W (2.29 W dynamic + 0.17 W static) |
-| Simulation tests | 9,148 PASS / 0 FAIL / 0 violations |
+| Achieved Fmax (impl 2026-05-24) | 50 MHz target, WNS +0.231 ns, WHS +0.018 ns |
+| LUT utilization (post-route) | **83.02%** of XC7Z020 (44,166 / 53,200) |
+| Register utilization | 31.95% (34,000 / 106,400) |
+| BRAM utilization | 44.29% (62 / 140) |
+| DSP utilization | 66.82% (147 / 220) |
+| Total on-chip power (post-route, vector-less) | **2.456 W** (2.285 W dynamic + 0.171 W static) |
+| └ PS7 ARM core | 1.529 W (62%) — dominates |
+| └ CGRA fabric (logic + DSP + BRAM + signals) | ~0.42 W |
+| Junction temperature (estimated) | 53.3 °C |
+| Simulation tests (Xcelium) | **9,156 PASS / 0 FAIL / 0 violations** |
 | Bare-metal regression | 96 checks PASS across 25 groups |
 | ISA opcodes | 21 implemented |
+
+### Recent milestones (2026-05-23 → 2026-05-24)
+
+- **v2 RTL merge** (commit `0b707ae`) — dual-port SPM in `cgra_pe`, broadcast
+  DMA prefix (0x5), 16-PE FC enablement. Sim went from 9,148 → 9,152 (+4
+  unit tests in Suite V2U).
+- **HDMI input chain on PYNQ-Z2 J10** — `scripts/add_hdmi_in_pynqz2.tcl`
+  grafts dvi2rgb → v\_vid\_in\_axi4s → axis\_subset\_converter → axi\_vdma\_1
+  onto the existing HDMI-out block design. Address-map and IRQ-routing
+  audit pass in `scripts/audit_bd_report.tcl`.
+- **Linux Vivado impl** — full closure on WSL2 host (`bitstreams/…` workflow);
+  three real RTL/Tcl bugs caught pre-silicon: 100 MHz timing violation,
+  MMCM VCO out-of-range, descriptor-fetch error swallow. All fixed.
+- **SG-DMA descriptor-read errors** now sticky-latch via `chain_error_o`
+  with a 4-subcheck whitebox regression in `tb_suite_sg_dma.svh::SG11`
+  (commit `11b3989`).
+- **Defense prep** — `06_doc/quirks_as_design_choices.md` recasts every
+  documented hardware quirk as a defensible design choice for Chapter 4.
 
 ## Architecture & References
 
