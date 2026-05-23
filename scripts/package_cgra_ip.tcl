@@ -158,7 +158,10 @@ if {$clk_if ne ""} {
     set_property value "rst_n" [ipx::get_bus_parameters ASSOCIATED_RESET -of_objects $clk_if]
     set fp [ipx::get_bus_parameters FREQ_HZ -of_objects $clk_if]
     if {$fp eq ""} { ipx::add_bus_parameter FREQ_HZ $clk_if }
-    set_property value "100000000" [ipx::get_bus_parameters FREQ_HZ -of_objects $clk_if]
+    # 50 MHz default matches CGRA's silicon-validated target. BD instances can
+    # override this when connected to a different clock — but our reference
+    # base script (build_cgra_hdmi_pynqz2_clean.tcl) wires FCLK0 @ 50 MHz here.
+    set_property value "50000000" [ipx::get_bus_parameters FREQ_HZ -of_objects $clk_if]
 }
 
 # ---------- Save + finalize ----------
