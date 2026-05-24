@@ -116,15 +116,17 @@ proc _pick_pin {patterns} {
     return ""
 }
 set fclk_vid  [get_bd_pins ps7_0/FCLK_CLK1]
-set rstn_vid  [_pick_pin {rst_ps7_0_fclk1/peripheral_aresetn \
-                          rst_ps7_0_142M/peripheral_aresetn \
-                          *rst*fclk1*/peripheral_aresetn \
-                          *rst*142M*/peripheral_aresetn}]
+set rstn_vid  [_pick_pin [list \
+    /rst_ps7_0_fclk1/peripheral_aresetn \
+    /rst_ps7_0_142M/peripheral_aresetn  \
+    */rst*fclk1*/peripheral_aresetn      \
+    */rst*142M*/peripheral_aresetn ]]
 set fclk_ctrl [get_bd_pins ps7_0/FCLK_CLK0]
-set rstn_ctrl [_pick_pin {rst_ps7_0_fclk0/peripheral_aresetn \
-                          rst_ps7_0_100M/peripheral_aresetn \
-                          *rst*fclk0*/peripheral_aresetn \
-                          *rst*100M*/peripheral_aresetn}]
+set rstn_ctrl [_pick_pin [list \
+    /rst_ps7_0_fclk0/peripheral_aresetn \
+    /rst_ps7_0_100M/peripheral_aresetn  \
+    */rst*fclk0*/peripheral_aresetn      \
+    */rst*100M*/peripheral_aresetn ]]
 if {$rstn_vid eq "" || $rstn_ctrl eq ""} {
     error "Could not find peripheral_aresetn for FCLK0 or FCLK1 — see proc_sys_reset cells with `get_bd_cells -hierarchical -filter {VLNV =~ *proc_sys_reset*}`."
 }
