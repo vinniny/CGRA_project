@@ -459,3 +459,8 @@ wildfire_ref/
 06_doc/**/*.bbl
 06_doc/**/*.blg
 vivado.jou*
+vivado.log
+vivado_*.backup.jou
+vivado_*.backup.log
+.Xil/
+NA/
