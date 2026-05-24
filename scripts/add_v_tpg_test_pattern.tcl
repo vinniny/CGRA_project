@@ -134,11 +134,17 @@ connect_bd_net $rstn_pin [get_bd_pins v_tpg_test_0/ap_rst_n]
 connect_bd_net $fclk0    [get_bd_pins axis_switch_in/aclk]
 connect_bd_net $rstn_pin [get_bd_pins axis_switch_in/aresetn]
 
-# v_tpg also has s_axi_aclk for its AXI-Lite slave
-connect_bd_net $fclk0    [get_bd_pins v_tpg_test_0/s_axi_CTRL_aclk]
-connect_bd_net $rstn_pin [get_bd_pins v_tpg_test_0/s_axi_CTRL_aresetn]
-connect_bd_net $fclk0    [get_bd_pins axis_switch_in/s_axi_ctrl_aclk]
-connect_bd_net $rstn_pin [get_bd_pins axis_switch_in/s_axi_ctrl_aresetn]
+# HLS-style IPs like v_tpg v8.x share ap_clk between the streaming + AXI-Lite
+# slaves — no separate s_axi_CTRL_aclk pin. axis_switch v1.1 DOES expose
+# separate s_axi_ctrl_aclk/aresetn pins, so wire those if present.
+foreach {pin} {axis_switch_in/s_axi_ctrl_aclk} {
+    set hits [get_bd_pins -quiet $pin]
+    if {[llength $hits] > 0} { connect_bd_net $fclk0 [lindex $hits 0] }
+}
+foreach {pin} {axis_switch_in/s_axi_ctrl_aresetn} {
+    set hits [get_bd_pins -quiet $pin]
+    if {[llength $hits] > 0} { connect_bd_net $rstn_pin [lindex $hits 0] }
+}
 
 # ----- 4. AXIS rewire: dvi2rgb chain → switch.S00, v_tpg → switch.S01,
 #         switch.M00 → existing color_convert AXIS input.
