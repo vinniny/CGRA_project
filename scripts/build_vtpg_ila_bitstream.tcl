@@ -115,7 +115,11 @@ report_utilization -file $PROJECT_DIR/synth_util.rpt
 close_design
 
 # 8. Impl + bitstream + debug probes
-puts "\n=== 8. launch_runs impl_1 -to_step write_bitstream -jobs 2 ==="
+# Performance_ExploreWithRemap retries placement with cell remapping to
+# close timing on the HLS-internal v_tpg path that defaulted to
+# WNS = -0.014 ns under Vivado's default impl strategy.
+puts "\n=== 8. launch_runs impl_1 -to_step write_bitstream -jobs 2 (Performance_ExploreWithRemap) ==="
+catch { set_property strategy Performance_ExploreWithRemap [get_runs impl_1] }
 launch_runs impl_1 -to_step write_bitstream -jobs 2
 wait_on_run impl_1
 set st [get_property STATUS [get_runs impl_1]]
