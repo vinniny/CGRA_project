@@ -116,8 +116,11 @@ open_run synth_1 -name synth_1
 report_utilization -file $PROJECT_DIR/synth_util.rpt
 close_design
 
-# 8. Impl + bitstream
-puts "\n=== 7. launch_runs impl_1 -to_step write_bitstream -jobs 2 ==="
+# 8. Impl + bitstream  (Performance_ExploreWithRemap pushes WNS higher
+# than the default impl strategy. Validated on the cgra_vtpg_ila build:
+# turned a -0.014 ns violation into +0.309 ns slack.)
+puts "\n=== 7. launch_runs impl_1 -to_step write_bitstream -jobs 2 (Performance_ExploreWithRemap) ==="
+catch { set_property strategy Performance_ExploreWithRemap [get_runs impl_1] }
 launch_runs impl_1 -to_step write_bitstream -jobs 2
 wait_on_run impl_1
 set st [get_property STATUS [get_runs impl_1]]
