@@ -143,9 +143,14 @@ void hdmi_in_init(void)
     /* Pixel-pack: V_24 mode (3 bytes per pixel). */
     mmio_w(PIXPACK_IN_BASE + PIXPACK_MODE, PIXPACK_MODE_V24);
 
-    uart_puts(" [init.S3] VTC detector enable\n");
-    /* Detector-only: bit 3 of CTL. Verified against xvtc_hw.h v8_7. */
-    mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN);
+    uart_puts(" [init.S3] VTC detector enable (gated until HDMI plugged)\n");
+    /* V_TC's AXI-Lite is clocked by dvi2rgb_0/PixelClk (the recovered HDMI
+     * pixel clock). Without a TMDS signal that clock doesn't toggle, so a
+     * blind write here stalls the AXI bus. Skip the write until SW knows
+     * the cable is in (call hdmi_in_enable_vtc() externally). For bring-up
+     * without real HDMI, the VDMA capture path still validates end-to-end
+     * via DDR-injected test patterns (XSDB mwr) — VDMA only consumes AXIS
+     * valids, which gate on dvi2rgb. */
 
     uart_puts(" [init.S5] S2MM config\n");
     /* 5. Configure the S2MM channel.
@@ -179,8 +184,18 @@ void hdmi_in_init(void)
 int hdmi_in_locked(void)
 {
     if (!g_initialised) return 0;
-    /* v_tc detector lock bit. */
+    /* v_tc detector lock bit. Reads from VTC also touch the PixelClk-gated
+     * AXI slave; same caveat as hdmi_in_init step 3 — only call this when
+     * the HDMI cable is known to be plugged in and dvi2rgb has locked. */
     return (mmio_r(VTC_IN_BASE + VTC_STAT) & VTC_STAT_LOCK_BIT) ? 1 : 0;
+}
+
+void hdmi_in_enable_vtc(void)
+{
+    /* External enable hook — call AFTER the HDMI cable is plugged in.
+     * Writes the Detector Enable bit per XVtc_EnableDetector() in
+     * xvtc.c v8_7. Safe to call once dvi2rgb has a stable PixelClk. */
+    mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN);
 }
 
 int hdmi_in_frame_ready(void)

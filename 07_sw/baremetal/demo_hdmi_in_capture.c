@@ -29,35 +29,38 @@ int main(void)
 {
     uart_init();
     uart_puts("\n========================================\n");
-    uart_puts("  HDMI-IN capture sanity v0\n");
+    uart_puts("  HDMI-IN capture sanity v1\n");
+    uart_puts("  (no-HDMI mode: capture pipeline tested\n");
+    uart_puts("   via XSDB-injected DDR pixels)\n");
     uart_puts("========================================\n");
 
-    uart_puts("Initialising HDMI-in chain...\n");
+    uart_puts("Initialising HDMI-in chain (VTC skipped)...\n");
     hdmi_in_init();
     uart_puts("  done.\n");
 
+    uart_puts("Loop will report frame state every 500 ms.\n");
+    uart_puts("To inject fake pixels via XSDB:\n");
+    uart_puts("  mwr 0x11000000 0x55555555 230400\n");
+    uart_puts("  then dump:\n");
+    uart_puts("  mrd -bin -file /tmp/fb.bin 0x11000000 921600\n\n");
+
     uint32_t frame_n = 0;
     while (1) {
-        const int locked = hdmi_in_locked();
         const int ready  = hdmi_in_frame_ready();
         const uint8_t *fb = hdmi_in_current_frame();
 
         uart_puts("[capture] frame=");
         uart_putdec(frame_n++);
-        uart_puts("  locked=");
-        uart_putdec(locked);
         uart_puts("  ready=");
         uart_putdec(ready);
-        uart_puts("  pix[0..3]=");
+        uart_puts("  FB0[0..3]=");
         uart_puthex(((uint32_t)fb[0] << 0)  |
                     ((uint32_t)fb[1] << 8)  |
                     ((uint32_t)fb[2] << 16) |
                     ((uint32_t)fb[3] << 24));
         uart_puts("\n");
 
-        /* Roughly 2 Hz so output is human-readable. */
         delay_ms(500);
     }
-    /* unreachable */
     return 0;
 }

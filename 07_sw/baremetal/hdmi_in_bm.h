@@ -90,7 +90,17 @@ const uint8_t *hdmi_in_current_frame(void);
  * Read the v_tc_1 detector status register and return 1 if the IP has
  * locked to a valid input signal, 0 otherwise. Useful as a "is the cable
  * plugged in and is the laptop sending?" check.
+ *
+ * NOTE: V_TC's AXI-Lite is clocked by dvi2rgb's recovered PixelClk —
+ * only safe to call AFTER hdmi_in_enable_vtc() and once HDMI is plugged.
  */
 int  hdmi_in_locked(void);
+
+/**
+ * Enable the V_TC detector. Separate from hdmi_in_init() because the
+ * VTC slave is pixel-clock gated — wait for an HDMI source to be present
+ * before calling this.
+ */
+void hdmi_in_enable_vtc(void);
 
 #endif /* HDMI_IN_BM_H */
