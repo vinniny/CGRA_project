@@ -218,6 +218,20 @@ connect_bd_intf_net [get_bd_intf_pins $ctrl_sc/$tpg_mi] \
 connect_bd_intf_net [get_bd_intf_pins $ctrl_sc/$switch_mi] \
                     [get_bd_intf_pins axis_switch_in/S_AXI_CTRL]
 
+# ps7_0_axi_periph is an axi_interconnect (not a smartconnect) — each
+# MI port has its own M%02d_ACLK / M%02d_ARESETN pin that must be
+# driven, otherwise validate_bd_design errors:
+#   ERROR: [BD 41-758] clock pins not connected: /ps7_0_axi_periph/M0X_ACLK
+foreach mi [list $tpg_mi $switch_mi] {
+    # MI is like "M09_AXI" — strip "_AXI" suffix to get "M09".
+    set base [string range $mi 0 end-4]
+    set aclk_pin    [get_bd_pins -quiet $ctrl_sc/${base}_ACLK]
+    set arstn_pin   [get_bd_pins -quiet $ctrl_sc/${base}_ARESETN]
+    if {[llength $aclk_pin]  > 0} { connect_bd_net $fclk0    [lindex $aclk_pin  0] }
+    if {[llength $arstn_pin] > 0} { connect_bd_net $rstn_pin [lindex $arstn_pin 0] }
+    puts "  hooked $ctrl_sc/${base}_ACLK + ${base}_ARESETN"
+}
+
 # Address assignment — pick fixed offsets so the SW driver can hard-code
 # them. The working BD uses `ps7_0` (not `processing_system7_0`) as the
 # PS cell name, so segment names auto-generate as /ps7_0/Data/SEG_*.
