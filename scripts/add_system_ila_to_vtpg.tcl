@@ -36,12 +36,14 @@ proc _net_of_intf_pin {p} {
 
 # Order matters — we monitor each link in the chain so the stall point
 # shows up unambiguously between two adjacent ILA slots.
+# Minimal 3-net set chosen to triangulate the stall point along the
+# AXIS chain: source / middle / sink. Lessons from the previous build:
+# 5 nets pushed util to 86% LUT and missed timing (WNS = -0.105 ns).
+# 3 nets at DATA_DEPTH=256 (set below) should leave plenty of headroom.
 set targets {
-    "v_tpg.m_axis_video    -> axis_switch.S01"  v_tpg_test_0/m_axis_video
-    "axis_switch.M00       -> color_convert.in" axis_switch_in/M00_AXIS
-    "color_convert.in      <-                 " video/hdmi_in/color_convert/stream_in_24
-    "color_convert.out     -> register_slice  " video/hdmi_in/color_convert/stream_out_24
-    "pixel_pack.out        -> vdma.S2MM       " video/hdmi_in/pixel_pack/stream_out_32
+    "v_tpg.m_axis_video    (SOURCE)"      v_tpg_test_0/m_axis_video
+    "axis_switch.M00       (MIDDLE)"      axis_switch_in/M00_AXIS
+    "pixel_pack.out        (SINK->VDMA)"  video/hdmi_in/pixel_pack/stream_out_32
 }
 
 set nets_to_debug [list]
@@ -86,7 +88,27 @@ foreach n $nets_to_debug {
     }
 }
 
-# --- 4. Validate + save ------------------------------------------------
+# --- 4. Shrink the ILA depth + tweak strategy --------------------------
+# Default depth from apply_bd_automation is 1024 -- that contributed to
+# timing failure on the 5-net version. Drop to 256 (still 1.8 us of
+# capture at 142.857 MHz, plenty for AXIS handshake analysis).
+puts "\n=== Reducing ILA depth + relaxing capture ==="
+set ila_cells [get_bd_cells -filter {VLNV =~ "*system_ila*"} -hierarchical]
+foreach ila $ila_cells {
+    set props [list]
+    foreach k {C_DATA_DEPTH C_NUM_OF_PROBES C_TRIGOUT_EN C_TRIGIN_EN} {
+        if {[llength [get_property -quiet CONFIG.$k $ila]] > 0} {
+            lappend props "CONFIG.$k"
+        }
+    }
+    catch { set_property CONFIG.C_DATA_DEPTH 256 $ila }
+    catch { set_property CONFIG.C_TRIGOUT_EN false $ila }
+    catch { set_property CONFIG.C_TRIGIN_EN  false $ila }
+    catch { set_property CONFIG.C_INPUT_PIPE_STAGES 1 $ila }
+    puts "  $ila DATA_DEPTH=[get_property CONFIG.C_DATA_DEPTH $ila]"
+}
+
+# --- 5. Validate + save ------------------------------------------------
 puts "\n=== validate + save ==="
 regenerate_bd_layout
 validate_bd_design
