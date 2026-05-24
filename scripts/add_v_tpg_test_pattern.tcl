@@ -98,56 +98,52 @@ set_property -dict [list \
     CONFIG.TDATA_NUM_BYTES   {3}    \
 ] [get_bd_cells axis_switch_in]
 
-# ----- 3. Clock + reset for the new IPs (FCLK0 / 100 MHz domain) --------
+# ----- 3. Clock + reset (dual-domain: video FCLK1 + AXI-Lite FCLK0) ----
 puts "\n=== 3. Clock + reset hookup ==="
-set fclk0     [get_bd_pins ps7_0/FCLK_CLK0]
-# Re-use the BD's existing 100 MHz reset. In the working CGRA_PYNQ_clean BD
-# the reset propagates through hierarchies as `periph_resetn_clk100M`.
-# Search hierarchically for any pin matching, prefer leaf proc_sys_reset
-# output if visible.
-set rstn_pin ""
-set candidates [list \
-    {rst_ps7_0_100M/peripheral_aresetn} \
-    {*rst*100M*/peripheral_aresetn} \
-    {periph_resetn_clk100M} \
-    {*/periph_resetn_clk100M}]
-foreach pat $candidates {
-    set hits [get_bd_pins -hierarchical -quiet $pat]
-    if {[llength $hits] > 0} {
-        set rstn_pin [lindex $hits 0]
-        break
+# The HDMI-in video pipeline (color_convert / pixel_pack / VDMA stream
+# side) runs on FCLK1 = 142.857 MHz (via /video/hdmi_in/clk_142M). The
+# AXIS streaming clock of v_tpg + axis_switch MUST match that, otherwise
+# validate_bd_design errors with:
+#   ERROR: [BD 41-237] FREQ_HZ does not match between
+#   /video/hdmi_in/color_convert/stream_in_24(142857132) and
+#   /axis_switch_in/M00_AXIS(100000000)
+# AXI-Lite control stays on FCLK0 = 100 MHz (matches ps7_0_axi_periph).
+proc _pick_pin {patterns} {
+    foreach pat $patterns {
+        set hits [get_bd_pins -hierarchical -quiet $pat]
+        if {[llength $hits] > 0} { return [lindex $hits 0] }
     }
+    return ""
 }
-if {$rstn_pin eq ""} {
-    # Last resort: pick any proc_sys_reset cell's peripheral_aresetn output.
-    set rst_cells [get_bd_cells -hierarchical \
-                   -filter {VLNV =~ "*proc_sys_reset*"}]
-    foreach c $rst_cells {
-        set p [get_bd_pins -quiet $c/peripheral_aresetn]
-        if {[llength $p] > 0} { set rstn_pin [lindex $p 0]; break }
-    }
+set fclk_vid  [get_bd_pins ps7_0/FCLK_CLK1]
+set rstn_vid  [_pick_pin {rst_ps7_0_fclk1/peripheral_aresetn \
+                          rst_ps7_0_142M/peripheral_aresetn \
+                          *rst*fclk1*/peripheral_aresetn \
+                          *rst*142M*/peripheral_aresetn}]
+set fclk_ctrl [get_bd_pins ps7_0/FCLK_CLK0]
+set rstn_ctrl [_pick_pin {rst_ps7_0_fclk0/peripheral_aresetn \
+                          rst_ps7_0_100M/peripheral_aresetn \
+                          *rst*fclk0*/peripheral_aresetn \
+                          *rst*100M*/peripheral_aresetn}]
+if {$rstn_vid eq "" || $rstn_ctrl eq ""} {
+    error "Could not find peripheral_aresetn for FCLK0 or FCLK1 — see proc_sys_reset cells with `get_bd_cells -hierarchical -filter {VLNV =~ *proc_sys_reset*}`."
 }
-if {$rstn_pin eq ""} {
-    error "Could not find 100 MHz peripheral_aresetn — list cells with `get_bd_cells -hierarchical -filter {VLNV =~ *proc_sys_reset*}`."
-}
-puts "  Using reset: $rstn_pin"
+puts "  video clock : $fclk_vid    @ 142.857 MHz"
+puts "  video reset : $rstn_vid"
+puts "  ctrl  clock : $fclk_ctrl  @ 100 MHz"
+puts "  ctrl  reset : $rstn_ctrl"
 
-connect_bd_net $fclk0    [get_bd_pins v_tpg_test_0/ap_clk]
-connect_bd_net $rstn_pin [get_bd_pins v_tpg_test_0/ap_rst_n]
-connect_bd_net $fclk0    [get_bd_pins axis_switch_in/aclk]
-connect_bd_net $rstn_pin [get_bd_pins axis_switch_in/aresetn]
+# v_tpg: ap_clk drives BOTH its m_axis_video stream and s_axi_CTRL slave.
+# Clock it on the video clock so the streaming output matches downstream.
+# The ps7_0_axi_periph interconnect bridges FCLK0->FCLK1 on M09 (set later).
+connect_bd_net $fclk_vid [get_bd_pins v_tpg_test_0/ap_clk]
+connect_bd_net $rstn_vid [get_bd_pins v_tpg_test_0/ap_rst_n]
 
-# HLS-style IPs like v_tpg v8.x share ap_clk between the streaming + AXI-Lite
-# slaves — no separate s_axi_CTRL_aclk pin. axis_switch v1.1 DOES expose
-# separate s_axi_ctrl_aclk/aresetn pins, so wire those if present.
-foreach {pin} {axis_switch_in/s_axi_ctrl_aclk} {
-    set hits [get_bd_pins -quiet $pin]
-    if {[llength $hits] > 0} { connect_bd_net $fclk0 [lindex $hits 0] }
-}
-foreach {pin} {axis_switch_in/s_axi_ctrl_aresetn} {
-    set hits [get_bd_pins -quiet $pin]
-    if {[llength $hits] > 0} { connect_bd_net $rstn_pin [lindex $hits 0] }
-}
+# axis_switch_in: separate clocks for data (aclk) + AXI-Lite control.
+connect_bd_net $fclk_vid  [get_bd_pins axis_switch_in/aclk]
+connect_bd_net $rstn_vid  [get_bd_pins axis_switch_in/aresetn]
+connect_bd_net $fclk_ctrl [get_bd_pins axis_switch_in/s_axi_ctrl_aclk]
+connect_bd_net $rstn_ctrl [get_bd_pins axis_switch_in/s_axi_ctrl_aresetn]
 
 # ----- 4. AXIS rewire: dvi2rgb chain → switch.S00, v_tpg → switch.S01,
 #         switch.M00 → existing color_convert AXIS input.
@@ -220,16 +216,20 @@ connect_bd_intf_net [get_bd_intf_pins $ctrl_sc/$switch_mi] \
 
 # ps7_0_axi_periph is an axi_interconnect (not a smartconnect) — each
 # MI port has its own M%02d_ACLK / M%02d_ARESETN pin that must be
-# driven, otherwise validate_bd_design errors:
-#   ERROR: [BD 41-758] clock pins not connected: /ps7_0_axi_periph/M0X_ACLK
-foreach mi [list $tpg_mi $switch_mi] {
-    # MI is like "M09_AXI" — strip "_AXI" suffix to get "M09".
-    set base [string range $mi 0 end-4]
-    set aclk_pin    [get_bd_pins -quiet $ctrl_sc/${base}_ACLK]
-    set arstn_pin   [get_bd_pins -quiet $ctrl_sc/${base}_ARESETN]
-    if {[llength $aclk_pin]  > 0} { connect_bd_net $fclk0    [lindex $aclk_pin  0] }
-    if {[llength $arstn_pin] > 0} { connect_bd_net $rstn_pin [lindex $arstn_pin 0] }
-    puts "  hooked $ctrl_sc/${base}_ACLK + ${base}_ARESETN"
+# driven and MUST match the clock domain of the downstream slave's
+# AXI-Lite interface. Otherwise BD 41-758 / 41-237.
+#
+# v_tpg's s_axi_CTRL is clocked by ap_clk (= FCLK1, video)
+# axis_switch's S_AXI_CTRL is clocked by s_axi_ctrl_aclk (= FCLK0)
+foreach {mi clk rstn} [list \
+        $tpg_mi    $fclk_vid  $rstn_vid  \
+        $switch_mi $fclk_ctrl $rstn_ctrl] {
+    set base [string range $mi 0 end-4]   ;# "M09_AXI" -> "M09"
+    set aclk_pin  [get_bd_pins -quiet $ctrl_sc/${base}_ACLK]
+    set arstn_pin [get_bd_pins -quiet $ctrl_sc/${base}_ARESETN]
+    if {[llength $aclk_pin]  > 0} { connect_bd_net $clk  [lindex $aclk_pin  0] }
+    if {[llength $arstn_pin] > 0} { connect_bd_net $rstn [lindex $arstn_pin 0] }
+    puts "  $ctrl_sc/${base}_ACLK = $clk"
 }
 
 # Address assignment — pick fixed offsets so the SW driver can hard-code
