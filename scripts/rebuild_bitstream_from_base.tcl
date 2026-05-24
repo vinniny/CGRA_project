@@ -55,6 +55,10 @@ update_ip_catalog
 
 # 3. Patch base.tcl version-string in a temp copy, then source it.
 puts "\n=== 3. Source patched base.tcl ==="
+# base.tcl references ${overlay_name} for PYNQ PFM metadata — must be
+# defined before sourcing (otherwise create_root_design errors near the
+# end on `set_property PFM_NAME ...`).
+set overlay_name "base"
 set tmp_base "$PROJECT_DIR/base_patched.tcl"
 set fp [open $BASE_TCL r]
 set src [read $fp]; close $fp
