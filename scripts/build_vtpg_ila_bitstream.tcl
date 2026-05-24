@@ -6,6 +6,20 @@
 #   $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/base_wrapper.bit
 #   $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/debug_nets.ltx   (probes file)
 #   $PROJECT_DIR/impl_*.rpt
+#
+# !!! IMPORTANT WORKFLOW NOTE (learned the hard way 2026-05-24) !!!
+# After build, ALWAYS program this bitstream via XSDB (`make program ...`
+# or `make run_elf ...`), NEVER via Vivado HW Manager's program_hw_devices.
+# Vivado's PL programming does NOT run ps7_init, so the PS is left
+# unclocked. The DAP then errors with AHB-AP transaction failure, the
+# ARM cores disappear from the JTAG target list, and no bare-metal
+# demos can run. Recovery requires a physical SRST press.
+#
+# The ILA capture flow is split in two steps:
+#   1. shell: `make run_elf ELF=demo_vtpg.elf BIT=cgra_vtpg_ila.bit`
+#      (XSDB programs PL, runs ps7_init, loads + starts ELF)
+#   2. vivado batch: scripts/ila_capture_vtpg.tcl
+#      (attaches to the already-programmed device, just reads ILA)
 # =============================================================================
 puts "==========================================================="
 puts " V_TPG + SYSTEM ILA BITSTREAM BUILD (Vivado [version -short])"
