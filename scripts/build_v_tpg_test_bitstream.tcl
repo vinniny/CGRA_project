@@ -108,13 +108,19 @@ puts "\n=== 5. make_wrapper + constraints ==="
 make_wrapper -files [get_files ${bd_name}.bd] -top -import
 set_property top ${bd_name}_wrapper [current_fileset]
 
-# Pull our PYNQ-Z2 XDC into the project (J10 HDMI-RX pin LOCs etc.).
-set XDC "[file normalize [file dirname [info script]]/..]/01_bench/constrs_pynq_z2.xdc"
-if {[file exists $XDC]} {
-    add_files -fileset constrs_1 -norecurse $XDC
-    puts "  Added constraints: $XDC"
-} else {
-    puts "  WARN: constraints file not found at $XDC"
+# Use the PYNQ-Z2 master XDC from the PYNQ repo — it constrains every
+# I/O the BD exposes (audio codec, switches, buttons, HDMI etc.).
+# Falling back to the minimal HDMI-only XDC would trip UCIO-1/NSTD-1
+# at write_bitstream time.
+set xdc_candidates [list \
+    {/mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/Pynq-Z2/base/vivado/constraints/base.xdc} \
+    "[file normalize [file dirname [info script]]/..]/01_bench/constrs_pynq_z2.xdc"]
+foreach XDC $xdc_candidates {
+    if {[file exists $XDC]} {
+        add_files -fileset constrs_1 -norecurse $XDC
+        puts "  Added constraints: $XDC"
+        break
+    }
 }
 update_compile_order -fileset sources_1
 
