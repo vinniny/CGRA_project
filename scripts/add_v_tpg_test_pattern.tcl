@@ -218,18 +218,15 @@ connect_bd_intf_net [get_bd_intf_pins $ctrl_sc/$tpg_mi] \
 connect_bd_intf_net [get_bd_intf_pins $ctrl_sc/$switch_mi] \
                     [get_bd_intf_pins axis_switch_in/S_AXI_CTRL]
 
-# Address assignment — pick the next free 64K above existing entries.
-# Free hole noted from the working BD: 0x43CC_0000 .. 0x43CE_FFFF.
-assign_bd_address [get_bd_addr_segs v_tpg_test_0/s_axi_CTRL/Reg]
-set_property offset 0x43CC0000 \
-    [get_bd_addr_segs processing_system7_0/Data/SEG_v_tpg_test_0_Reg]
-set_property range  64K       \
-    [get_bd_addr_segs processing_system7_0/Data/SEG_v_tpg_test_0_Reg]
-assign_bd_address [get_bd_addr_segs axis_switch_in/S_AXI_CTRL/Reg]
-set_property offset 0x43CD0000 \
-    [get_bd_addr_segs processing_system7_0/Data/SEG_axis_switch_in_Reg]
-set_property range  64K       \
-    [get_bd_addr_segs processing_system7_0/Data/SEG_axis_switch_in_Reg]
+# Address assignment — pick fixed offsets so the SW driver can hard-code
+# them. The working BD uses `ps7_0` (not `processing_system7_0`) as the
+# PS cell name, so segment names auto-generate as /ps7_0/Data/SEG_*.
+# `assign_bd_address` accepts `-offset` + `-range` directly — avoids
+# any post-hoc seg name lookup.
+assign_bd_address -offset 0x43CC0000 -range 64K \
+    [get_bd_addr_segs v_tpg_test_0/s_axi_CTRL/Reg]
+assign_bd_address -offset 0x43CD0000 -range 64K \
+    [get_bd_addr_segs axis_switch_in/S_AXI_CTRL/Reg]
 
 # ----- 6. Validate + save -----------------------------------------------
 puts "\n=== 6. validate_bd_design + save_bd_design ==="
