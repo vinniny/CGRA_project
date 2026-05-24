@@ -62,6 +62,7 @@ static void delay_us(uint32_t us)
 #define DMACR_RESET_BIT         (1u << 2)
 #define DMACR_GENLOCK_SRC_BIT   (1u << 7)   /* 1 = source — internal */
 #define DMACR_FRMCNT_EN_BIT     (1u << 4)   /* 0 = free-run (we want this) */
+#define DMACR_CIRC_PARK_BIT     (1u << 1)   /* 1 = cycle through 3-frame ring */
 
 #define DMASR_HALTED_BIT        (1u << 0)
 #define DMASR_FRMSTORE_MASK     (0x1Fu << 24)
@@ -205,8 +206,12 @@ void hdmi_in_init(void)
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_3,  HDMI_IN_FB2);
     mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
 
-    /* RS=1, frame counter disabled → free-running 3-frame ring. */
-    mmio_w(VDMA_IN_BASE + S2MM_DMACR,         DMACR_RS_BIT);
+    /* RS=1, CIRCULAR_PARK=1, frame counter disabled → free-running 3-frame
+     * ring. Without CIRC_PARK, VDMA stays parked on whatever frame
+     * PARK_PTR indexes (default 0) and FrameStore in DMASR never
+     * advances -- silicon-confirmed 2026-05-25. */
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR,
+           DMACR_RS_BIT | DMACR_CIRC_PARK_BIT);
 
     mmio_w(VDMA_IN_BASE + S2MM_FRMDLY_STRIDE, HDMI_IN_ROW_STRIDE);   /* 1920 */
     mmio_w(VDMA_IN_BASE + S2MM_HSIZE,         HDMI_IN_ROW_STRIDE);   /* 1920 */
