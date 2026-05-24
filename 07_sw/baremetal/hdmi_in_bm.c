@@ -112,26 +112,19 @@ void hdmi_in_init(void)
         delay_us(1);
     }
 
-    /* 2. Identity 3x3 color matrix (input RGB pass-through). */
-    mmio_w(CCONV_IN_BASE + CC_C1_C1, CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C1_C2, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C1_C3, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C1, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C2, CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C2_C3, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C1, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C2, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C3, CC_COEFF_ONE);
+    /* 2. Color-convert and pixel-pack IPs were removed from the BD in the
+     *    final scripts/add_hdmi_in_pynqz2.tcl — replaced with
+     *    axis_subset_converter_in (config-time-only, no AXI-Lite slave;
+     *    24->32 byte-pad is fixed at synth). The previous writes to
+     *    CCONV_IN_BASE / PIXPACK_IN_BASE targeted non-existent AXI-Lite
+     *    slaves and would have stalled on AXI decode timeout. Removed. */
 
-    /* 3. Pixel-pack: V_24 mode (3 bytes per pixel). */
-    mmio_w(PIXPACK_IN_BASE + PIXPACK_MODE, PIXPACK_MODE_V24);
-
-    /* 4. VTC detector: enable. The IP measures hsync/vsync from the
+    /* 3. VTC detector: enable. The IP measures hsync/vsync from the
      *    recovered pixel clock. dvi2rgb has no AXI-Lite — it locks
      *    automatically the moment a valid TMDS signal arrives at J10. */
     mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN | VTC_CTL_REG_UPDATE);
 
-    /* 5. Configure the S2MM channel.
+    /* 4. Configure the S2MM channel.
      *    a) primary register bank (REG_INDEX = 0)
      *    b) three frame-store base addresses
      *    c) PARK_PTR = 0 to round-robin all three

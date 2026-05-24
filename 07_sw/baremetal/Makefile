@@ -125,6 +125,13 @@ CNN_SWEEP_TARGET  := demo_mnist_sweep.elf
 CNN_V2_SRCS       := start.s demo_mnist_cgra_v2.c demo_mnist_weights.S gic.c bm_string.c
 CNN_V2_TARGET     := demo_mnist_cgra_v2.elf
 
+# ── demo_hdmi_in_capture: minimal HDMI-in sanity ELF (bring-up step 4) ───
+# Initialises the dvi2rgb → v_tc → v_vid_in → axis_subset → vdma_1 chain
+# and loops printing lock + frame-ready + first 4 pixels over UART. Use
+# before the full mnist_hdmi LIVE_INPUT demo to confirm capture works.
+HDMI_IN_CAP_SRCS   := start.s demo_hdmi_in_capture.c hdmi_in_bm.c gic.c
+HDMI_IN_CAP_TARGET := demo_hdmi_in_capture.elf
+
 # ── demo_hdmi_text: B3 bare-metal HDMI text + image rendering smoke ─────
 HDMI_TEXT_SRCS    := start.s demo_hdmi_text.c hdmi_bm.c fb_lib_bm.c \
                      ../linux/demo_mnist_hdmi/font5x7.c gic.c
@@ -175,7 +182,7 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text mnist_hdmi mnist_per_stage
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture mnist_hdmi mnist_per_stage
 
 all: $(TARGET)
 
@@ -186,6 +193,8 @@ mnist_cgra_v2: $(CNN_V2_TARGET)
 bench_compare: $(BCMP_TARGET)
 
 hdmi_text: $(HDMI_TEXT_TARGET)
+
+hdmi_in_capture: $(HDMI_IN_CAP_TARGET)
 
 mnist_hdmi: $(MNIST_HDMI_TARGET)
 
@@ -273,6 +282,11 @@ $(BCMP_TARGET): $(BCMP_SRCS) uart.h cgra.h gic.h linker.ld
 $(HDMI_TEXT_TARGET): $(HDMI_TEXT_SRCS) uart.h hdmi_bm.h fb_lib_bm.h gic.h linker_cnn.ld
 	$(CC) $(CFLAGS) $(HDMI_TEXT_INC) $(HDMI_TEXT_DEFS) -T linker_cnn.ld -nostdlib $(HDMI_TEXT_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(HDMI_TEXT_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(HDMI_IN_CAP_TARGET): $(HDMI_IN_CAP_SRCS) uart.h hdmi_in_bm.h gic.h linker.ld
+	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(HDMI_IN_CAP_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(HDMI_IN_CAP_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # arm_cnn_bm.c built as the VFP variant — linked into demo_mnist_hdmi_bm.

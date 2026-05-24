@@ -48,8 +48,11 @@
 /* ── AXI-Lite register bases (matches add_hdmi_in_pynqz2.tcl assignment) ── */
 #define VDMA_IN_BASE         0x43020000UL  /* axi_vdma_1 */
 #define VTC_IN_BASE          0x43C90000UL  /* v_tc_1     */
-#define CCONV_IN_BASE        0x43CA0000UL  /* color_convert_1 */
-#define PIXPACK_IN_BASE      0x43CB0000UL  /* pixel_pack_0    */
+/* color_convert_1 and pixel_pack_0 were originally planned but the BD now
+ * uses axis_subset_converter_in (config-time-only, no AXI-Lite slave). The
+ * driver no longer writes to these bases; left here for archival reference. */
+/* #define CCONV_IN_BASE     0x43CA0000UL */
+/* #define PIXPACK_IN_BASE   0x43CB0000UL */
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
