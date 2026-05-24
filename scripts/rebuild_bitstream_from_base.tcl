@@ -64,6 +64,10 @@ set fp [open $BASE_TCL r]
 set src [read $fp]; close $fp
 regsub -all {set scripts_vivado_version 2024.1} $src \
     "set scripts_vivado_version 2025.1" src
+# Replace literal ${overlay_name} (inside braces — not Tcl-substituted)
+# with the actual overlay name "base". Otherwise PFM_NAME ends up as
+# `xilinx.com:xd:${overlay_name}:1.0` and Vivado rejects the special chars.
+regsub -all {\$\{overlay_name\}} $src "base" src
 set fp [open $tmp_base w]; puts $fp $src; close $fp
 source $tmp_base
 

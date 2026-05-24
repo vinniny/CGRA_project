@@ -80,9 +80,10 @@ set fp [open $BASE_TCL r]
 set src [read $fp]; close $fp
 regsub -all {set scripts_vivado_version 2024.1} $src \
     "set scripts_vivado_version 2025.1" src
+regsub -all {\$\{overlay_name\}} $src "base" src
 set fp [open $tmp_base w]
 puts $fp $src; close $fp
-puts "  patched 2024.1 → 2025.1 in $tmp_base"
+puts "  patched 2024.1 → 2025.1 + overlay_name → \"base\" in $tmp_base"
 if {[catch {source $tmp_base} err]} {
     puts "  base.tcl raised: $err"
     puts "  Inspecting current BD state — may have partially completed."
