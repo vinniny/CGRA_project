@@ -458,3 +458,4 @@ wildfire_ref/
 06_doc/**/*.out
 06_doc/**/*.bbl
 06_doc/**/*.blg
+vivado.jou*
