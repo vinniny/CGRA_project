@@ -38,7 +38,9 @@ puts "  device: $device"
 # Tell Vivado about the probes (without re-programming).
 set_property PROBES.FILE      $LTX_FILE $device
 set_property FULL_PROBES.FILE $LTX_FILE $device
-refresh_hw_device -update_hw_probes false $device
+# -update_hw_probes flag defaults to true; explicit true lets Vivado
+# re-parse the .ltx and rebuild the probe table even without re-program.
+refresh_hw_device $device
 puts "  probes loaded."
 
 # --- 2. Locate ILA + configure free-running capture ---
