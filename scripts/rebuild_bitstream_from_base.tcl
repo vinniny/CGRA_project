@@ -116,11 +116,14 @@ open_run synth_1 -name synth_1
 report_utilization -file $PROJECT_DIR/synth_util.rpt
 close_design
 
-# 8. Impl + bitstream  (Performance_ExploreWithRemap pushes WNS higher
-# than the default impl strategy. Validated on the cgra_vtpg_ila build:
-# turned a -0.014 ns violation into +0.309 ns slack.)
-puts "\n=== 7. launch_runs impl_1 -to_step write_bitstream -jobs 2 (Performance_ExploreWithRemap) ==="
-catch { set_property strategy Performance_ExploreWithRemap [get_runs impl_1] }
+# 8. Impl + bitstream
+# NOTE: empirically the default Vivado_Implementation_Defaults strategy
+# is BETTER than Performance_ExploreWithRemap for this BD without ILA --
+# default closes WNS at +0.344 ns vs ExploreWithRemap's +0.098 ns
+# (verified 2026-05-25 with identical 40,322-LUT util). For the
+# ILA-instrumented Procedure-D variant the relation flips and
+# ExploreWithRemap is necessary -- see build_vtpg_ila_bitstream.tcl.
+puts "\n=== 7. launch_runs impl_1 -to_step write_bitstream -jobs 2 ==="
 launch_runs impl_1 -to_step write_bitstream -jobs 2
 wait_on_run impl_1
 set st [get_property STATUS [get_runs impl_1]]
