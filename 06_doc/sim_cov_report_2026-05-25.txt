@@ -1,0 +1,49 @@
+=== CGRA Coverage Report (extracted from cov.log) ===
+Date: Sun May 24 13:16:12 EDT 2026
+
+--- Test Results ---
+    PASS : 9159
+    FAIL : 0
+    Protocol errors : 0
+
+  2. AXI PROTOCOL STATISTICS  (5387274 cycles)
+
+--- AXI Protocol Statistics ---
+    R  beats      : 225679
+    AW handshakes : 500
+    W  beats      : 5353
+    W  bursts     : 473 (WLAST count)
+    B  responses  : 473
+    4KB splits    : 0
+    NOTE: 27 AW handshakes abandoned by DMA abort (500 AW - 473 WLAST)
+
+  3. COVERAGE SUMMARY
+  ----------------------------------------------------------------
+    Single-beat DMA  : 210
+    Multi-beat DMA   : 40
+    Max-burst DMA    : 10
+
+--- Functional Coverage ---
+    DMA Writes:           402
+    DMA Zero-Length:        0
+    DMA 4KB Cross:          6
+    ISA Opcodes Hit:    21 /  21 (100%)
+    CU Auto-Stop:           3
+    CU Soft-Reset:       9436
+    CU With Loop:           1
+  ----------------------------------------------------------------
+
+--- Coverage Counters ---
+    Multi-beat DMA   : 40
+    Max-burst DMA    : 10
+    4KB boundary     : 6
+    Stress cycles    : 109
+    Reset tests      : 337
+
+═══════════════════════════════════════════════════════════════
+  VERIFICATION ENVIRONMENT REPORT
+
+--- Coverage Database ---
+-rw-rw-r--. 1 admin admin 46K May 24 13:14 cov_work/scope/full_sim/icc_53417130_2eaa3a3d.ucd
+
+NOTE: For block/expression/toggle breakdown, use 'make cov_gui' (SimVision).
