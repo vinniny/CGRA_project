@@ -87,10 +87,19 @@ save_bd_design
 puts "\n=== 5. Wrapper + constraints ==="
 make_wrapper -files [get_files ${bd_name}.bd] -top -import
 set_property top ${bd_name}_wrapper [current_fileset]
-set xdc "$REPO_ROOT/01_bench/constrs_pynq_z2.xdc"
-if {[file exists $xdc]} {
-    add_files -fileset constrs_1 -norecurse $xdc
-    puts "  Added $xdc"
+# The working PYNQ-Z2 base.xdc constrains ALL PL I/Os (audio codec,
+# buttons, switches, leds, HDMI in/out incl DDC + HPD, AR PMOD, etc).
+# Our minimal 01_bench/constrs_pynq_z2.xdc only covers HDMI pins, which
+# triggers UCIO-1/NSTD-1 at write_bitstream time. Prefer the full XDC.
+set xdc_candidates [list \
+    {/mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/Pynq-Z2/base/vivado/constraints/base.xdc} \
+    "$REPO_ROOT/01_bench/constrs_pynq_z2.xdc"]
+foreach xdc $xdc_candidates {
+    if {[file exists $xdc]} {
+        add_files -fileset constrs_1 -norecurse $xdc
+        puts "  Added $xdc"
+        break
+    }
 }
 update_compile_order -fileset sources_1
 
