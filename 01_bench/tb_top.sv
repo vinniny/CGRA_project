@@ -227,6 +227,7 @@ module tb_top;
     `include "include/tb_suite_spm_mac_addrsrc.svh"    // Suite SMA: SPM MAC Address-Source (T3)
     `include "include/tb_suite_xfeat.svh"              // Suite XF:  Cross-Feature (T4)
     `include "include/tb_suite_cnn_kernel.svh"         // Suite CNN_K: MNIST CNN FC Kernel (D3)
+    `include "include/tb_suite_mac_throughput.svh"     // Suite MTP: MAC pipeline throughput measurement
     `include "include/tb_suite_v2_unit.svh"            // Suite V2U: V2 RTL upgrade (SPM dual-port + prefix 0x5)
 
     // ── OpenCores golden reference models (combinational, Q=0 integer mode) ──
@@ -818,6 +819,12 @@ module tb_top;
         // =====================================================================
         reset_dut(5);
         run_suite_V2U_v2_unit();
+
+        // =====================================================================
+        // Suite MTP: MAC Pipeline Throughput Measurement
+        // =====================================================================
+        reset_dut(5);
+        run_suite_MTP_mac_throughput();
 
         // Print functional coverage before finishing
         print_functional_coverage();
