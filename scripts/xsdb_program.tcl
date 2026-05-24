@@ -87,6 +87,21 @@ if {[catch {connect -host $hw_host -port $hw_port} err]} {
 }
 puts "  Connected."
 
+# Always enable PL AXI-slave access through DAP. Without this, mwr/mrd to
+# 0x4000_0000-style PL register addresses get "Blocked address" errors
+# after rst -dap or anytime PS state hasn't been fully re-init'd.
+catch { configparams force-mem-accesses 1 }
+
+# If the prior session left the DAP in an AHB/APB AP transaction error
+# state, the ARM cores won't appear in the JTAG target list (only the
+# DAP, FPGA, and Legacy Debug Hub show up). rst -dap clears the sticky
+# AP error and re-enumerates the cores -- silicon-validated 2026-05-24.
+# Safe to issue unconditionally; no-op if the DAP is already clean.
+if {[catch {targets -set -filter {name =~ "DAP*"}}] == 0} {
+    catch { rst -dap }
+    after 500
+}
+
 # --------------------------------------------------------------------------
 # Scan JTAG chain and find targets
 # --------------------------------------------------------------------------
