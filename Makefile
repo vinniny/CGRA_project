@@ -130,7 +130,7 @@ VIVADO_HWH      := $(VIVADO_PROJECT)/cgra_ip.gen/sources_1/bd/design_1/hw_handof
 # ==============================================================================
 # Phony Targets
 # ==============================================================================
-.PHONY: all help compile build run sim test lab_test wave clean clean-all \
+.PHONY: all help compile build run sim test lab_test wave clean clean-all vtpg_test vtpg_test_quick \
         syn restore_syn lec full create_flist lint check_tools gui \
         cov cov_gui cov_report hal xprop vivado_lint lint_static lint_all \
         hw_server_start hw_server_stop hw_server_check \
@@ -819,6 +819,18 @@ baremetal:
 	@echo " [BAREMETAL] Building CGRA test ELF"
 	@echo "=========================================================================="
 	$(MAKE) -C $(BAREMETAL_DIR) all
+
+vtpg_test:
+	@echo "=========================================================================="
+	@echo " [VTPG_TEST] One-shot silicon validation: program + run + ILA + verify"
+	@echo "=========================================================================="
+	./scripts/silicon_vtpg_test.sh
+
+vtpg_test_quick:
+	@echo "=========================================================================="
+	@echo " [VTPG_TEST_QUICK] Silicon test without Vivado HW Mgr ILA capture"
+	@echo "=========================================================================="
+	./scripts/silicon_vtpg_test.sh --skip-ila
 
 run_baremetal: baremetal program
 	@echo "=========================================================================="

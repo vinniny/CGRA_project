@@ -139,6 +139,10 @@ HDMI_IN_CAP_TARGET := demo_hdmi_in_capture.elf
 VTPG_SRCS   := start.s demo_vtpg.c hdmi_in_bm.c gic.c
 VTPG_TARGET := demo_vtpg.elf
 
+# ── bench_vdma_capture: measure VDMA capture throughput (v_tpg-driven) ──
+BENCH_VDMA_SRCS   := start.s bench_vdma_capture.c hdmi_in_bm.c gic.c
+BENCH_VDMA_TARGET := bench_vdma_capture.elf
+
 # ── demo_mnist_xsdb_inject: Phase-C — read XSDB-injected FB, run ARM
 #     downsample + minimal inference, print predicted digit on UART.
 XSDB_INJ_SRCS      := start.s demo_mnist_xsdb_inject.c hdmi_in_bm.c \
@@ -197,7 +201,7 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture mnist_hdmi mnist_per_stage
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture bench_vdma mnist_hdmi mnist_per_stage
 
 all: $(TARGET)
 
@@ -212,6 +216,8 @@ hdmi_text: $(HDMI_TEXT_TARGET)
 hdmi_in_capture: $(HDMI_IN_CAP_TARGET)
 
 vtpg_capture: $(VTPG_TARGET)
+
+bench_vdma: $(BENCH_VDMA_TARGET)
 
 xsdb_inject: $(XSDB_INJ_TARGET)
 
@@ -310,6 +316,10 @@ $(HDMI_IN_CAP_TARGET): $(HDMI_IN_CAP_SRCS) uart.h hdmi_in_bm.h gic.h linker.ld
 $(VTPG_TARGET): $(VTPG_SRCS) uart.h hdmi_in_bm.h vtpg.h gic.h linker.ld
 	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(VTPG_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(VTPG_TARGET) OK"
+
+$(BENCH_VDMA_TARGET): $(BENCH_VDMA_SRCS) uart.h hdmi_in_bm.h vtpg.h gic.h linker.ld
+	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(BENCH_VDMA_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_VDMA_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 $(XSDB_INJ_TARGET): $(XSDB_INJ_SRCS) uart.h hdmi_in_bm.h frame_to_mnist.h \

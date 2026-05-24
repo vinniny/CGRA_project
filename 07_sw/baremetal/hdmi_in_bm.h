@@ -118,4 +118,12 @@ void hdmi_in_color_convert_ycbcr2rgb(void);
  */
 void hdmi_in_color_convert_identity(void);
 
+/**
+ * BT.709 (HD-video) full-range YCbCr-444 → RGB matrix. Most HDMI
+ * laptops/sources at ≥720p emit BT.709 rather than BT.601; call this
+ * helper instead of _ycbcr2rgb() when the source is HD. SD-content
+ * sources (and v_tpg's COLOR_BARS pattern) use BT.601.
+ */
+void hdmi_in_color_convert_ycbcr2rgb_bt709(void);
+
 #endif /* HDMI_IN_BM_H */

@@ -45,7 +45,34 @@ make pull_bit                                 # Pull bitstream from Vivado proje
 make pull_all                                 # Pull bitstream + ps7_init + hwh
 make deploy                                   # Pull bitstream + program FPGA (one command)
 make vivado_reports                           # Show timing/utilization/DRC reports
+make vtpg_test                                # Full silicon AXIS-chain validation (Procedure D)
+make vtpg_test_quick                          # Same but skips Vivado HW-Mgr ILA capture
 ```
+
+**`xsdb_program.tcl` now auto-recovers** from a DAP-locked state: every
+`connect` is followed by `configparams force-mem-accesses 1` + `rst -dap`.
+If a prior session left the Cortex-A9 stuck (symptom: ARM cores missing
+from `targets` list, just DAP + xc7z020 + Legacy Debug Hub), the next
+`make program` / `make run_elf` heals it automatically. Background:
+`06_doc/zynq_dap_recovery.md`.
+
+Vivado-Centric Bitstream Build Procedure (silicon-validated 2026-05-24):
+```bash
+# Procedure A: rebuild cgra_pynq_base from base.tcl (~50 min)
+vivado -mode batch -source scripts/rebuild_bitstream_from_base.tcl
+
+# Procedure B: + v_tpg test-pattern + axis_switch (~50 min)
+vivado -mode batch -source scripts/build_v_tpg_test_bitstream.tcl
+
+# Procedure D: + System ILA for AXIS chain debug (~60 min)
+vivado -mode batch -source scripts/build_vtpg_ila_bitstream.tcl
+
+# After ILA build, run end-to-end silicon validation:
+make vtpg_test
+```
+All three orchestrators use `Performance_ExploreWithRemap` impl strategy.
+Procedure D produced WNS = +0.309 ns (timing fully met) with the System
+ILA logic on chip. Doc: `06_doc/vivado_bitstream_build_procedure.md`.
 
 Vivado project path (Windows via WSL2): `/mnt/c/Users/thanh/Desktop/FPGA_CGRA/` (override with `VIVADO_PROJECT=`).
 
@@ -74,7 +101,17 @@ make mnist_sweep         # Build demo_mnist_sweep.elf — full MNIST accuracy sw
 make mnist_per_stage     # Build demo_mnist_per_stage.elf — per-stage cycle accounting (Ch5 Table 5.6)
 make mnist_hdmi          # Build demo_mnist_hdmi_bm.elf — locked head-to-head HDMI demo
 make bench_compare       # Build bench_compare.elf — ARM vs CGRA cycle comparison
+make vtpg_capture        # Build demo_vtpg.elf — v_tpg AXIS-chain silicon-validation demo
+make bench_vdma          # Build bench_vdma_capture.elf — VDMA throughput benchmark
+make hdmi_in_capture     # Build demo_hdmi_in_capture.elf — HDMI-in capture sanity demo
 ```
+
+`hdmi_in_bm.{h,c}` provides VDMA + color_convert + pixel_pack setup plus
+three color-space helpers added 2026-05-24 for the Procedure-B/D path:
+  - `hdmi_in_color_convert_identity()`            — RGB-in / RGB-out
+  - `hdmi_in_color_convert_ycbcr2rgb()`           — BT.601 (v_tpg, SD sources)
+  - `hdmi_in_color_convert_ycbcr2rgb_bt709()`     — BT.709 (HD HDMI laptops)
+`vtpg.h` defines the v_tpg + axis_switch_in register map and inline helpers.
 The demo (`07_sw/baremetal/demo_ascii_inverter.c`) is a Vitis-BSP-style
 standalone application that inverts an 8x8 letter Z through the CGRA
 end-to-end (DMA + CU + GIC IRQ). It uses real XScuGic / Xil_DCache* /

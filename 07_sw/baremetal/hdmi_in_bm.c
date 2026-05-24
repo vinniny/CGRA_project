@@ -125,6 +125,21 @@ static void delay_us(uint32_t us)
 #define CC_YCBCR2RGB_BIAS_C2    0x087u  /* +0.529 */
 #define CC_YCBCR2RGB_BIAS_C3    0x31Du  /* -0.886 */
 
+/* YCbCr-444 (full-range BT.709) → RGB. BT.709 is the HD-video colour
+ * space — laptops/HDMI sources typically use it for ≥720p. Use this
+ * helper when sourcing real HDMI; use BT.601 for v_tpg / SD content.
+ *
+ *   R = 1.000·Y + 0.000·Cb + 1.575·Cr − 0.7875
+ *   G = 1.000·Y − 0.187·Cb − 0.468·Cr + 0.3275
+ *   B = 1.000·Y + 1.856·Cb + 0.000·Cr − 0.928               */
+#define CC_YCBCR2RGB709_C1_C3   0x192u  /*  1.575 (round 1.575*256=403) */
+#define CC_YCBCR2RGB709_C2_C2   0x3D0u  /* -0.187 (round -48 → 10b 2c = 0x3D0) */
+#define CC_YCBCR2RGB709_C2_C3   0x382u  /* -0.468 (round -120 → 0x382) */
+#define CC_YCBCR2RGB709_C3_C2   0x1DBu  /*  1.856 (round 1.856*256=475) */
+#define CC_YCBCR2RGB709_BIAS_C1 0x33Bu  /* -0.7875 (round -202 → 0x33B) */
+#define CC_YCBCR2RGB709_BIAS_C2 0x054u  /* +0.3275 (round  +84 → 0x054) */
+#define CC_YCBCR2RGB709_BIAS_C3 0x308u  /* -0.928   (round -238 → 0x308) */
+
 /* ── Pixel-pack: mode register ───────────────────────────────────────── */
 #define PIXPACK_MODE            0x10u
 #define PIXPACK_MODE_V24        0u  /* 3-byte BGR */
@@ -252,6 +267,27 @@ void hdmi_in_color_convert_identity(void)
     mmio_w(CCONV_IN_BASE + CC_BIAS_C1, 0);
     mmio_w(CCONV_IN_BASE + CC_BIAS_C2, 0);
     mmio_w(CCONV_IN_BASE + CC_BIAS_C3, 0);
+}
+
+void hdmi_in_color_convert_ycbcr2rgb_bt709(void)
+{
+    /* Row 1 (R): same constant col 1 (Y→R coeff = 1.0) as BT.601,
+     *            col 2 (Cb→R) is 0,  col 3 (Cr→R) differs. */
+    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_YCBCR2RGB709_C1_C3);
+    /* Row 2 (G): Y→G = 1.0, Cb and Cr coeffs differ. */
+    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_YCBCR2RGB709_C2_C2);
+    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_YCBCR2RGB709_C2_C3);
+    /* Row 3 (B): Y→B = 1.0, Cb→B differs, Cr→B = 0. */
+    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_YCBCR2RGB709_C3_C2);
+    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_COEFF_ZERO);
+    /* Biases. */
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, CC_YCBCR2RGB709_BIAS_C1);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, CC_YCBCR2RGB709_BIAS_C2);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, CC_YCBCR2RGB709_BIAS_C3);
 }
 
 int hdmi_in_frame_ready(void)
