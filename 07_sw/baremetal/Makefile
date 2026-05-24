@@ -132,6 +132,14 @@ CNN_V2_TARGET     := demo_mnist_cgra_v2.elf
 HDMI_IN_CAP_SRCS   := start.s demo_hdmi_in_capture.c hdmi_in_bm.c gic.c
 HDMI_IN_CAP_TARGET := demo_hdmi_in_capture.elf
 
+# ── demo_mnist_xsdb_inject: Phase-C — read XSDB-injected FB, run ARM
+#     downsample + minimal inference, print predicted digit on UART.
+XSDB_INJ_SRCS      := start.s demo_mnist_xsdb_inject.c hdmi_in_bm.c \
+                      frame_to_mnist.c arm_cnn_bm.c \
+                      demo_mnist_weights.S demo_mnist_conv_weights.S \
+                      gic.c bm_string.c
+XSDB_INJ_TARGET    := demo_mnist_xsdb_inject.elf
+
 # ── demo_hdmi_text: B3 bare-metal HDMI text + image rendering smoke ─────
 HDMI_TEXT_SRCS    := start.s demo_hdmi_text.c hdmi_bm.c fb_lib_bm.c \
                      ../linux/demo_mnist_hdmi/font5x7.c gic.c
@@ -195,6 +203,8 @@ bench_compare: $(BCMP_TARGET)
 hdmi_text: $(HDMI_TEXT_TARGET)
 
 hdmi_in_capture: $(HDMI_IN_CAP_TARGET)
+
+xsdb_inject: $(XSDB_INJ_TARGET)
 
 mnist_hdmi: $(MNIST_HDMI_TARGET)
 
@@ -287,6 +297,12 @@ $(HDMI_TEXT_TARGET): $(HDMI_TEXT_SRCS) uart.h hdmi_bm.h fb_lib_bm.h gic.h linker
 $(HDMI_IN_CAP_TARGET): $(HDMI_IN_CAP_SRCS) uart.h hdmi_in_bm.h gic.h linker.ld
 	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(HDMI_IN_CAP_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(HDMI_IN_CAP_TARGET) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+$(XSDB_INJ_TARGET): $(XSDB_INJ_SRCS) uart.h hdmi_in_bm.h frame_to_mnist.h \
+                    arm_cnn_bm.h mnist_sweep_fixture.h linker_cnn.ld
+	$(CC) $(ARM_CNN_VFP_CFLAGS) $(CNN_LDFLAGS) $(XSDB_INJ_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(XSDB_INJ_TARGET) OK"
 	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # arm_cnn_bm.c built as the VFP variant — linked into demo_mnist_hdmi_bm.
