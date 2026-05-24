@@ -45,7 +45,8 @@ for the timing-closure story).
 | └ PS7 ARM core | 1.529 W (62%) — dominates |
 | └ CGRA fabric (logic + DSP + BRAM + signals) | ~0.42 W |
 | Junction temperature (estimated) | 53.3 °C |
-| Simulation tests (Xcelium) | **9,156 PASS / 0 FAIL / 0 violations** |
+| Simulation tests (Xcelium) | **9,159 PASS / 0 FAIL / 0 violations** |
+| Measured MAC throughput (Suite MTP) | 81% single-pass · 98% @ 10 passes · **99.7% steady-state slot efficiency** |
 | Bare-metal regression | 96 checks PASS across 25 groups |
 | ISA opcodes | 21 implemented |
 
@@ -66,6 +67,11 @@ for the timing-closure story).
   (commit `11b3989`).
 - **Defense prep** — `06_doc/quirks_as_design_choices.md` recasts every
   documented hardware quirk as a defensible design choice for Chapter 4.
+- **MAC throughput measured** (commit `f576528`) — Suite MTP measures
+  81.2% / 98.1% / 99.7% slot efficiency at 1 / 10 / 64 passes. Closed-form
+  `contribs = 16·N − 3` (with `SRC_IMM`). A previous CLAUDE.md note that
+  claimed only ~1/3 of back-to-back MACs contributed is **incorrect** and
+  has been replaced with the measured numbers.
 
 ## Architecture & References
 
