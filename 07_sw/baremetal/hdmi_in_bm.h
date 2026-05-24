@@ -41,18 +41,22 @@
 #define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 921 600 */
 
 /* ── Triple-buffer base addresses in DDR ──────────────────────────────── */
-#define HDMI_IN_FB0          0x1F800000UL
-#define HDMI_IN_FB1          0x1FA00000UL
-#define HDMI_IN_FB2          0x1FC00000UL
+/* In the cgra_pynq_base working BD, the HDMI VDMA's address range is
+ * 0x10000000 - 0x1FFFFFFF (256 MB window into DDR). Frames lock inside that.
+ * Choose 3 frames in the lower part of that window. */
+#define HDMI_IN_FB0          0x11000000UL
+#define HDMI_IN_FB1          0x11200000UL
+#define HDMI_IN_FB2          0x11400000UL
 
-/* ── AXI-Lite register bases (matches add_hdmi_in_pynqz2.tcl assignment) ── */
-#define VDMA_IN_BASE         0x43020000UL  /* axi_vdma_1 */
-#define VTC_IN_BASE          0x43C90000UL  /* v_tc_1     */
-/* color_convert_1 and pixel_pack_0 were originally planned but the BD now
- * uses axis_subset_converter_in (config-time-only, no AXI-Lite slave). The
- * driver no longer writes to these bases; left here for archival reference. */
-/* #define CCONV_IN_BASE     0x43CA0000UL */
-/* #define PIXPACK_IN_BASE   0x43CB0000UL */
+/* ── AXI-Lite register bases (cgra_pynq_base working BD) ─────────────────
+ * The working BD has ONE axi_vdma at 0x43000000 that handles both MM2S
+ * (HDMI-out) and S2MM (HDMI-in) — different register banks within the
+ * same IP. Our S2MM channel uses offsets ≥ 0x30 inside the IP. */
+#define VDMA_IN_BASE         0x43000000UL  /* video/axi_vdma (S2MM share) */
+#define VTC_IN_BASE          0x43C30000UL  /* video/hdmi_in/frontend/vtc_in */
+#define PIXPACK_IN_BASE      0x43C40000UL  /* video/hdmi_in/pixel_pack    */
+#define CCONV_IN_BASE        0x43C50000UL  /* video/hdmi_in/color_convert */
+#define GPIO_HDMIIN_BASE     0x41220000UL  /* axi_gpio_hdmiin (HPD / CEC) */
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 

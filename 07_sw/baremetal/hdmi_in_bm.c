@@ -12,6 +12,7 @@
  *   dvi2rgb_0    — purely passive, no AXI-Lite; auto-locks on TMDS arrival
  * ============================================================================= */
 #include "hdmi_in_bm.h"
+#include "uart.h"
 
 /* ── MMIO helpers (matches hdmi_bm.c style) ───────────────────────────── */
 static inline void mmio_w(uint32_t addr, uint32_t val)
@@ -67,13 +68,24 @@ static void delay_us(uint32_t us)
 #define DMASR_FRMSTORE_SHIFT    24
 
 /* ── VTC detector register offsets (Xilinx v_tc PG016) ───────────────── */
-#define VTC_CTL                 0x00u
-#define VTC_STAT                0x04u
+/* Offsets + bit masks pulled verbatim from Xilinx vtc_v8_7 driver:
+ *   /tools/Xilinx/2025.1/data/embeddedsw/.../vtc_v8_7/src/xvtc_hw.h
+ * Trust the source — don't guess. */
+#define VTC_CTL                 0x000u  /* XVTC_CTL_OFFSET — Control (RW)   */
+#define VTC_STAT                0x004u  /* XVTC_ISR_OFFSET — Status (RO)    */
 #define VTC_ERROR               0x08u
 
-#define VTC_CTL_DET_EN          (1u << 0)
-#define VTC_CTL_REG_UPDATE      (1u << 1)
-#define VTC_STAT_LOCK_BIT       (1u << 8)
+/* V_TC CTL bit masks from xvtc_hw.h v8_7 (XVTC_CTL_*_MASK):
+ *   bit 31 = SW_RESET  (XVTC_CTL_RESET_MASK   = 0x80000000)
+ *   bit 30 = SRST      (frame-sync'd reset)
+ *   bit  5 = SE        (sync-with-detector,   = 0x20)
+ *   bit  3 = DE        (XVTC_CTL_DE_MASK      = 0x08, Detector Enable)
+ *   bit  2 = GE        (XVTC_CTL_GE_MASK      = 0x04, Generator Enable)
+ * ISR (offset 0x04) status bits (XVTC_STAT_*_MASK):
+ *   bit  0 = LOCKED    (XVTC_STAT_LOCKED_MASK = 0x01)  */
+#define VTC_CTL_DET_EN          0x00000008u   /* XVTC_CTL_DE_MASK   */
+#define VTC_CTL_REG_UPDATE      0x00000000u   /* not needed for detect-only */
+#define VTC_STAT_LOCK_BIT       0x00000001u   /* XVTC_STAT_LOCKED_MASK */
 
 /* ── Color-convert (HLS) — identity 3x3 matrix offsets (PG284) ──────── */
 #define CC_C1_C1                0x10u
@@ -103,6 +115,7 @@ static int               g_initialised;
 
 void hdmi_in_init(void)
 {
+    uart_puts(" [init.S1] VDMA halt+reset\n");
     /* 1. Hard-stop and reset the S2MM channel of axi_vdma_1. */
     mmio_w(VDMA_IN_BASE + S2MM_DMACR, 0u);                /* halt   */
     mmio_w(VDMA_IN_BASE + S2MM_DMACR, DMACR_RESET_BIT);   /* reset  */
@@ -112,19 +125,30 @@ void hdmi_in_init(void)
         delay_us(1);
     }
 
-    /* 2. Color-convert and pixel-pack IPs were removed from the BD in the
-     *    final scripts/add_hdmi_in_pynqz2.tcl — replaced with
-     *    axis_subset_converter_in (config-time-only, no AXI-Lite slave;
-     *    24->32 byte-pad is fixed at synth). The previous writes to
-     *    CCONV_IN_BASE / PIXPACK_IN_BASE targeted non-existent AXI-Lite
-     *    slaves and would have stalled on AXI decode timeout. Removed. */
+    uart_puts(" [init.S2] color_convert + pixel_pack\n");
+    /* 2. Identity 3x3 colour matrix (input RGB pass-through). The working
+     *    cgra_pynq_base BD has color_convert at 0x43C5_0000 — these writes
+     *    were restored when we switched to the working bitstream's address
+     *    map. PYNQ Python overlay uses the same offsets. */
+    mmio_w(CCONV_IN_BASE + CC_C1_C1, CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C1_C2, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C1_C3, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C2_C1, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C2_C2, CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C2_C3, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C1, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C2, CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C3, CC_COEFF_ONE);
 
-    /* 3. VTC detector: enable. The IP measures hsync/vsync from the
-     *    recovered pixel clock. dvi2rgb has no AXI-Lite — it locks
-     *    automatically the moment a valid TMDS signal arrives at J10. */
-    mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN | VTC_CTL_REG_UPDATE);
+    /* Pixel-pack: V_24 mode (3 bytes per pixel). */
+    mmio_w(PIXPACK_IN_BASE + PIXPACK_MODE, PIXPACK_MODE_V24);
 
-    /* 4. Configure the S2MM channel.
+    uart_puts(" [init.S3] VTC detector enable\n");
+    /* Detector-only: bit 3 of CTL. Verified against xvtc_hw.h v8_7. */
+    mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN);
+
+    uart_puts(" [init.S5] S2MM config\n");
+    /* 5. Configure the S2MM channel.
      *    a) primary register bank (REG_INDEX = 0)
      *    b) three frame-store base addresses
      *    c) PARK_PTR = 0 to round-robin all three
@@ -144,6 +168,7 @@ void hdmi_in_init(void)
     mmio_w(VDMA_IN_BASE + S2MM_HSIZE,         HDMI_IN_ROW_STRIDE);   /* 1920 */
     mmio_w(VDMA_IN_BASE + S2MM_VSIZE,         HDMI_IN_H);            /* 480 — LAST */
 
+    uart_puts(" [init.S6] FB pointers + done\n");
     /* Cache the FB pointers in driver state. */
     g_fb[0] = (volatile uint8_t *)HDMI_IN_FB0;
     g_fb[1] = (volatile uint8_t *)HDMI_IN_FB1;
