@@ -119,6 +119,13 @@ set_property -dict [list \
     CONFIG.PCW_FCLK_CLK1_BUF       {TRUE} \
     CONFIG.PCW_USE_FABRIC_INTERRUPT {1} \
     CONFIG.PCW_IRQ_F2P_INTR        {1} \
+    CONFIG.PCW_UART0_PERIPHERAL_ENABLE  {1} \
+    CONFIG.PCW_UART0_UART0_IO           {MIO 14 .. 15} \
+    CONFIG.PCW_UART0_BAUD_RATE          {115200} \
+    CONFIG.PCW_UART_PERIPHERAL_FREQMHZ  {100} \
+    CONFIG.PCW_UART_PERIPHERAL_CLKSRC   {IO PLL} \
+    CONFIG.PCW_IOPLL_CTRL_FBDIV         {30} \
+    CONFIG.PCW_IO_PLL_FREQMHZ           {1000} \
 ] [get_bd_cells processing_system7_0]
 
 # ----- 2. Reset blocks (one per clock domain) ----------------------------
