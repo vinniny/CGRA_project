@@ -82,8 +82,11 @@ set_property -dict [list \
 # ----- 2. Add axis_switch_in --------------------------------------------
 puts "\n=== 2. Add axis_switch_in (2 → 1) ==="
 create_bd_cell -type ip -vlnv $IP_SWITCH axis_switch_in
+# ROUTING_MODE=1 = "Control Register Routing" → IP exposes S_AXI_CTRL
+# AXI-Lite slave. ROUTING_MODE=0 is TDEST-routed (no AXI-Lite, useless
+# for SW-selectable source switching).
 set_property -dict [list \
-    CONFIG.ROUTING_MODE      {0}    \
+    CONFIG.ROUTING_MODE      {1}    \
     CONFIG.NUM_SI            {2}    \
     CONFIG.NUM_MI            {1}    \
     CONFIG.HAS_TLAST         {1}    \
@@ -163,7 +166,11 @@ delete_bd_objs $old_net
 # We need to know the previous source. In the working BD the chain typically is:
 #   /video/hdmi_in/frontend → /video/hdmi_in/color_convert
 # Look up the source pin by inspecting the frontend hierarchy.
+# In the working cgra_pynq_base BD the frontend's AXIS master is the
+# `video_out` intf pin (the chain ends in v_vid_in_axi4s_0 inside the
+# hierarchy and gets re-exposed as `video_out`). Probed via /tmp/probe_pins.
 set frontend_out_candidates {
+    video/hdmi_in/frontend/video_out
     video/hdmi_in/frontend/m_axis_video
     video/hdmi_in/frontend/M_AXIS
     video/hdmi_in/frontend/m_axis
@@ -177,11 +184,10 @@ foreach c $frontend_out_candidates {
     }
 }
 if {$frontend_out eq ""} {
-    puts "  WARN: frontend AXIS output pin not auto-detected — left for manual wiring."
-} else {
-    connect_bd_intf_net $frontend_out [get_bd_intf_pins axis_switch_in/S00_AXIS]
-    puts "  frontend AXIS  → axis_switch_in.S00_AXIS"
+    error "frontend AXIS output pin not detected — list candidates with `get_bd_intf_pins -of_objects \[get_bd_cells video/hdmi_in/frontend\]`."
 }
+connect_bd_intf_net $frontend_out [get_bd_intf_pins axis_switch_in/S00_AXIS]
+puts "  frontend AXIS  → axis_switch_in.S00_AXIS  (source: $frontend_out)"
 connect_bd_intf_net [get_bd_intf_pins v_tpg_test_0/m_axis_video] \
                     [get_bd_intf_pins axis_switch_in/S01_AXIS]
 puts "  v_tpg AXIS     → axis_switch_in.S01_AXIS"
