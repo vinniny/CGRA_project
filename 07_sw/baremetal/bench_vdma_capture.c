@@ -53,16 +53,35 @@ static inline uint32_t vdma_frame_idx(void)
 
 static void uart_putu32(uint32_t v) { uart_putdec(v); }
 
+/* Timeout: at 60 Hz a frame is ~16.7 ms = 5.5 Mcyc @ 333 MHz. Bail out
+ * if FrameStore hasn't advanced after 10× that. Saves the bench from
+ * hanging forever when CIRCULAR_PARK is misconfigured or VDMA stalls. */
+#define BENCH_TIMEOUT_CYC   (55u * 1000u * 1000u)
+
 static void bench_one_trial(uint32_t trial_n)
 {
     uint32_t prev = vdma_frame_idx();
     uint32_t captured = 0;
-    uint32_t t0 = pmccntr_read();
+    uint32_t t0       = pmccntr_read();
+    uint32_t last_t   = t0;
+
     while (captured < FRAMES_PER_TRIAL) {
         uint32_t cur = vdma_frame_idx();
         if (cur != prev) {
             captured++;
-            prev = cur;
+            prev    = cur;
+            last_t  = pmccntr_read();
+        } else if ((pmccntr_read() - last_t) > BENCH_TIMEOUT_CYC) {
+            /* FrameStore hasn't ticked in too long — abort this trial. */
+            uart_puts("[bench] trial="); uart_putu32(trial_n);
+            uart_puts("  ABORT: FrameStore stalled  prev=");
+            uart_puthex(prev);
+            uart_puts("  DMASR=");
+            uart_puthex(*(volatile uint32_t *)VDMA_DMASR_ADDR);
+            uart_puts("  captured=");
+            uart_putu32(captured);
+            uart_puts("\n");
+            return;
         }
     }
     uint32_t t1 = pmccntr_read();
