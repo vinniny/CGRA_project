@@ -108,27 +108,45 @@ puts "\n=== 3. Clock + reset hookup ==="
 #   /video/hdmi_in/color_convert/stream_in_24(142857132) and
 #   /axis_switch_in/M00_AXIS(100000000)
 # AXI-Lite control stays on FCLK0 = 100 MHz (matches ps7_0_axi_periph).
-proc _pick_pin {patterns} {
-    foreach pat $patterns {
-        set hits [get_bd_pins -hierarchical -quiet $pat]
+proc _pick_pin {paths} {
+    foreach p $paths {
+        # Try direct (current-scope) lookup first.
+        set hits [get_bd_pins -quiet $p]
         if {[llength $hits] > 0} { return [lindex $hits 0] }
     }
     return ""
 }
+# Resolve aresetn by walking the reset cells and matching the clock that
+# drives slowest_sync_clk. Bulletproof to any naming convention.
+proc _find_aresetn_for_clk {clk_pin} {
+    foreach c [get_bd_cells -filter {VLNV =~ "*proc_sys_reset*"}] {
+        set slk [get_bd_pins -quiet $c/slowest_sync_clk]
+        if {[llength $slk] == 0} continue
+        foreach n [get_bd_nets -of_objects $slk] {
+            set drivers [get_bd_pins -of_objects $n]
+            foreach d $drivers {
+                if {$d eq $clk_pin} {
+                    set out [get_bd_pins -quiet $c/peripheral_aresetn]
+                    if {[llength $out] > 0} { return [lindex $out 0] }
+                }
+            }
+        }
+    }
+    return ""
+}
 set fclk_vid  [get_bd_pins ps7_0/FCLK_CLK1]
-set rstn_vid  [_pick_pin [list \
-    /rst_ps7_0_fclk1/peripheral_aresetn \
-    /rst_ps7_0_142M/peripheral_aresetn  \
-    */rst*fclk1*/peripheral_aresetn      \
-    */rst*142M*/peripheral_aresetn ]]
 set fclk_ctrl [get_bd_pins ps7_0/FCLK_CLK0]
+# Try direct names first (working BD uses fclk0/fclk1 suffix), then walk.
+set rstn_vid  [_pick_pin [list \
+    rst_ps7_0_fclk1/peripheral_aresetn \
+    rst_ps7_0_142M/peripheral_aresetn]]
+if {$rstn_vid eq ""} { set rstn_vid [_find_aresetn_for_clk $fclk_vid] }
 set rstn_ctrl [_pick_pin [list \
-    /rst_ps7_0_fclk0/peripheral_aresetn \
-    /rst_ps7_0_100M/peripheral_aresetn  \
-    */rst*fclk0*/peripheral_aresetn      \
-    */rst*100M*/peripheral_aresetn ]]
+    rst_ps7_0_fclk0/peripheral_aresetn \
+    rst_ps7_0_100M/peripheral_aresetn]]
+if {$rstn_ctrl eq ""} { set rstn_ctrl [_find_aresetn_for_clk $fclk_ctrl] }
 if {$rstn_vid eq "" || $rstn_ctrl eq ""} {
-    error "Could not find peripheral_aresetn for FCLK0 or FCLK1 — see proc_sys_reset cells with `get_bd_cells -hierarchical -filter {VLNV =~ *proc_sys_reset*}`."
+    error "Could not find peripheral_aresetn for FCLK0 ($fclk_ctrl) or FCLK1 ($fclk_vid)."
 }
 puts "  video clock : $fclk_vid    @ 142.857 MHz"
 puts "  video reset : $rstn_vid"
