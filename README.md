@@ -72,6 +72,39 @@ for the timing-closure story).
   `contribs = 16·N − 3` (with `SRC_IMM`). A previous CLAUDE.md note that
   claimed only ~1/3 of back-to-back MACs contributed is **incorrect** and
   has been replaced with the measured numbers.
+- **Vivado-Centric Bitstream Build Procedure** silicon-validated
+  (commits `48d9c6d`, `e11bb5b`, `3ef7645`) — three bitstream variants
+  built from one `base.tcl` source by additive Tcl patches:
+  - **Procedure A** (`bitstreams/cgra_rebuilt_from_base.bit`): clean
+    reproduction of the working `cgra_pynq_base`. WNS +0.344 ns, 75.81% LUT.
+  - **Procedure B** (`bitstreams/cgra_vtpg_test.bit`): adds v_tpg + axis_switch
+    so the AXIS pipeline can be exercised without an HDMI source. WNS +0.232 ns,
+    80.76% LUT.
+  - **Procedure D** (`bitstreams/cgra_vtpg_ila.bit` + `.ltx`): Procedure B
+    plus a System ILA monitoring 3 AXIS links. WNS **+0.309 ns** under
+    `Performance_ExploreWithRemap` strategy, 85.05% LUT. Used to silicon-
+    validate the v_tpg AXIS chain end-to-end.
+  - Build doc: `06_doc/vivado_bitstream_build_procedure.md`.
+- **Silicon AXIS chain validated** (commit `109adc7`) — full
+  `v_tpg → axis_switch_in → color_convert → pixel_pack → axi_vdma`
+  path proven on Zynq-7020. ILA shows TVALID/TREADY ≥ 97% on each link;
+  VDMA writes 921 600 bytes/frame to DDR @ `0x1100_0000`. v_tpg's
+  `COLOR_BARS` output identified as BT.601 full-range YCbCr-444 (not RGB);
+  `hdmi_in_color_convert_ycbcr2rgb()` programs the color_convert IP with
+  the correct 3×3 matrix + bias, and all 8 SMPTE bars verify within ±3
+  RGB tolerance (artefact: `06_doc/silicon_vtpg_smpte_bars.bmp`).
+- **Zynq-7000 DAP-lockup recovery** (commit `453b8f4`) — `rst -dap`
+  documented as software recovery for the AHB/APB AP transaction-error
+  state previously thought to require physical SRST. `xsdb_program.tcl`
+  now auto-runs `configparams force-mem-accesses 1` + `rst -dap` on every
+  `connect`, so `make program ...` is now resilient to a half-aborted
+  prior session.
+- **`scripts/silicon_vtpg_test.sh`** (commit `156976d`) — one-shot
+  resilient orchestrator: programs PL, runs ps7_init, loads + runs
+  `demo_vtpg.elf`, captures the System ILA, dumps the framebuffer,
+  renders to BMP, and verifies the 8 SMPTE bars. Built-in DAP recovery
+  via `run_xsdb_with_recovery`. Replaces ~10 minutes of manual XSDB +
+  Vivado HW Manager + Python BMP commands with a ~30 s script.
 
 ## Architecture & References
 
@@ -287,7 +320,7 @@ Makefile       Top-level orchestration
 The top-level `Makefile` drives every flow.
 
 ```bash
-make sim              # Compile, elaborate, and run all 9,148 simulation tests
+make sim              # Compile, elaborate, and run all 9,159 simulation tests
 make cov              # Same, with coverage collection
 make lint_static      # Xcelium, Genus, and Vivado lint checks
 make syn              # Cadence Genus synthesis
@@ -322,6 +355,33 @@ demo: CGRA-FC, ARM-INT-FC, ARM-VFP-FC running the same MNIST FC stage
 side by side with per-image cycle counts.
 
 Walkthrough: [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md)
+
+### v_tpg AXIS-chain silicon validation (Procedure D bitstream)
+
+One-shot resilient test that programs `cgra_vtpg_ila.bit`, runs the
+bare-metal demo, captures the System ILA, dumps the VDMA framebuffer,
+renders to BMP, and verifies all 8 SMPTE bars within tolerance:
+
+```bash
+# Full test with Vivado HW Manager ILA capture (requires hw_server)
+./scripts/silicon_vtpg_test.sh
+
+# Quick path — skip ILA, just program + dump + verify
+./scripts/silicon_vtpg_test.sh --skip-ila
+```
+
+Outputs:
+- `06_doc/silicon_vtpg_smpte_bars.bmp` — 640×480 BMP of the v_tpg
+  COLOR_BARS pattern, YCbCr→RGB converted by silicon RTL
+- `/tmp/ila_capture_vtpg.csv` (+ `.vcd`) — 256-sample free-running
+  ILA capture across v_tpg.m_axis_video, axis_switch.M00, and
+  pixel_pack.stream_out_32
+
+If the prior session left the DAP in an AP transaction-error state
+(symptom: ARM Cortex-A9 missing from `targets` list), `xsdb_program.tcl`
+now auto-recovers via `rst -dap` on every `connect`. The all-in-one
+script wraps each step in `run_xsdb_with_recovery` for extra resilience.
+Background and root-cause analysis: `06_doc/zynq_dap_recovery.md`.
 
 ## APB Register Map
 
@@ -429,7 +489,7 @@ slots is the documented workaround.
 
 Two independent regressions are run against every bitstream.
 
-**Pre-silicon (Cadence Xcelium)**: 9,148 tests across 11 suites covering
+**Pre-silicon (Cadence Xcelium)**: 9,159 tests across 11 suites covering
 APB and AXI4 protocol, 1D and 2D DMA, scatter-gather DMA, the full
 21-opcode ISA, 40-bit MAC saturation, hardware loops, and end-to-end
 CNN inference. All passing; zero failures, zero protocol violations.
