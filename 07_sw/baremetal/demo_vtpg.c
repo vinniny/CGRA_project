@@ -45,6 +45,14 @@ int main(void)
     hdmi_in_init();
     uart_puts(" done\n");
 
+    /* 1b. v_tpg outputs YCbCr-444 (silicon-validated 2026-05-24:
+     *     SOLID_BLACK → bytes (0, 128, 128), SOLID_RED → (76, 85, 255),
+     *     i.e. byte order (Y, Cb, Cr) with BT.601 full-range coding).
+     *     Program color_convert with the YCbCr→RGB BT.601 matrix so
+     *     the FB ends up as a viewable RGB image. */
+    uart_puts("[init ] color_convert: YCbCr-444 -> RGB (BT.601)\n");
+    hdmi_in_color_convert_ycbcr2rgb();
+
     /* 2. Route the AXIS switch to the v_tpg source (S01 → M00). */
     uart_puts("[init ] axis_switch_in: route S01 (v_tpg) -> M00\n");
     vtpg_axis_switch_route(AXIS_SWITCH_SRC_VTPG);

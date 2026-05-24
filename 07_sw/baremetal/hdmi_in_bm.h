@@ -103,4 +103,19 @@ int  hdmi_in_locked(void);
  */
 void hdmi_in_enable_vtc(void);
 
+/**
+ * Program color_convert with a YCbCr-444 → RGB (BT.601 full-range)
+ * matrix. Call AFTER hdmi_in_init() when the upstream source emits
+ * YCbCr (e.g. v_tpg's COLOR_BARS pattern, which is YCbCr-444 regardless
+ * of the colorFormat register). Silicon-validated 2026-05-24 against
+ * v_tpg SMPTE 100% bars → captured 8 cleanly-converted RGB bars.
+ */
+void hdmi_in_color_convert_ycbcr2rgb(void);
+
+/**
+ * Program color_convert with a 3×3 identity matrix and zero biases —
+ * the default for an RGB-in, RGB-out path. Idempotent.
+ */
+void hdmi_in_color_convert_identity(void);
+
 #endif /* HDMI_IN_BM_H */

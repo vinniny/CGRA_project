@@ -87,7 +87,10 @@ static void delay_us(uint32_t us)
 #define VTC_CTL_REG_UPDATE      0x00000000u   /* not needed for detect-only */
 #define VTC_STAT_LOCK_BIT       0x00000001u   /* XVTC_STAT_LOCKED_MASK */
 
-/* ── Color-convert (HLS) — identity 3x3 matrix offsets (PG284) ──────── */
+/* ── Color-convert (HLS) — register layout from xcolor_convert_hw.h ───
+ * Coefficient format: ap_fixed<10,2,AP_RND,AP_SAT>. 1.0 = 0x100.
+ * Bias  format:        ap_fixed<10,2> applied AFTER matrix mul.
+ * Matrix is applied as: out = M·in + bias (per row).                  */
 #define CC_C1_C1                0x10u
 #define CC_C1_C2                0x18u
 #define CC_C1_C3                0x20u
@@ -97,9 +100,30 @@ static void delay_us(uint32_t us)
 #define CC_C3_C1                0x40u
 #define CC_C3_C2                0x48u
 #define CC_C3_C3                0x50u
-/* Coefficient format: ap_fixed<10,2,AP_RND,AP_SAT>. 1.0 = 0x100, 0.0 = 0x000. */
+#define CC_BIAS_C1              0x58u
+#define CC_BIAS_C2              0x60u
+#define CC_BIAS_C3              0x68u
 #define CC_COEFF_ONE            0x100u
 #define CC_COEFF_ZERO           0x000u
+/* YCbCr-444 (full-range BT.601) → RGB. Used when v_tpg or a 4:4:4 HDMI
+ * source feeds the chain. Reset to identity (CC_COEFF_ONE on the
+ * diagonal, zero biases) when the source is already RGB.
+ *
+ *   R = 1.000·Y + 0.000·Cb + 1.402·Cr − 0.701
+ *   G = 1.000·Y − 0.344·Cb − 0.714·Cr + 0.529
+ *   B = 1.000·Y + 1.772·Cb + 0.000·Cr − 0.886            */
+#define CC_YCBCR2RGB_C1_C1      0x100u  /*  1.000 */
+#define CC_YCBCR2RGB_C1_C2      0x000u  /*  0.000 */
+#define CC_YCBCR2RGB_C1_C3      0x167u  /*  1.402 */
+#define CC_YCBCR2RGB_C2_C1      0x100u  /*  1.000 */
+#define CC_YCBCR2RGB_C2_C2      0x3A8u  /* -0.344 (10-bit 2c) */
+#define CC_YCBCR2RGB_C2_C3      0x349u  /* -0.714 */
+#define CC_YCBCR2RGB_C3_C1      0x100u  /*  1.000 */
+#define CC_YCBCR2RGB_C3_C2      0x1C6u  /*  1.772 */
+#define CC_YCBCR2RGB_C3_C3      0x000u  /*  0.000 */
+#define CC_YCBCR2RGB_BIAS_C1    0x34Du  /* -0.701 */
+#define CC_YCBCR2RGB_BIAS_C2    0x087u  /* +0.529 */
+#define CC_YCBCR2RGB_BIAS_C3    0x31Du  /* -0.886 */
 
 /* ── Pixel-pack: mode register ───────────────────────────────────────── */
 #define PIXPACK_MODE            0x10u
@@ -196,6 +220,38 @@ void hdmi_in_enable_vtc(void)
      * Writes the Detector Enable bit per XVtc_EnableDetector() in
      * xvtc.c v8_7. Safe to call once dvi2rgb has a stable PixelClk. */
     mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN);
+}
+
+void hdmi_in_color_convert_ycbcr2rgb(void)
+{
+    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_YCBCR2RGB_C1_C1);
+    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_YCBCR2RGB_C1_C2);
+    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_YCBCR2RGB_C1_C3);
+    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_YCBCR2RGB_C2_C1);
+    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_YCBCR2RGB_C2_C2);
+    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_YCBCR2RGB_C2_C3);
+    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_YCBCR2RGB_C3_C1);
+    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_YCBCR2RGB_C3_C2);
+    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_YCBCR2RGB_C3_C3);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, CC_YCBCR2RGB_BIAS_C1);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, CC_YCBCR2RGB_BIAS_C2);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, CC_YCBCR2RGB_BIAS_C3);
+}
+
+void hdmi_in_color_convert_identity(void)
+{
+    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_COEFF_ZERO);
+    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_COEFF_ONE);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, 0);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, 0);
+    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, 0);
 }
 
 int hdmi_in_frame_ready(void)
