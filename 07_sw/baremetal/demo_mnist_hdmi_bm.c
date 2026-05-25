@@ -329,24 +329,21 @@ int main(void)
     arm_pmu_enable();
     arm_ccnt_reset();
 
+    /* HDMI-OUT first, then HDMI-IN. hdmi_in_init's DMACR.Reset will
+     * disturb HDMI-OUT timing momentarily (right-shifted / colour-off
+     * visible artefacts on J11) but signal IS produced. Tested in this
+     * order on silicon -- the inverse (HDMI-IN first) results in J11
+     * showing "no signal" entirely, which is worse. */
+    if (hdmi_init() < 0) { uart_puts("FAIL: hdmi_init\n"); for(;;); }
+    uart_puts("HDMI ready, building FC chains...\n");
+
 #ifdef LIVE_INPUT
-    /* CRITICAL ORDER: hdmi_in_init() BEFORE hdmi_init() (HDMI-OUT).
-     * hdmi_in_init does a HARD reset of the shared VDMA IP (PG020:
-     * DMACR.Reset affects both channels). That reset must happen
-     * BEFORE HDMI-OUT is configured -- otherwise HDMI-OUT either
-     * gets torn down post-config (corrupted display) or never starts
-     * because its config raced the reset (J11 shows "no signal").
-     * Asserting HPD here also gives the laptop source time to start
-     * transmitting while HDMI-OUT chrome renders. */
     hdmi_in_assert_hpd();
     for (volatile uint32_t i = 0; i < 2000000; i++) ;
     hdmi_in_init();
     hdmi_in_color_convert_identity();
-    uart_puts("HDMI-in initialised; bringing up HDMI-OUT...\n");
+    uart_puts("HDMI-in initialised, waiting for laptop signal on J10...\n");
 #endif
-
-    if (hdmi_init() < 0) { uart_puts("FAIL: hdmi_init\n"); for(;;); }
-    uart_puts("HDMI ready, building FC chains...\n");
 
     uint32_t fc1_w_ddr = (uint32_t)(uintptr_t)cnn_spm_start;
     uint32_t fc2_w_ddr = fc1_w_ddr + CNN_FC1_N_OUTPUTS * CNN_FC1_SPM_BPN;
