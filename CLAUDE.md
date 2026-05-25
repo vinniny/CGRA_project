@@ -75,6 +75,15 @@ All three orchestrators end with `write_hw_platform -fixed -include_bit
 Vitis "Platform Project → New" consumes on Windows — bundles the
 `.bit` + auto-generated `ps7_init.{tcl,c,h}` so Vitis "Launch on
 Hardware" does PL programming + PS init + ELF load in one click.
+
+`scripts/vitis_build_demo.tcl` is the Vitis-side counterpart — an
+xsct batch script that does platform create + app create + source
+import + build in one command. Tested on WSL Vitis 2025.1 against
+the cgra_vtpg_ila.xsa, produces demo_vtpg.elf at 45 328 bytes. Two
+Vitis 2025.1 quirks baked into the script: Empty-C template is
+`"Empty Application(C)"` (no space), and `start.s` needs explicit
+assembler-flags `-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard`
+(Vitis 2025.1's auto-makefile doesn't inherit them from compiler-misc).
 Procedure D produced WNS = +0.309 ns (timing fully met) with the System
 ILA logic on chip. Procedure A uses default impl strategy (default
 beats ExploreWithRemap when no ILA is present, +0.344 ns vs +0.098 ns).

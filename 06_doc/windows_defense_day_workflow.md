@@ -56,6 +56,27 @@ cp -r /home/vinniny/centos_vm/projects/CGRA_project /mnt/c/Users/thanh/Desktop/C
 ```
 Or `git clone <url>` if you push to GitHub first.
 
+**Fast path — skip Vitis IDE clicks entirely.** A reusable xsct batch
+script `scripts/vitis_build_demo.tcl` does platform + app create + source
+import + build in one command:
+
+```cmd
+:: From Windows cmd, with Vitis 2025.1 on PATH (or use xsct.bat full path):
+xsct C:\Users\thanh\Desktop\CGRA_project\scripts\vitis_build_demo.tcl
+```
+
+Environment overrides:
+```cmd
+set CGRA_XSA=C:\path\to\cgra_rebuilt_from_base.xsa
+set CGRA_DEMO=cgra_test
+set CGRA_DEMO_SRCS=start.s main.c gic.c gic.h cgra.h uart.h linker.ld
+xsct scripts\vitis_build_demo.tcl
+```
+
+Validated on WSL Vitis 2025.1 (2026-05-25): builds demo_vtpg.elf at
+45 328 bytes from `bitstreams/cgra_vtpg_ila.xsa`. Same tool / Tcl on
+Windows.
+
 Path used in the rest of this doc (substitute as needed):
 ```
 C:\Users\thanh\Desktop\CGRA_project\
@@ -171,6 +192,19 @@ app's `src/` directory:
 ### Build
 
 Right-click app → **Build**. ELF appears at `<app>/Debug/<app>.elf`.
+
+**Two Vitis 2025.1 gotchas** validated on 2026-05-25 (only relevant if
+doing the GUI flow — the batch script handles them):
+
+1. The Empty C template name is `"Empty Application(C)"` (no space
+   before the paren). Older Vitis versions used `"Empty Application
+   (C)"` — the space breaks 2025.1.
+2. `start.s` will fail to assemble with "selected processor does not
+   support `isb`/`vmsr`/`wfi`" because Vitis 2025.1's auto-makefile
+   invokes the assembler without inheriting `-mcpu=cortex-a9`. Fix
+   in Properties → C/C++ Build → Settings → ARM v7 gcc assembler →
+   General → Assembler Flags: add `-mcpu=cortex-a9 -mfpu=vfpv3
+   -mfloat-abi=hard`.
 
 ---
 
@@ -292,6 +326,8 @@ For the headline thesis demo (3.81× speedup):
 | Cortex-A9 missing from targets | Use XSDB: `targets -set 1; rst -dap; after 1500; targets` |
 | `mrd` says "Blocked address" | XSDB: `configparams force-mem-accesses 1` |
 | Bitstream programs but PS dead | Vitis Run Configuration → confirm **Run ps7_init = YES** |
+| `app create` error: "is not valid application template name" | Template name in 2025.1 is `"Empty Application(C)"` (no space). |
+| `start.s` build fails with "isb / vmsr / wfi not supported in ARM mode" | Add `-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard` to assembler-flags (the batch script does this automatically). |
 
 ---
 
