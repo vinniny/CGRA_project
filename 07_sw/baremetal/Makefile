@@ -139,6 +139,14 @@ HDMI_IN_CAP_TARGET := demo_hdmi_in_capture.elf
 VTPG_SRCS   := start.s demo_vtpg.c hdmi_in_bm.c gic.c
 VTPG_TARGET := demo_vtpg.elf
 
+# ── demo_hdmi_live: LIVE HDMI source through axis_switch.S00 ─────────────
+LIVE_SRCS   := start.s demo_hdmi_live.c hdmi_in_bm.c gic.c
+LIVE_TARGET := demo_hdmi_live.elf
+
+# ── demo_hdmi_simple: minimal HDMI capture (no axis_switch / cgra_top.bit) ─
+SIMPLE_SRCS   := start.s demo_hdmi_simple.c hdmi_in_bm.c gic.c
+SIMPLE_TARGET := demo_hdmi_simple.elf
+
 # ── bench_vdma_capture: measure VDMA capture throughput (v_tpg-driven) ──
 BENCH_VDMA_SRCS   := start.s bench_vdma_capture.c hdmi_in_bm.c gic.c
 BENCH_VDMA_TARGET := bench_vdma_capture.elf
@@ -201,7 +209,7 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture bench_vdma mnist_hdmi mnist_per_stage
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_per_stage
 
 all: $(TARGET)
 
@@ -216,6 +224,10 @@ hdmi_text: $(HDMI_TEXT_TARGET)
 hdmi_in_capture: $(HDMI_IN_CAP_TARGET)
 
 vtpg_capture: $(VTPG_TARGET)
+
+hdmi_live: $(LIVE_TARGET)
+
+hdmi_simple: $(SIMPLE_TARGET)
 
 bench_vdma: $(BENCH_VDMA_TARGET)
 
@@ -316,6 +328,14 @@ $(HDMI_IN_CAP_TARGET): $(HDMI_IN_CAP_SRCS) uart.h hdmi_in_bm.h gic.h linker.ld
 $(VTPG_TARGET): $(VTPG_SRCS) uart.h hdmi_in_bm.h vtpg.h gic.h linker.ld
 	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(VTPG_SRCS) -lgcc -o $@
 	@echo "[BUILD] $(VTPG_TARGET) OK"
+
+$(LIVE_TARGET): $(LIVE_SRCS) uart.h hdmi_in_bm.h vtpg.h gic.h linker.ld
+	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(LIVE_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(LIVE_TARGET) OK"
+
+$(SIMPLE_TARGET): $(SIMPLE_SRCS) uart.h hdmi_in_bm.h gic.h linker.ld
+	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(SIMPLE_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(SIMPLE_TARGET) OK"
 
 $(BENCH_VDMA_TARGET): $(BENCH_VDMA_SRCS) uart.h hdmi_in_bm.h vtpg.h gic.h linker.ld
 	$(CC) $(CFLAGS) -T linker.ld -nostdlib $(BENCH_VDMA_SRCS) -lgcc -o $@

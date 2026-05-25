@@ -274,6 +274,18 @@ void hdmi_in_color_convert_identity(void)
     mmio_w(CCONV_IN_BASE + CC_BIAS_C3, 0);
 }
 
+void hdmi_in_assert_hpd(void)
+{
+    /* Xilinx axi_gpio standard register map:
+     *   0x00  GPIO_DATA   (channel 1 data, R/W)
+     *   0x04  GPIO_TRI    (channel 1 tri-state, 0=output 1=input)
+     * HDMI-in HPD is on channel 1 bit 0. Drive output mode + level high. */
+    const uint32_t GPIO_DATA = 0x00u;
+    const uint32_t GPIO_TRI  = 0x04u;
+    mmio_w(GPIO_HDMIIN_BASE + GPIO_TRI,  0x00u);   /* bit 0 = output */
+    mmio_w(GPIO_HDMIIN_BASE + GPIO_DATA, 0x01u);   /* HPD = 1 (asserted) */
+}
+
 void hdmi_in_color_convert_ycbcr2rgb_bt709(void)
 {
     /* Row 1 (R): same constant col 1 (Y→R coeff = 1.0) as BT.601,

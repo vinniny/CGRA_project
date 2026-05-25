@@ -34,19 +34,29 @@
 #include <stdint.h>
 
 /* ── Frame geometry ───────────────────────────────────────────────────── */
-#define HDMI_IN_W            640u
-#define HDMI_IN_H            480u
+/* Default is 1280x720 -- this is what Windows actually puts on the HDMI
+ * wire when desktop is "800x600" or any sub-720p resolution (no EDID =>
+ * Windows defaults to 720p signal mode, upscales the desktop into it).
+ * Override at compile time:
+ *   make CFLAGS_EXTRA='-DHDMI_IN_W=800 -DHDMI_IN_H=600' <target>           */
+#ifndef HDMI_IN_W
+#define HDMI_IN_W            1280u
+#endif
+#ifndef HDMI_IN_H
+#define HDMI_IN_H            720u
+#endif
 #define HDMI_IN_BPP          3u
-#define HDMI_IN_ROW_STRIDE   (HDMI_IN_W * HDMI_IN_BPP)             /* 1920 */
-#define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 921 600 */
+#define HDMI_IN_ROW_STRIDE   (HDMI_IN_W * HDMI_IN_BPP)             /* 3840 */
+#define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 2 764 800 */
 
 /* ── Triple-buffer base addresses in DDR ──────────────────────────────── */
 /* In the cgra_pynq_base working BD, the HDMI VDMA's address range is
  * 0x10000000 - 0x1FFFFFFF (256 MB window into DDR). Frames lock inside that.
  * Choose 3 frames in the lower part of that window. */
+/* 4 MB stride per FB (each 1280x720x3 = 2.64 MB; rounded up). */
 #define HDMI_IN_FB0          0x11000000UL
-#define HDMI_IN_FB1          0x11200000UL
-#define HDMI_IN_FB2          0x11400000UL
+#define HDMI_IN_FB1          0x11400000UL
+#define HDMI_IN_FB2          0x11800000UL
 
 /* ── AXI-Lite register bases (cgra_pynq_base working BD) ─────────────────
  * The working BD has ONE axi_vdma at 0x43000000 that handles both MM2S
@@ -125,5 +135,19 @@ void hdmi_in_color_convert_identity(void);
  * sources (and v_tpg's COLOR_BARS pattern) use BT.601.
  */
 void hdmi_in_color_convert_ycbcr2rgb_bt709(void);
+
+/**
+ * Drive the HDMI-in HPD (Hot-Plug Detect) line HIGH via the
+ * axi_gpio_hdmiin IP at 0x4122_0000. Without this, the laptop / source
+ * sees the board's HDMI-in as "no monitor connected" and refuses to
+ * transmit — even though the cable is physically plugged in. Some
+ * splitters also gate their downstream forwarding on HPD assertion.
+ *
+ * Call this once BEFORE programming color_convert / enabling VDMA so
+ * the source has time to renegotiate and start streaming. Silicon-
+ * confirmed missing-link 2026-05-25 (TVALID 0% on axis_switch.M00 ILA
+ * until HPD asserted).
+ */
+void hdmi_in_assert_hpd(void);
 
 #endif /* HDMI_IN_BM_H */
