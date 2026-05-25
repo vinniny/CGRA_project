@@ -57,7 +57,20 @@ wait_on_run impl_1
 # Compare to /mnt/c/.../impl_1/base_wrapper.bit — should be bit-equivalent
 # (LUT placement may differ slightly between runs, but utilisation /
 # timing / DRC reports match).
+
+# 8. Export hardware platform (.xsa) — load-bearing handoff to Vitis.
+#    -include_bit packages the .bit + ps7_init.{tcl,c,h} in the .xsa zip.
+write_hw_platform -fixed -include_bit -force \
+    -file ~/vivado_projects/cgra_rebuild/cgra_rebuild.runs/impl_1/base_wrapper.xsa
 ```
+
+**Note** (2026-05-25): the `scripts/rebuild_bitstream_from_base.tcl`,
+`scripts/build_v_tpg_test_bitstream.tcl`, and
+`scripts/build_vtpg_ila_bitstream.tcl` orchestrators now invoke
+`write_hw_platform` automatically as their final step. You only need to
+do it manually if you're walking the procedure in the GUI. The `.xsa`
+is what Vitis "New Platform Project" consumes for the Windows
+defense-day flow (see `06_doc/windows_defense_day_workflow.md`).
 
 This rebuild is **the thesis demonstration** — *anyone with Vivado 2024.1
 + the IP repos can reproduce the silicon-validated bitstream from one

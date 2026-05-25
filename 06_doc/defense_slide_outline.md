@@ -171,7 +171,7 @@ not the CGRA cost."*
 
 ## Slide 10. Bitstream-build reproducibility  [1:30]
 
-> **One `base.tcl` source → three additive bitstreams**
+> **One `base.tcl` source → three additive bitstreams + .xsa for Vitis**
 >
 > | Procedure | Adds | WNS |
 > |---|---|---|
@@ -179,12 +179,17 @@ not the CGRA cost."*
 > | B | v_tpg + axis_switch | +0.232 ns |
 > | D | + System ILA | +0.309 ns |
 >
+> Each orchestrator ends with `write_hw_platform -include_bit` →
+> emits `.xsa` for Vitis "New Platform Project". One-click path from
+> Vivado all the way to "Launch on Hardware".
+>
 > [Number: **0** Tcl errors after 6 documented bug fixes — listed in
 >  `chapter5_silicon_results.md` §5.1.2]
 
 *"The defense-relevant thing here: anyone with Vivado 2025.1 + the IP
-repos can regenerate the production bitstream from `base.tcl`. We have
-the receipts."*
+repos can regenerate the production bitstream from `base.tcl`. We
+package the resulting hardware as a `.xsa` so Vitis can consume it
+directly — no manual `ps7_init` scripting."*
 
 ---
 

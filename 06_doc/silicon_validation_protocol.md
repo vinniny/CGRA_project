@@ -147,13 +147,26 @@ hdmi_in_color_convert_ycbcr2rgb();        /* BT.601 — for v_tpg, SD */
 hdmi_in_color_convert_ycbcr2rgb_bt709();  /* BT.709 — for HD HDMI   */
 ```
 
+## Windows defense-day workflow (Vitis-based)
+
+This doc covers the WSL/bash flow used during tonight's rehearsal. For
+the **Windows** defense-day flow (Vivado GUI → Vitis IDE → Launch on
+Hardware) see `06_doc/windows_defense_day_workflow.md`. Key difference:
+on Windows, Vitis "Launch on Hardware" handles PL programming + ps7_init
++ ELF load in one click — no manual `xsdb` scripting needed. The
+`.xsa` file (auto-emitted by all three Vivado orchestrators) is the
+load-bearing handoff between Vivado and Vitis.
+
 ## Reference artefacts
 
 | Topic | Path |
 |---|---|
 | Bitstream build procedures | `06_doc/vivado_bitstream_build_procedure.md` |
+| Windows defense-day flow | `06_doc/windows_defense_day_workflow.md` |
 | DAP recovery deep-dive | `06_doc/zynq_dap_recovery.md` |
 | Silicon results numbers | `06_doc/chapter5_silicon_results.md` |
+| Defense Q&A | `06_doc/defense_qa.md` |
+| Slide outline | `06_doc/defense_slide_outline.md` |
 | Coverage snapshot | `06_doc/sim_cov_report_2026-05-25.txt` |
 | Genus HAL lint snapshot | `06_doc/genus_hal_check_design_2026-05-25.rpt` |
 | Captured SMPTE bars | `06_doc/silicon_vtpg_smpte_bars.bmp` |

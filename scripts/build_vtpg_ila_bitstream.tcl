@@ -137,6 +137,16 @@ report_drc            -file $PROJECT_DIR/impl_drc.rpt
 # auto-decode the ILA samples.
 write_debug_probes -force $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/debug_nets.ltx
 
+# Export hardware platform (.xsa) for Vitis. -include_bit bundles the
+# .bit + auto-generated ps7_init.{tcl,c,h} so Vitis "Launch on Hardware"
+# does PL + ps7_init + ELF in one click (the Windows defense-day path).
+set XSA "$PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/${bd_name}_wrapper.xsa"
+if {[catch {write_hw_platform -fixed -include_bit -force -file $XSA} err]} {
+    puts "  WARN: write_hw_platform: $err"
+} else {
+    puts "  Hardware platform exported: $XSA"
+}
+
 set wns [get_property SLACK [get_timing_paths -delay_type max -nworst 1]]
 set whs [get_property SLACK [get_timing_paths -delay_type min -nworst 1]]
 puts ""
@@ -145,6 +155,7 @@ puts " V_TPG + ILA BITSTREAM BUILD COMPLETE"
 puts "==========================================================="
 puts " Bitstream  : $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/${bd_name}_wrapper.bit"
 puts " Probes     : $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/debug_nets.ltx"
+puts " XSA        : $XSA"
 puts " WNS        : $wns"
 puts " WHS        : $whs"
 puts " Util       : $PROJECT_DIR/impl_util.rpt"
@@ -155,4 +166,6 @@ puts "   cp $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/${bd_name}_wrapper.bit \\"
 puts "      bitstreams/cgra_vtpg_ila.bit"
 puts "   cp $PROJECT_DIR/cgra_vtpg_ila.runs/impl_1/debug_nets.ltx \\"
 puts "      bitstreams/cgra_vtpg_ila.ltx"
+puts "   cp $XSA \\"
+puts "      bitstreams/cgra_vtpg_ila.xsa"
 puts "==========================================================="

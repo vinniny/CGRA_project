@@ -173,6 +173,16 @@ report_timing_summary     -file $PROJECT_DIR/impl_timing.rpt -warn_on_violation
 report_drc                -file $PROJECT_DIR/impl_drc.rpt
 report_power              -file $PROJECT_DIR/impl_power.rpt
 
+# ----- 9. Export hardware platform (.xsa) for Vitis -------------------
+# -include_bit packages the .bit + auto-generated ps7_init.{tcl,c,h}
+# inside the .xsa. This is what Vitis "New Platform Project" consumes.
+set XSA "$PROJECT_DIR/cgra_vtpg.runs/impl_1/${bd_name}_wrapper.xsa"
+if {[catch {write_hw_platform -fixed -include_bit -force -file $XSA} err]} {
+    puts "  WARN: write_hw_platform: $err"
+} else {
+    puts "  Hardware platform exported: $XSA"
+}
+
 set wns [get_property SLACK [get_timing_paths -delay_type max -nworst 1]]
 set whs [get_property SLACK [get_timing_paths -delay_type min -nworst 1]]
 puts ""
@@ -180,6 +190,7 @@ puts "==========================================================="
 puts " V_TPG TEST-PATTERN BITSTREAM BUILD COMPLETE"
 puts "==========================================================="
 puts " Bitstream  : $PROJECT_DIR/cgra_vtpg.runs/impl_1/${bd_name}_wrapper.bit"
+puts " XSA        : $XSA"
 puts " WNS        : $wns"
 puts " WHS        : $whs"
 puts " Util       : $PROJECT_DIR/impl_util.rpt"
@@ -190,6 +201,8 @@ puts ""
 puts " Stage the artefacts into the project repo:"
 puts "   cp $PROJECT_DIR/cgra_vtpg.runs/impl_1/${bd_name}_wrapper.bit \\"
 puts "      bitstreams/cgra_vtpg_test.bit"
+puts "   cp $XSA \\"
+puts "      bitstreams/cgra_vtpg_test.xsa"
 puts "   cp [glob -nocomplain $PROJECT_DIR/cgra_vtpg.gen/sources_1/bd/${bd_name}/ip/*processing_system7*/ps7_init.tcl] \\"
 puts "      scripts/ps7_init_vtpg.tcl"
 puts "==========================================================="

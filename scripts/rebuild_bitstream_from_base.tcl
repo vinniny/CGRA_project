@@ -137,6 +137,18 @@ report_timing_summary  -file $PROJECT_DIR/impl_timing.rpt -warn_on_violation
 report_drc             -file $PROJECT_DIR/impl_drc.rpt
 report_power           -file $PROJECT_DIR/impl_power.rpt
 
+# 9. Export hardware platform (.xsa) — the load-bearing handoff to Vitis.
+# `-include_bit` packages the .bit alongside the auto-generated ps7_init.{tcl,c,h}
+# inside the .xsa zip. Without -include_bit, Vitis can program PL only via
+# external means; with it, Vitis "Launch on Hardware" does PL + ps7_init + ELF
+# in one click, avoiding the DAP-lockup trap.
+set XSA "$PROJECT_DIR/cgra_rebuild.runs/impl_1/${bd_name}_wrapper.xsa"
+if {[catch {write_hw_platform -fixed -include_bit -force -file $XSA} err]} {
+    puts "  WARN: write_hw_platform: $err"
+} else {
+    puts "  Hardware platform exported: $XSA"
+}
+
 set wns [get_property SLACK [get_timing_paths -delay_type max -nworst 1]]
 set whs [get_property SLACK [get_timing_paths -delay_type min -nworst 1]]
 puts ""
@@ -144,6 +156,7 @@ puts "==========================================================="
 puts " PROCEDURE A COMPLETE — reproducibility validated"
 puts "==========================================================="
 puts " Bitstream : $PROJECT_DIR/cgra_rebuild.runs/impl_1/${bd_name}_wrapper.bit"
+puts " XSA       : $XSA"
 puts " WNS       : $wns"
 puts " WHS       : $whs"
 puts " Util      : $PROJECT_DIR/impl_util.rpt"
@@ -154,4 +167,13 @@ puts ""
 puts " To stage:"
 puts "   cp $PROJECT_DIR/cgra_rebuild.runs/impl_1/${bd_name}_wrapper.bit \\"
 puts "      bitstreams/cgra_rebuilt_from_base.bit"
+puts "   cp $XSA \\"
+puts "      bitstreams/cgra_rebuilt_from_base.xsa"
+puts ""
+puts " Vitis side (Windows defense day):"
+puts "   1. File -> New -> Platform Project -> point at the .xsa above"
+puts "   2. Build platform (generates BSP + ps7_init.c)"
+puts "   3. File -> New -> Application Project against that platform"
+puts "   4. Drop in 07_sw/baremetal/<demo>.c + start.s + linker.ld"
+puts "   5. Right-click ELF -> Debug As -> Launch on Hardware"
 puts "==========================================================="

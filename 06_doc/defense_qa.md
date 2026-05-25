@@ -275,6 +275,12 @@ Total runtime: ~30 s. Replaces ~10 min of manual XSDB + Vivado HW
 Manager + Python click-through. Full operational doc:
 `06_doc/silicon_validation_protocol.md`.
 
+For the Windows defense-day equivalent (Vivado GUI → Vitis IDE → Launch
+on Hardware), see `06_doc/windows_defense_day_workflow.md`. The two
+flows produce the same end result; the WSL flow uses bash + XSDB
+directly, the Windows flow uses Vitis's "Launch on Hardware" which
+wraps the same XSDB sequence behind a click.
+
 ### M3. What if hardware crashes mid-debug?
 
 `xsdb_program.tcl` now auto-runs `rst -dap` and

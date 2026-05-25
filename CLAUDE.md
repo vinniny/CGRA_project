@@ -70,9 +70,21 @@ vivado -mode batch -source scripts/build_vtpg_ila_bitstream.tcl
 # After ILA build, run end-to-end silicon validation:
 make vtpg_test
 ```
-All three orchestrators use `Performance_ExploreWithRemap` impl strategy.
+All three orchestrators end with `write_hw_platform -fixed -include_bit
+-force`, emitting a `.xsa` next to the `.bit`. That `.xsa` is what
+Vitis "Platform Project → New" consumes on Windows — bundles the
+`.bit` + auto-generated `ps7_init.{tcl,c,h}` so Vitis "Launch on
+Hardware" does PL programming + PS init + ELF load in one click.
 Procedure D produced WNS = +0.309 ns (timing fully met) with the System
-ILA logic on chip. Doc: `06_doc/vivado_bitstream_build_procedure.md`.
+ILA logic on chip. Procedure A uses default impl strategy (default
+beats ExploreWithRemap when no ILA is present, +0.344 ns vs +0.098 ns).
+Procedure D needs ExploreWithRemap (without it the v_tpg HLS path
+violates at -0.014 ns).
+
+Docs:
+  `06_doc/vivado_bitstream_build_procedure.md`   — Tcl-level walkthrough
+  `06_doc/windows_defense_day_workflow.md`       — Windows GUI flow
+  `06_doc/zynq_dap_recovery.md`                  — when DAP locks up
 
 Vivado project path (Windows via WSL2): `/mnt/c/Users/thanh/Desktop/FPGA_CGRA/` (override with `VIVADO_PROJECT=`).
 
