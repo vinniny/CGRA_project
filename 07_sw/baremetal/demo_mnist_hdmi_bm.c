@@ -365,6 +365,11 @@ int main(void)
      * showing "no signal" entirely, which is worse. */
     if (hdmi_init() < 0) { uart_puts("FAIL: hdmi_init\n"); for(;;); }
     uart_puts("HDMI ready, building FC chains...\n");
+#if USE_FAST_CGRA_FC
+    uart_puts("CGRA-FC mode: FAST (soft-reset + hoisted CU regs + short readout)\n");
+#else
+    uart_puts("CGRA-FC mode: BASELINE v1 (USE_FAST_CGRA_FC=0)\n");
+#endif
 
 #ifdef LIVE_INPUT
     hdmi_in_assert_hpd();
