@@ -333,10 +333,15 @@ int main(void)
 #ifdef LIVE_INPUT
         /* Live-input mode: grab the most recent HDMI frame from J10,
          * downsample its ROI to 28×28, and feed the demo with it.
-         * Don't call hdmi_in_locked() -- it reads VTC's AXI-Lite which
-         * hangs if dvi2rgb's PixelClk isn't toggling. After hdmi_in_init
-         * asserted HPD, the source is transmitting; we just use whatever
-         * is in the FB unconditionally. */
+         *
+         * VDMA halts on SOFEarlyErr after each frame with this AXIS
+         * config — recover before reading. Without this, the FB stays
+         * frozen at the first frame and the demo doesn't update as
+         * the user draws. */
+        hdmi_in_recover_if_halted();
+        /* Brief settle so VDMA has time to write at least the top of a
+         * new frame before we sample it. */
+        for (volatile int s = 0; s < 200000; s++) ;
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);

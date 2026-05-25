@@ -342,6 +342,37 @@ int hdmi_in_frame_ready(void)
     return (mmio_r(VDMA_IN_BASE + S2MM_DMASR) & DMASR_HALTED_BIT) ? 0 : 1;
 }
 
+int hdmi_in_recover_if_halted(void)
+{
+    if (!g_initialised) return 0;
+    const uint32_t sr = mmio_r(VDMA_IN_BASE + S2MM_DMASR);
+    /* Any error bit OR Halted set → VDMA needs reset. Error bits per
+     * PG020: bits 4-10 (DMAIntErr/DMASlvErr/DMADecErr/SOFEarly/EOLEarly/
+     * SOFLate/EOLLate). Mask = 0x7F0. Plus bit 0 (Halted). */
+    const uint32_t ERR_MASK = 0x7F0u;
+    if ((sr & (ERR_MASK | DMASR_HALTED_BIT)) == 0u) return 0;
+
+    /* Reset VDMA, wait for self-clear (per PG020 spec ≤ a few µs). */
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR, DMACR_RESET_BIT);
+    for (int t = 0; t < 200; t++) {
+        if ((mmio_r(VDMA_IN_BASE + S2MM_DMACR) & DMACR_RESET_BIT) == 0u) break;
+        delay_us(1);
+    }
+
+    /* Re-program in the same order hdmi_in_init() does it. */
+    mmio_w(VDMA_IN_BASE + S2MM_REG_INDEX,     0u);
+    mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_1,  HDMI_IN_FB0);
+    mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_2,  HDMI_IN_FB1);
+    mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_3,  HDMI_IN_FB2);
+    mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR,
+           DMACR_RS_BIT | DMACR_CIRC_PARK_BIT);
+    mmio_w(VDMA_IN_BASE + S2MM_FRMDLY_STRIDE, HDMI_IN_ROW_STRIDE);
+    mmio_w(VDMA_IN_BASE + S2MM_HSIZE,         HDMI_IN_ROW_STRIDE);
+    mmio_w(VDMA_IN_BASE + S2MM_VSIZE,         HDMI_IN_H);     /* kicks the run */
+    return 1;
+}
+
 const uint8_t *hdmi_in_current_frame(void)
 {
     if (!g_initialised) return (const uint8_t *)HDMI_IN_FB0;

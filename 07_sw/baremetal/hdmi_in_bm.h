@@ -137,6 +137,15 @@ void hdmi_in_color_convert_identity(void);
 void hdmi_in_color_convert_ycbcr2rgb_bt709(void);
 
 /**
+ * Restart VDMA if it has halted on a SOFEarlyErr / DMADecErr / similar
+ * sticky-error condition. Reads DMASR; if any error bit or the Halted
+ * bit is set, issues DMACR.Reset, re-programs HSIZE/VSIZE/START_ADDR,
+ * and re-asserts RS+CIRCULAR_PARK. Cheap to call every frame (~few µs);
+ * returns 1 if a recovery was performed, 0 if VDMA was already healthy.
+ */
+int  hdmi_in_recover_if_halted(void);
+
+/**
  * Drive the HDMI-in HPD (Hot-Plug Detect) line HIGH via the
  * axi_gpio_hdmiin IP at 0x4122_0000. Without this, the laptop / source
  * sees the board's HDMI-in as "no monitor connected" and refuses to
