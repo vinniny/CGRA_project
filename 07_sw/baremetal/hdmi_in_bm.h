@@ -62,7 +62,13 @@
  * The working BD has ONE axi_vdma at 0x43000000 that handles both MM2S
  * (HDMI-out) and S2MM (HDMI-in) — different register banks within the
  * same IP. Our S2MM channel uses offsets ≥ 0x30 inside the IP. */
-#define VDMA_IN_BASE         0x43000000UL  /* video/axi_vdma (S2MM share) */
+/* HDMI-IN now has its OWN VDMA at 0x4302_0000 (per the split-VDMA
+ * bitstream cgra_split_vdma.bit). The shared VDMA at 0x4300_0000 stays
+ * MM2S-only for HDMI-OUT. To go back to the legacy shared-VDMA
+ * bitstream, override at compile time: -DVDMA_IN_BASE=0x43000000UL */
+#ifndef VDMA_IN_BASE
+#define VDMA_IN_BASE         0x43020000UL  /* dedicated HDMI-IN VDMA */
+#endif
 #define VTC_IN_BASE          0x43C30000UL  /* video/hdmi_in/frontend/vtc_in */
 #define PIXPACK_IN_BASE      0x43C40000UL  /* video/hdmi_in/pixel_pack    */
 #define CCONV_IN_BASE        0x43C50000UL  /* video/hdmi_in/color_convert */
