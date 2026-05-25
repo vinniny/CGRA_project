@@ -19,6 +19,17 @@
 #include "cgra.h"
 #include "cgra_kernels_cnn.h"
 #include "cgra_kernels_cnn_v2.h"     /* 16-PE FC with dual-port SPM */
+
+/* Tier-1 fast FC kernel: soft-reset replaces ACC_CLR SG-DMA + CU pass,
+ * CU regs hoisted out of per-group loop, readout PC_END=5 (was 15).
+ * Same 4-PE silicon-validated math — bit-identical predictions.
+ * Disable with -DUSE_FAST_CGRA_FC=0 to fall back to the v1 kernel. */
+#ifndef USE_FAST_CGRA_FC
+#define USE_FAST_CGRA_FC 1
+#endif
+#if USE_FAST_CGRA_FC
+#include "cgra_kernels_cnn_opt.h"
+#endif
 #include "arm_cnn_bm.h"
 #include "arm_fc_bm.h"
 #include "hdmi_bm.h"
@@ -109,11 +120,20 @@ static int run_cgra_fc(const int32_t act400[400])
 
     if (cnn_fc1_tile_preload(ACT400_DDR)) return -1;
     int32_t fc1_acc[64];
+#if USE_FAST_CGRA_FC
+    cnn_fc_opt_layer_setup(CNN_FC1_LOOP_COUNT);
+    for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
+        int32_t grp[4];
+        if (cnn_fc1_opt_run_group(g, grp)) return -1;
+        for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
+    }
+#else
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc1_run_group(g, grp)) return -1;
         for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
     }
+#endif
     int32_t act64[64];
     fc1_post_process(fc1_acc, act64);
 
@@ -123,11 +143,20 @@ static int run_cgra_fc(const int32_t act400[400])
 
     if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
     int32_t fc2_acc[12];
+#if USE_FAST_CGRA_FC
+    cnn_fc_opt_layer_setup(CNN_FC2_LOOP_COUNT);
+    for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
+        int32_t grp[4];
+        if (cnn_fc2_opt_run_group(g, grp)) return -1;
+        for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
+    }
+#else
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc2_run_group(g, grp)) return -1;
         for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
     }
+#endif
     return argmax_with_bias(fc2_acc);
 }
 
