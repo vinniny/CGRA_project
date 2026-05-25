@@ -332,22 +332,16 @@ int main(void)
 
 #ifdef LIVE_INPUT
         /* Live-input mode: grab the most recent HDMI frame from J10,
-         * downsample its ROI to 28×28, and feed the demo with it instead
-         * of the static sweep_input28[i]. label stays as sweep_labels[i]
-         * for the "fictional GT" display but accuracy counters are
-         * meaningless in live mode and are surfaced as raw prediction
-         * displays rather than running %. */
+         * downsample its ROI to 28×28, and feed the demo with it.
+         * Don't call hdmi_in_locked() -- it reads VTC's AXI-Lite which
+         * hangs if dvi2rgb's PixelClk isn't toggling. After hdmi_in_init
+         * asserted HPD, the source is transmitting; we just use whatever
+         * is in the FB unconditionally. */
         uint8_t live28[28*28];
-        if (hdmi_in_locked()) {
-            const uint8_t *fb = hdmi_in_current_frame();
-            downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
-            arm_cnn_vfp_run(live28, act400);
-            label = -1;                 /* no ground truth in live mode */
-        } else {
-            /* No HDMI signal yet — fall back to fixture so the demo
-             * still shows something on the output panel. */
-            arm_cnn_vfp_run(sweep_input28[i], act400);
-        }
+        const uint8_t *fb = hdmi_in_current_frame();
+        downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
+        arm_cnn_vfp_run(live28, act400);
+        label = -1;                     /* no ground truth in live mode */
 #else
         /* ARM-VFP Conv+Pool — accuracy-of-record path. */
         arm_cnn_vfp_run(sweep_input28[i], act400);
@@ -382,11 +376,9 @@ int main(void)
         }
 
 #ifdef LIVE_INPUT
-        if (hdmi_in_locked()) {
-            fbm_draw_image28(IMG_X, IMG_Y, live28, IMG_SCALE);
-        } else {
-            fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
-        }
+        /* Always show live downsampled frame (no locked() check, which
+         * would hang on VTC AXI-Lite). */
+        fbm_draw_image28(IMG_X, IMG_Y, live28, IMG_SCALE);
 #else
         fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
 #endif

@@ -19,10 +19,14 @@ typedef struct {
     uint32_t h;     /* height in pixels (must be a multiple of 28) */
 } hdmi_roi_t;
 
-/* Default ROI: 280×280 square centred at (320,240) — fits a typical Paint
- * canvas when the window is around a third of the screen. The ratio
- * 280/28 = 10 means we box-filter 10×10 source pixels per output pixel. */
-#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 180, .y = 100, .w = 280, .h = 280})
+/* Default ROI for a 1280×720 HDMI source with Paint maximized: 560×560
+ * centred at (640, 360). Crops out title bar / ribbon at the top and
+ * status bar at the bottom; covers most of the canvas area. Ratio
+ * 560/28 = 20 → box-filter 20×20 source pixels per output pixel.
+ *
+ * If you want a smaller / different crop region (e.g. a small Paint
+ * window not maximized), override per-call. */
+#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 360, .y = 80, .w = 560, .h = 560})
 
 /**
  * Downsample a region of the captured frame into a 28×28 UINT8 tensor.
