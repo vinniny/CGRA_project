@@ -55,7 +55,15 @@ void downsample_roi_to_mnist(const uint8_t *fb,
              * Result lies in [0..255] — same format as sweep_input28[]. */
             const uint32_t y_inv = 255u - (y_lin > 255u ? 255u : y_lin);
 
-            out784[oy * 28u + ox] = (uint8_t)y_inv;
+            /* Contrast snap: threshold at 128 so the image looks MNIST-like
+             * (0 = background, 255 = ink). Live HDMI capture has anti-
+             * aliased edges and slight DC offset which compress activation
+             * dynamic range and trip CGRA's INT quantisation (silicon
+             * symptom: CGRA always predicts 1 regardless of input). ARM-VFP
+             * masks this with float smoothing; CGRA-INT and ARM-INT do not.
+             * Snap restores the high-contrast bimodal histogram that MNIST
+             * (and the silicon-validated 97% sweep) was trained on. */
+            out784[oy * 28u + ox] = (y_inv >= 128u) ? 255u : 0u;
         }
     }
 }
