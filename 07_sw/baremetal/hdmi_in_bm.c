@@ -155,14 +155,20 @@ static int               g_initialised;
 
 void hdmi_in_init(void)
 {
-    uart_puts(" [init.S1] VDMA halt (S2MM only; NO reset to avoid HDMI-OUT)\n");
-    /* 1. Halt the S2MM channel ONLY. Per PG020 §6.4, writing
-     * DMACR.Reset = 1 to EITHER channel resets the WHOLE IP -- which
-     * breaks the HDMI-OUT MM2S timing the demo just configured via
-     * hdmi_init() in HDMI-OUT-driver. Skip the hard reset; just clear
-     * RS to halt S2MM, then reconfigure. */
-    mmio_w(VDMA_IN_BASE + S2MM_DMACR, 0u);   /* halt S2MM (RS = 0) */
-    delay_us(10);
+    uart_puts(" [init.S1] VDMA hard reset (both channels)\n");
+    /* 1. Hard reset of the WHOLE VDMA (per PG020 §6.4, DMACR.Reset on
+     * either channel resets the IP). This is required to flush the
+     * stale state left over from bitstream programming -- without it,
+     * HDMI-OUT shows "no signal". The caller is responsible for the
+     * call ordering: hdmi_in_init() must run BEFORE hdmi_init()
+     * (HDMI-OUT) so the shared reset doesn't tear down HDMI-OUT after
+     * it was already configured. */
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR, 0u);                /* halt  */
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR, DMACR_RESET_BIT);   /* reset */
+    for (int t = 0; t < 100; t++) {
+        if ((mmio_r(VDMA_IN_BASE + S2MM_DMACR) & DMACR_RESET_BIT) == 0u) break;
+        delay_us(1);
+    }
 
     uart_puts(" [init.S2] color_convert + pixel_pack\n");
     /* 2. Identity 3x3 colour matrix (input RGB pass-through). The working
