@@ -54,7 +54,12 @@ int main(void)
     /* 0. ASSERT HPD FIRST — laptop won't transmit until it sees a "monitor"
      *    on this output. Some HDMI splitters also gate downstream
      *    forwarding on HPD. Drive HPD high, then give the source ~1 sec
-     *    to renegotiate and start streaming. */
+     *    to renegotiate and start streaming.
+     *
+     * Note: kept in this v_tpg demo's main() (not in hdmi_in_init) because
+     * the production demo_mnist_hdmi_bm runs hdmi_in_init AFTER hdmi_init
+     * (HDMI-OUT) and a shared VDMA reset disturbs HDMI-OUT timing. Each
+     * demo decides when to assert HPD. */
     uart_puts("[init ] HDMI-in HPD = 1 (request source to transmit)\n");
     hdmi_in_assert_hpd();
     delay_ms(1000);
@@ -63,6 +68,7 @@ int main(void)
      *    so FrameStore cycles through the 3-frame ring). */
     uart_puts("[init ] VDMA + color_convert + pixel_pack...");
     hdmi_in_init();
+    hdmi_in_color_convert_identity();
     uart_puts(" done\n");
 
     /* 2. Program color_convert with IDENTITY -- Windows / typical HDMI

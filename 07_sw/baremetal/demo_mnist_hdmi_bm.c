@@ -18,6 +18,7 @@
 #include "uart.h"
 #include "cgra.h"
 #include "cgra_kernels_cnn.h"
+#include "cgra_kernels_cnn_v2.h"     /* 16-PE FC with dual-port SPM */
 #include "arm_cnn_bm.h"
 #include "arm_fc_bm.h"
 #include "hdmi_bm.h"
@@ -90,20 +91,32 @@ static int argmax_with_bias(const int32_t fc2_acc[10])
     return best;
 }
 
-/* CGRA FC1+FC2+argmax. Returns predicted class. */
+/* CGRA FC1+FC2+argmax (v2: 16-PE in parallel, dual-port SPM).
+ * Returns predicted class, -1 on kernel error.
+ *
+ * v2 vs v1: same dataflow, but the FC kernel now uses every PE in the
+ * 4×4 mesh for the same inference. Activations broadcast to all SPMs
+ * once via cnn_fc1_v2_act_preload; weights preloaded per-PE per-group
+ * via SG-DMA. FC1 = 4 groups × 16 neurons; FC2 = 1 group × 16 neurons
+ * (only 10 are real, the rest discarded). Headline speedup at silicon-
+ * scale: ~4× over v1's 4-PE schedule. */
 static int run_cgra_fc(const int32_t act400[400])
 {
     volatile int32_t *act400_ddr = (volatile int32_t *)ACT400_DDR;
     for (int j = 0; j < 400; ++j) act400_ddr[j] = act400[j];
     asm volatile("dsb" ::: "memory");
 
-    if (cnn_fc1_tile_preload(ACT400_DDR)) return -1;
+    /* FC1: broadcast act400 to all PE SPMs (Port A), then 4 groups. */
+    if (cnn_fc1_v2_act_preload(ACT400_DDR)) return -1;
     int32_t fc1_acc[64];
-    for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
-        int32_t grp[4];
-        if (cnn_fc1_run_group(g, grp)) return -1;
-        for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
+    int32_t grp[16];
+    for (int g = 0; g < (int)CNN_FC1_V2_N_GROUPS; ++g) {
+        if (cnn_fc1_v2_run_group(g, grp)) return -1;
+        for (int pe = 0; pe < 16; ++pe) fc1_acc[g*16 + pe] = grp[pe];
     }
+
+    /* ARM does the FC1->FC2 plumbing: bias + ReLU + quantise to INT16
+     * activations at act64_ddr. */
     int32_t act64[64];
     fc1_post_process(fc1_acc, act64);
 
@@ -111,12 +124,15 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int j = 0; j < 64; ++j) act64_ddr[j] = act64[j];
     asm volatile("dsb" ::: "memory");
 
-    if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
-    int32_t fc2_acc[12];
-    for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
-        int32_t grp[4];
-        if (cnn_fc2_run_group(g, grp)) return -1;
-        for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
+    /* FC2: broadcast act64 to all PE SPMs, then 1 group of 16 outputs
+     * (only 10 are real classes; the trailing 6 are padding). */
+    if (cnn_fc2_v2_act_preload(ACT64_DDR)) return -1;
+    int32_t fc2_acc[10];
+    for (int i = 0; i < 10; ++i) fc2_acc[i] = 0;
+    for (int g = 0; g < (int)CNN_FC2_V2_N_GROUPS; ++g) {
+        if (cnn_fc2_v2_run_group(g, grp)) return -1;
+        for (int pe = 0; pe < 16 && g*16 + pe < 10; ++pe)
+            fc2_acc[g*16 + pe] = grp[pe];
     }
     return argmax_with_bias(fc2_acc);
 }
@@ -219,11 +235,18 @@ static void render_panel(int px, int pred, int label, uint32_t cycles)
 
     buf[0]='P';buf[1]='R';buf[2]='E';buf[3]='D';buf[4]=':';buf[5]=' ';
     buf[6]=(char)('0'+(pred%10)); buf[7]='\0';
+#ifdef LIVE_INPUT
+    /* No ground truth in live mode -- always use the neutral text colour
+     * and skip the GT label. The live panel just shows PRED + cycles. */
+    fbm_draw_text(px + 8, PANEL_Y + 56, buf, COLOR_TXT, 2);
+    (void)label;
+#else
     fbm_draw_text(px + 8, PANEL_Y + 56, buf,
                   (pred == label) ? COLOR_OK : COLOR_MISS, 2);
 
     buf[0]='G';buf[1]='T';buf[2]=':';buf[3]=' ';buf[4]=(char)('0'+(label%10));buf[5]='\0';
     fbm_draw_text(px + 96, PANEL_Y + 56, buf, COLOR_TXT, 2);
+#endif
 
     char us[16];
     fmt_us_1dec(cycles, us);
@@ -283,6 +306,15 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
 
     char acc[128];
     idx = 0;
+#ifdef LIVE_INPUT
+    /* Live mode has no ground truth -- skip ACC counters; just show the
+     * frame count. */
+    (void)correct_cgra; (void)correct_int; (void)correct_vfp;
+    p = "FRAME: ";  while (*p) acc[idx++] = *p++;
+    char numbuf[16];
+    int k = u32_to_decimal((uint32_t)total, numbuf, 0);
+    for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
+#else
     append_acc(acc, &idx, "ACC  CGRA: ", (uint32_t)correct_cgra, (uint32_t)total);
     append_acc(acc, &idx, "   INT: ",    (uint32_t)correct_int,  (uint32_t)total);
     append_acc(acc, &idx, "   VFP: ",    (uint32_t)correct_vfp,  (uint32_t)total);
@@ -290,6 +322,7 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
     char numbuf[16];
     int k = u32_to_decimal((uint32_t)total, numbuf, 0);
     for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
+#endif
     acc[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y + 14, acc, COLOR_TXT, 1);
 }
@@ -306,13 +339,24 @@ int main(void)
     uart_puts("HDMI ready, building FC chains...\n");
 
 #ifdef LIVE_INPUT
+    /* HDMI-in init order matters: assert HPD BEFORE re-init, so source
+     * is already transmitting by the time VDMA starts. hdmi_in_init
+     * also resets the SHARED VDMA which momentarily disturbs HDMI-OUT
+     * (the MM2S side) but it recovers within a frame. */
+    hdmi_in_assert_hpd();
+    /* Brief settle for source renegotiation. */
+    for (volatile uint32_t i = 0; i < 2000000; i++) ;
     hdmi_in_init();
+    hdmi_in_color_convert_identity();
     uart_puts("HDMI-in initialised, waiting for laptop signal on J10...\n");
 #endif
 
     uint32_t fc1_w_ddr = (uint32_t)(uintptr_t)cnn_spm_start;
     uint32_t fc2_w_ddr = fc1_w_ddr + CNN_FC1_N_OUTPUTS * CNN_FC1_SPM_BPN;
-    if (cnn_fc1_build_chains(fc1_w_ddr) || cnn_fc2_build_chains(fc2_w_ddr)) {
+    /* v2 chains: per-PE per-group weight DMA descriptors targeting Port B
+     * of each PE SPM. Same weight blob layout as v1; different chain
+     * tables (cnn_fc1_v2_chains_ddr, cnn_fc2_v2_chains_ddr). */
+    if (cnn_fc1_v2_build_chains(fc1_w_ddr) || cnn_fc2_v2_build_chains(fc2_w_ddr)) {
         uart_puts("FAIL: FC chain build\n"); for(;;);
     }
 

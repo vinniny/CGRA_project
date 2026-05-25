@@ -155,32 +155,6 @@ static int               g_initialised;
 
 void hdmi_in_init(void)
 {
-    uart_puts(" [init.S0] HPD high + identity color_convert + axis_switch S00\n");
-    /* Assert HDMI-in HPD line so the laptop transmits. Then program
-     * color_convert with identity (RGB pass-through; laptops send
-     * RGB-full natively over HDMI). These were previously demo-side
-     * responsibilities; baking them in means downstream demos like
-     * demo_mnist_hdmi_bm pick up the silicon-validated path for free. */
-    hdmi_in_assert_hpd();
-    /* Brief settle so the source has time to renegotiate before VDMA
-     * starts demanding pixels. */
-    {
-        volatile uint32_t i;
-        for (i = 0; i < 666666u; i++) ;
-    }
-    hdmi_in_color_convert_identity();
-
-    /* If the bitstream includes axis_switch_in (Procedure B / D), route
-     * S00 = dvi2rgb. The write hits 0x43CD_0000 / 0x43CD_0040; on a
-     * bitstream WITHOUT axis_switch (e.g. plain cgra_top.bit) the AXI
-     * decoder absorbs the writes silently -- they hit unmapped space and
-     * the master sees DECERR but the CPU doesn't fault because Zynq's
-     * AXI bus returns OK for write strobes to unmapped slaves by default.
-     * If your build is different and you see a CPU fault here, comment
-     * out these two writes. */
-    *(volatile uint32_t *)0x43CD0040 = 0x00u;  /* MI_MUX0 = S00 (HDMI) */
-    *(volatile uint32_t *)0x43CD0000 = 0x02u;  /* CTRL commit */
-
     uart_puts(" [init.S1] VDMA halt+reset\n");
     /* 1. Hard-stop and reset the S2MM channel of axi_vdma_1. */
     mmio_w(VDMA_IN_BASE + S2MM_DMACR, 0u);                /* halt   */
