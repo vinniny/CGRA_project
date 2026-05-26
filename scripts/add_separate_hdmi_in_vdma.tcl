@@ -60,13 +60,13 @@ set_property -dict [list \
     CONFIG.c_include_s2mm         {1}   \
     CONFIG.c_include_s2mm_dre     {0}   \
     CONFIG.c_include_s2mm_sf      {1}   \
-    CONFIG.c_m_axi_s2mm_data_width {32} \
-    CONFIG.c_s_axis_s2mm_tdata_width {32} \
-    CONFIG.c_num_fstores          {3}   \
-    CONFIG.c_s2mm_genlock_mode    {0}   \
-    CONFIG.c_s2mm_linebuffer_depth {512} \
-    CONFIG.c_s2mm_max_burst_length {32} \
-    CONFIG.c_include_sg           {0}   \
+    CONFIG.c_m_axi_s2mm_data_width  {32}   \
+    CONFIG.c_s_axis_s2mm_tdata_width {32}  \
+    CONFIG.c_num_fstores          {4}    \
+    CONFIG.c_s2mm_genlock_mode    {0}    \
+    CONFIG.c_s2mm_linebuffer_depth {4096} \
+    CONFIG.c_s2mm_max_burst_length {32}  \
+    CONFIG.c_include_sg           {0}    \
 ] $new_vdma
 puts "  $new_vdma created (S2MM-only)"
 
