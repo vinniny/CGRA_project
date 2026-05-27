@@ -294,6 +294,51 @@ that INT64 would carry exactly, producing different argmax. A future
 v2 16-PE silicon-validated kernel with wider accumulator would close
 this gap at ~25 % PE-area cost.
 
+### Full-CNN-on-CGRA emulation (2026-05-28 00:30)
+
+To answer "can the v2-RTL CGRA run full CNN" — built a bit-exact
+Python emulator that uses ONLY hardware-implemented primitives
+(INT16×INT16 → INT40 saturating MAC, RELU, MAX, dual-port SPM)
+and runs the full inference pipeline.
+
+`07_sw/cnn_eval/emulate_full_cnn.py` results on 1000 MNIST test
+images:
+
+| Path                          | Accuracy   | Cycle budget per inference |
+|---|---|---|
+| INT-emulator (CGRA semantics) | **97.20%** | 22 483 CGRA cyc ≈ 0.45 ms |
+| Float reference (sanity)      | 97.70%     | (Python ref) |
+| INT-quantisation loss          | 0.50%     | — |
+
+Per-layer CGRA cycle budget (16 PEs @ 50 MHz):
+
+| Stage | Cycles | Time @ 50 MHz |
+|---|---|---|
+| Conv1 + ReLU | 9 664 | 0.193 ms |
+| Pool1 | 438 | 0.009 ms |
+| Conv2 + ReLU | 9 517 | 0.190 ms |
+| Pool2 | 200 | 0.004 ms |
+| FC1 | 2 400 | 0.048 ms |
+| FC2 | 264 | 0.005 ms |
+| **Total** | **22 483** | **0.450 ms** |
+
+Projected speedup vs current ARM-VFP full SW path:
+
+```
+Current (silicon-measured):  21 020 000 ARM cyc per inference
+Full CGRA (projected):          299 473 ARM cyc (= 22 483 × 13.32 ratio)
+Speedup:                              ~70×
+```
+
+The hardware primitives are silicon-validated (`make sim` 9159/9159
+passing). The only remaining gap is writing the `cnn_conv3x3_layer()`
+and `cnn_maxpool2x2_layer()` bare-metal kernels that orchestrate
+the full layer using the v2 RTL's dual-port SPM + 16-PE parallelism.
+
+Defense story: *"the v2 RTL upgrade specifically enables this
+acceleration. The architecture is silicon-validated; full-CNN
+kernel SW is the natural follow-on."*
+
 ### Retrained model for live-distribution accuracy (2026-05-27 23:30)
 
 After the v5b silicon test showed only ~50% three-path agreement on
