@@ -76,21 +76,56 @@ ARM_FREQ_MHZ  = 666
 CGRA_FREQ_MHZ = 50
 ARM_PER_CGRA  = ARM_FREQ_MHZ / CGRA_FREQ_MHZ          # = 13.32
 
-# Overhead constants (all in CGRA cycles unless noted)
-APB_WRITE_CGRA       = 2          # ARM->APB write = ~30 ARM cyc / 13.32
-APB_READ_CGRA        = 3
-DMA_SETUP_CGRA       = 100        # write SRC/DST/SIZE/CTRL regs + state machine spin-up
-SG_DMA_DESC_CGRA     = 50         # per descriptor traversal
-CU_START_CGRA        = 30         # CU_CTRL write + CU PC reset
-PHASE_SYNC_ARM_CYC   = 80         # ARM-side wall-clock cost per sync point
-PHASE_SYNC_CGRA      = int(PHASE_SYNC_ARM_CYC / ARM_PER_CGRA) + 1  # ~7
+# === Overhead constants (CGRA cycles unless noted) ===========================
+# Reviewed by codex/gemini/copilot 2026-05-28 against silicon-measured FC1
+# (v1 kernel: 4 PEs × 16 groups × 400 MACs = ~115 k CGRA cyc, so
+#  per-group overhead = (115 000 - 6 400) / 16 ≈ 6 800 cyc/group).
+# Constants raised to match silicon-realistic behaviour.
 
-# HP-port effective bandwidth (silicon-realistic, accounting for burst gaps):
-HP_BYTES_PER_CGRA_CYC = 12        # peak 16, sustained ~12 with AXI overhead
+# INT16 values are stored as 32-bit words in SPM/tile (zero/sign-extended).
+# This is from quantize_cgra.py emitting struct.pack("<I", int(w)) and
+# cgra_kernels_cnn.h defining SPM_BPN = N_INPUTS * 4. So every "INT16
+# weight or activation" actually moves 4 bytes across the AXI bus.
+BYTES_PER_INT16_WORD = 4
 
-# MAC efficiency
-MAC_EFF_LONG  = 0.97              # for long inner loops (TILE_AUTO_INC enabled)
-MAC_EFF_SHORT = 0.80              # for short loops with many setup cycles
+# Per APB transaction (ARM PS → AXI GP → APB CSR), measured indirectly via
+# silicon polling-loop overhead. ARM @ 666 MHz, each APB write ≈ 30 ARM
+# cyc round-trip → ~2 CGRA cyc.
+APB_WRITE_CGRA  = 3               # incl. AXI-Lite arbitration + APB ack
+APB_READ_CGRA   = 4               # reads bring back data, slightly longer
+
+# Per-descriptor SG-DMA traversal: cgra_kernels_cnn_opt.h budgets ~800 cyc
+# for 8 descs ⇒ ~100 cyc/desc end-to-end (decoder + DDR fetch of next
+# pointer + execution-stage handoff). 50 was too low.
+SG_DMA_DESC_CGRA = 100
+
+# cgra_sg_dma_start() itself has a setup phase (program SG_HEAD register,
+# trigger DMA, wait for first descriptor fetch) before any desc executes.
+SG_DMA_CHAIN_SETUP_CGRA = 80
+
+# Regular 1D DMA setup: write SRC/DST/SIZE/CTRL + arb + first burst.
+DMA_SETUP_CGRA   = 120
+
+# CU_START sequence (CU_CTRL = 1 + state machine spin-up + first slot decode).
+CU_START_CGRA    = 40
+
+# Phase sync = the `cgra_*_wait()` busy-loop overhead beyond the actual
+# CGRA-side completion time. Silicon-derived: ARM polls APB STATUS every
+# ~30 ARM cyc; a typical wait has 3-15 polls before completion. The
+# delta vs CGRA-completion-time is ~80-300 ARM cyc per phase.
+PHASE_SYNC_CGRA  = 100            # mid-estimate, in CGRA cycles
+
+# HP-port effective bandwidth: 64-bit AXI @ 100 MHz peak = 800 MB/s.
+# At 50 MHz CGRA that's 16 B/CGRA-cyc peak. Sustained ~12 B/CGRA-cyc
+# under burst overhead. Both codex + gemini concurred this is reasonable.
+HP_BYTES_PER_CGRA_CYC = 12
+
+# MAC efficiency from Suite MTP silicon measurements:
+#   1-pass:   81.2%      ← short inner loop
+#   10-pass:  98.1%
+#   64-pass:  99.7%      ← long inner loop with auto-inc
+MAC_EFF_LONG  = 0.97              # CONV layers (thousands of MAC/PE)
+MAC_EFF_SHORT = 0.80              # FC layers (25-50 MAC/PE per group)
 
 
 @dataclass
@@ -160,6 +195,18 @@ class CycleBudget:
             bar = '█' * int(pct / 2)
             print(f"    {k:<14s} {v:>8d} cyc  {pct:>5.1f}%  {bar}")
 
+        # Silicon-anchor comparison: FC1 v1 measured at ~115 k CGRA cyc on
+        # the Haoyue board (4-PE × 16-group). FC2 v1 not separately
+        # measured; estimated at ~12-18 k from end-to-end LPR-FC traces.
+        fc1_stage = next((s for s in self.stages if 'fc1' in s.name), None)
+        if fc1_stage is not None:
+            print(f"\n  Silicon-anchor calibration:")
+            print(f"    FC1 (v2, this model): {fc1_stage.total:>6d} cyc")
+            print(f"    FC1 (v1, silicon):    ~115000 cyc  (4-PE × 16 grp)")
+            print(f"    FC1 v2 projection:     ~28-40 k cyc (reviewer estimate)")
+            print(f"    → model is {'PESSIMISTIC' if fc1_stage.total > 50000 else 'in-range'}"
+                  f" vs reviewer; tune SG_DMA_DESC_CGRA if more data lands.")
+
 
 def conv_stage_budget(c_in:  int, c_out: int,
                        h_in:  int, w_in:  int,
@@ -171,31 +218,41 @@ def conv_stage_budget(c_in:  int, c_out: int,
     h_out, w_out = h_in - kh + 1, w_in - kw + 1
     s = StageBudget(name=name)
 
-    # ---- Input DMA: c_in × h_in × w_in × 2 bytes (INT16) into tile/SPM
-    in_bytes = c_in * h_in * w_in * 2
-    s.input_dma = DMA_SETUP_CGRA + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+    # ---- Input DMA: c_in × h_in × w_in INT16 values stored as 32-bit words
+    in_bytes = c_in * h_in * w_in * BYTES_PER_INT16_WORD
+    s.input_dma = (DMA_SETUP_CGRA
+                   + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1)
+                     // HP_BYTES_PER_CGRA_CYC)
 
-    # ---- Weight load: SG-DMA across up to num_pes PEs (one PE per output channel)
+    # ---- Weight load: SG-DMA across up to num_pes PEs.
     pe_groups = (c_out + num_pes - 1) // num_pes
-    w_per_pe = kh * kw * c_in * 2   # bytes per neuron per group
-    s.weight_dma = pe_groups * (num_pes * SG_DMA_DESC_CGRA
-                                + (w_per_pe + HP_BYTES_PER_CGRA_CYC - 1)
-                                  // HP_BYTES_PER_CGRA_CYC)
+    w_per_pe_bytes = kh * kw * c_in * BYTES_PER_INT16_WORD
+    weight_dma_per_group = (SG_DMA_CHAIN_SETUP_CGRA
+                            + num_pes * SG_DMA_DESC_CGRA
+                            + (num_pes * w_per_pe_bytes
+                               + HP_BYTES_PER_CGRA_CYC - 1)
+                              // HP_BYTES_PER_CGRA_CYC)
+    s.weight_dma = pe_groups * weight_dma_per_group
 
     # ---- MAC compute: total MACs / num_pes, at long-run efficiency
+    # (CONV layers have thousands of MAC/PE so TILE_AUTO_INC sustains).
     total_macs = c_out * h_out * w_out * kh * kw * c_in
     macs_per_pe_group = total_macs / num_pes / max(pe_groups, 1)
     s.mac_compute = int((macs_per_pe_group / MAC_EFF_LONG) * pe_groups)
 
-    # ---- CU setup: register writes + CU_START per PE group
-    s.cu_setup = pe_groups * (5 * APB_WRITE_CGRA + CU_START_CGRA)
+    # ---- CU setup: write LOOP_*, CU_PC_END, AUTO_INC enable/disable,
+    # CU_START per PE group.
+    s.cu_setup = pe_groups * (8 * APB_WRITE_CGRA + CU_START_CGRA)
 
-    # ---- Output writeback: c_out × h_out × w_out × 4 bytes (INT32 retained for ReLU clamp)
+    # ---- Output writeback: c_out × h_out × w_out × 4 bytes (INT32
+    # retained for next-layer requant).
     out_bytes = c_out * h_out * w_out * 4
-    s.output_dma = DMA_SETUP_CGRA + (out_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+    s.output_dma = (DMA_SETUP_CGRA
+                    + (out_bytes + HP_BYTES_PER_CGRA_CYC - 1)
+                      // HP_BYTES_PER_CGRA_CYC)
 
-    # ---- ARM sync: ~5 sync points per PE group (input DMA done, weight DMA
-    # done, CU done, readout done, output DMA done)
+    # ---- ARM sync: 5 sync points per PE group (in DMA, weight DMA,
+    # CU done, readout DMA done, output DMA done).
     s.arm_sync = pe_groups * 5 * PHASE_SYNC_CGRA
 
     return s
@@ -227,25 +284,78 @@ def quant_stage_budget(n_elements: int, num_pes: int, name: str) -> StageBudget:
 
 def fc_stage_budget(n_in: int, n_out: int, num_pes: int,
                     name: str) -> StageBudget:
-    """FC layer: n_out neurons, n_in inputs each. v2 16-PE parallel:
-    one PE = one neuron, ceil(n_out/16) groups."""
+    """FC layer cycle budget modelling the ACTUAL v2 kernel structure
+    (cnn_fc_v2_run_group in cgra_kernels_cnn_v2.h, lines 220-290).
+
+    Per group, the kernel issues these phases sequentially with ARM
+    polling between each:
+      1. SPM weight preload      (num_pes-desc SG-DMA chain)
+      2. ACC_CLR pass            (num_pes-desc SG-DMA + CU run, PC_END=0)
+      3. MAC opword restore      (num_pes-desc SG-DMA)
+      4. MAC loop                (CU run, LOOP_COUNT × 16 slots)
+      5. Relay PASS0(SRC_W) init (num_pes-desc SG-DMA, NEW in v2)
+      6. Per-column readout × 4  (col-desc SG-DMA + CU run + APB reads)
+                                  (NEW in v2: 4 separate phases for 16-PE)
+    """
     s = StageBudget(name=name)
     pe_groups = (n_out + num_pes - 1) // num_pes
-    # Input is shared across all PEs in a group (broadcast). One DMA load
-    # per group at most; for tile-based input it's loaded once total.
-    in_bytes = n_in * 2
-    s.input_dma  = DMA_SETUP_CGRA + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
-    # Weight per group: num_pes PEs × n_in × 2 bytes
-    w_bytes = num_pes * n_in * 2
-    s.weight_dma = pe_groups * (num_pes * SG_DMA_DESC_CGRA
-                                + (w_bytes + HP_BYTES_PER_CGRA_CYC - 1)
-                                  // HP_BYTES_PER_CGRA_CYC)
-    # MAC: n_in per neuron, num_pes neurons in parallel per group
-    s.mac_compute = int(pe_groups * n_in / MAC_EFF_LONG)
-    s.cu_setup    = pe_groups * (5 * APB_WRITE_CGRA + CU_START_CGRA)
-    # Readout: APB reads of RESULT_ROW + DDR writeback for fc1_acc array
-    s.output_dma  = pe_groups * (num_pes * APB_READ_CGRA + DMA_SETUP_CGRA)
-    s.arm_sync    = pe_groups * 5 * PHASE_SYNC_CGRA
+
+    # ---- Activation broadcast: SPM broadcast prefix (0x5) writes to all
+    # PEs simultaneously. INT16 stored as 32-bit words. Only ONCE per
+    # inference (act_preload at top-level), not per group.
+    in_bytes = n_in * BYTES_PER_INT16_WORD     # 4 B/word, not 2
+    s.input_dma = (DMA_SETUP_CGRA
+                   + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1)
+                     // HP_BYTES_PER_CGRA_CYC)
+
+    # ---- Per-group weight preload: SG-DMA, num_pes descriptors. Each
+    # descriptor writes one PE's worth of weights (n_in × 4 B).
+    w_bytes_per_pe = n_in * BYTES_PER_INT16_WORD
+    weight_dma_per_group = (SG_DMA_CHAIN_SETUP_CGRA
+                            + num_pes * SG_DMA_DESC_CGRA
+                            + (num_pes * w_bytes_per_pe
+                               + HP_BYTES_PER_CGRA_CYC - 1)
+                              // HP_BYTES_PER_CGRA_CYC)
+    s.weight_dma = pe_groups * weight_dma_per_group
+
+    # ---- ACC_CLR pass: 2*num_pes-desc chain + CU run (1 slot).
+    acc_clr_chain = (SG_DMA_CHAIN_SETUP_CGRA
+                     + 2 * num_pes * SG_DMA_DESC_CGRA)  # HI+LO per PE
+    # ---- MAC opword restore: same chain length.
+    mac_restore_chain = acc_clr_chain
+    # ---- Relay PASS0(SRC_W) init: same chain length (NEW in v2).
+    relay_chain = acc_clr_chain
+    # ---- Per-column readout: 2*num_pes/4-desc chain per column + CU run.
+    # The kernel does this for each of the 4 columns of the PE array.
+    col_chain   = (SG_DMA_CHAIN_SETUP_CGRA
+                   + 2 * (num_pes // 4) * SG_DMA_DESC_CGRA)
+    n_readout_cols = 4
+
+    # ---- MAC compute: short loop (25-50 inner-loop passes) so use
+    # MAC_EFF_SHORT. Per group: num_pes PEs each doing n_in MACs in
+    # parallel = n_in cycles per group.
+    s.mac_compute = int(pe_groups * n_in / MAC_EFF_SHORT)
+
+    # ---- CU coordination: ~7 CU starts per group (ACC_CLR, MAC,
+    # 4× readout) plus loop-config writes (LOOP_START/END/COUNT/PC_END/
+    # AUTO_INC). Per group ~12 APB writes + ~5 CU starts.
+    s.cu_setup = pe_groups * (12 * APB_WRITE_CGRA + 5 * CU_START_CGRA)
+
+    # ---- All the per-group SG-DMA / readout chain overheads aggregated
+    # into output_dma (because they're all between MAC-compute and the
+    # final results being read out):
+    s.output_dma = pe_groups * (
+        acc_clr_chain                 # Step 2
+        + mac_restore_chain            # Step 3
+        + relay_chain                  # Step 5
+        + n_readout_cols * col_chain   # Step 6 (4 columns)
+        + n_readout_cols * num_pes * APB_READ_CGRA  # actual result reads
+    )
+
+    # ---- ARM polling between phases. v2 has ~10 sync points per group
+    # (vs ~7 for v1). Polling overhead beyond the CGRA-side completion.
+    s.arm_sync = pe_groups * 10 * PHASE_SYNC_CGRA
+
     return s
 
 
