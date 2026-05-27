@@ -50,12 +50,14 @@ static void delay_us(uint32_t us)
 #define S2MM_DMACR              0x30u
 #define S2MM_DMASR              0x34u
 #define S2MM_REG_INDEX          0x38u
+#define S2MM_FRMSTORE           0x48u   /* number of frame stores - 1 (PG020 §6) */
 #define S2MM_VSIZE              0xA0u
 #define S2MM_HSIZE              0xA4u
 #define S2MM_FRMDLY_STRIDE      0xA8u
 #define S2MM_START_ADDR_1       0xACu
 #define S2MM_START_ADDR_2       0xB0u
 #define S2MM_START_ADDR_3       0xB4u
+#define S2MM_START_ADDR_4       0xB8u
 #define S2MM_PARK_PTR           0x28u
 
 #define DMACR_RS_BIT            (1u << 0)
@@ -208,6 +210,12 @@ void hdmi_in_init(void)
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_1,  HDMI_IN_FB0);
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_2,  HDMI_IN_FB1);
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_3,  HDMI_IN_FB2);
+    /* Mirror ADDR1 into slot 4 so an over-cycle never hits address 0
+     * (the new axi_vdma_in has c_num_fstores=4). */
+    mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_4,  HDMI_IN_FB0);
+    /* FRMSTORE = N-1 = 2 (= 3 stores active). Default 0 means "1 store"
+     * which combined with CIRC_PARK=1 led to DEC_ERR on this VDMA build. */
+    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      2u);
     mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
 
     /* RS=1, CIRCULAR_PARK=1, frame counter disabled → free-running 3-frame
@@ -342,6 +350,12 @@ int hdmi_in_recover_if_halted(void)
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_1,  HDMI_IN_FB0);
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_2,  HDMI_IN_FB1);
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_3,  HDMI_IN_FB2);
+    /* Mirror ADDR1 into slot 4 so an over-cycle never hits address 0
+     * (the new axi_vdma_in has c_num_fstores=4). */
+    mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_4,  HDMI_IN_FB0);
+    /* FRMSTORE = N-1 = 2 (= 3 stores active). Default 0 means "1 store"
+     * which combined with CIRC_PARK=1 led to DEC_ERR on this VDMA build. */
+    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      2u);
     mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
     mmio_w(VDMA_IN_BASE + S2MM_DMACR,
            DMACR_RS_BIT | DMACR_CIRC_PARK_BIT);
