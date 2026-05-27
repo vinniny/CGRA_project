@@ -353,3 +353,88 @@ RTL fix → coverage now permanent.
 - **Don't volunteer the SPM slot-boundary asymmetry** unless asked —
   the argmax-equivalence property in `tb_suite_cnn_kernel.svh` is the
   right level of answer if it does come up.
+
+---
+
+## H. Silicon results from the 2026-05-26/27 live HDMI run
+
+These are the actual numbers from `demo_mnist_per_stage.elf` averaged
+over 100 frames on the `bitstreams/cgra_split_vdma.bit` topology
+(separate HDMI-IN / HDMI-OUT VDMAs). Cycles are ARM CCNT @ 666 MHz.
+
+### Per-stage ARM cycles
+
+| Stage | ARM cyc | % of full SW path |
+|---|---|---|
+| Conv1 + ReLU (VFP) | 8 126 k | 38.7 % |
+| Pool1 (VFP) | 177 k | 0.8 % |
+| Conv2 + ReLU (VFP) | 8 911 k | 42.4 % |
+| Pool2 (VFP) | 52 k | 0.2 % |
+| Quantize HWC→CHW | 74 k | 0.4 % |
+| **CGRA FC1** | **1 533 k** | 7.3 % |
+| CGRA FC1-post (bias+ReLU+requant) | 10 k | 0.05 % |
+| CGRA FC2 | 125 k | 0.6 % |
+| CGRA argmax | 1.5 k | 0.01 % |
+
+### Layer-level comparison (CGRA vs ARM-INT on the same FC layer)
+
+| Layer | ARM-INT | CGRA (Tier-1) | Speedup |
+|---|---|---|---|
+| FC1 (400→64) | 3 578 k | 1 533 k | **2.34×** |
+| FC2 (64→10) | 89 k | 125 k | **0.71× (CGRA slower)** |
+
+FC2 loses because the per-group setup overhead (SG-DMA chains, MAC
+restore, readout) is amortised over only 10 outputs in 3 groups vs
+64 outputs in 16 groups for FC1. With 10 / 16 = 62.5 % SPM
+utilisation in the last group, per-output cycle cost balloons.
+
+### End-to-end inference (FB-prep + Conv + Pool + Quantize + FC + argmax)
+
+| Path | Total ARM cyc | vs full SW |
+|---|---|---|
+| Full SW (VFP Conv + INT FC) | 21 020 k | 1.00× |
+| Full HW (VFP Conv + CGRA FC) | 18 960 k | **1.11×** |
+| Full SW INT-only (INT Conv + INT FC) | 30 421 k | 0.69× |
+
+> **Q: Only 11 % end-to-end speedup — what's the headline number then?**
+
+The CGRA accelerates the FC layers specifically, where the dataflow
+fits the array's 4×4 mesh + per-PE SPM topology. Conv stays on ARM-VFP
+because (a) the conv saturates INT32 inside our result FIFO on this
+particular network, and (b) the VFP NEON path on Cortex-A9 already
+does conv in ~17 M cyc — competitive with what the CGRA could deliver
+without a tile-streaming Im2Col layer that's out of scope.
+
+The **per-layer FC1 speedup is 2.34× over ARM-INT**, which is the
+honest number to quote for the kernel that the CGRA is actually
+designed for. The end-to-end 11 % reflects Amdahl's law on a workload
+where 80 %+ of the inference is the conv stages.
+
+### Tier-1 fast FC kernel honest verdict
+
+Silicon-measured Tier-1 vs v1 baseline on the same 100-image sweep:
+
+| Mode | Accuracy | Total cyc (100 img) | Per-inference |
+|---|---|---|---|
+| v1 baseline | 97/100 | 172.3 M | 1.722 M |
+| Tier-1 FAST | 97/100 | 174.8 M | 1.748 M |
+
+**Within ±2 % measurement noise.** Tier-1 is a code-cleanliness win
+(5 vs 7 polling phases per group, soft-reset replaces ACC_CLR
+SG-DMA + CU pass) but **not** a measurable speed win at ARM-cyc
+granularity — the polling overhead doesn't scale linearly with the
+CGRA-side cycles saved. The CGRA-side savings (~6 K CGRA cyc/inference)
+are absorbed by the same number of ARM-side polling waits with
+slightly fewer iterations each.
+
+> **Q: Why didn't you make Tier-1 faster then?**
+
+The remaining cycle budget on the ARM-polled silicon path is dominated
+by polling latency, not CGRA compute. To get measurable wall-clock
+improvement we'd need IRQ-driven DMA-completion (avoids the polling
+loop entirely) — but that adds IRQ handling overhead per stage that
+can be more than the savings, especially for the short readout phase.
+A measured optimisation path would be: pre-issue the next group's
+SG-DMA right after the current readout SG-DMA so the ARM only polls
+once per group instead of 2-3 times. That's future work.
+

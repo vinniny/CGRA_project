@@ -50,6 +50,46 @@ for the timing-closure story).
 | Bare-metal regression | 96 checks PASS across 25 groups |
 | ISA opcodes | 21 implemented |
 
+### Recent milestones (2026-05-26 → 2026-05-27)
+
+- **Live HDMI MNIST demo silicon-validated.** `demo_mnist_hdmi_bm.elf`
+  captures 1280×720 from a laptop via J10 → 28×28 binarised ROI →
+  three-way head-to-head FC comparison (CGRA-FC vs ARM-INT FC vs
+  ARM-VFP FC). Drawing in MS Paint produces real-time predictions on
+  the J11 monitor.
+- **Split-VDMA topology** (`scripts/add_separate_hdmi_in_vdma.tcl`).
+  Per PG020 §6.4, the original shared `axi_vdma` reset both MM2S and
+  S2MM together → HDMI-OUT corruption every time HDMI-IN re-init'd
+  on frame fault. The patch adds a dedicated `axi_vdma_in` at
+  0x4302_0000 (S2MM only, 4096-deep line buffer, explicit
+  `Data_S2MM → S_AXI_HP0` map). HDMI-OUT now silicon-stable through
+  arbitrary HDMI-IN reinitialisations. WNS +0.230 ns post-route.
+- **Per-stage cycle breakdown** (`demo_mnist_per_stage.elf`, averaged
+  over 100 frames at 666 MHz ARM):
+  - Conv1 + Conv2 (VFP) = 17 M cyc (81 % of inference).
+  - **FC1 CGRA vs ARM-INT: 1.53 M vs 3.58 M = 2.34× speedup**.
+  - FC2 CGRA vs ARM-INT: 125 k vs 89 k (CGRA slightly slower on the
+    small 64→10 layer — per-group setup overhead dominates).
+  - End-to-end full VFP+CGRA vs VFP+ARM-INT: 1.11× (Amdahl-bounded by
+    the conv stages).
+- **Tier-1 fast FC kernel** (`cgra_kernels_cnn_opt.h`) — replaces
+  the per-group ACC_CLR SG-DMA + CU pass with a single
+  `cgra_cu_reset()` call (toggles `CU_CTRL`, soft-resets all 16 PE
+  accumulators without touching the config RAM), hoists `LOOP_*`
+  and `*AUTO_INC` out of the per-group loop, shortens readout
+  `PC_END` from 15 → 5. Sweep accuracy bit-identical to v1
+  (97/100 both). ARM-side cycles within ±2 % — Tier-1 is a
+  code-cleanliness win, not a measurable speed win at this
+  granularity.
+- **v2 16-PE parallel kernel fix** (`cgra_kernels_cnn_v2.h`). The
+  original v2 had a latent RF[0] clobber: the per-group relay
+  `PASS0(SRC_W, ROUTE_E)` opword used `dst=0`, so during each
+  column's readout pass the non-readout PEs overwrote their MAC
+  results in RF[0]. Fix: relay opword now uses `dst=15` (writes to
+  RF[1..15] are functionally invisible per the RTL quirk; ROUTE_E
+  still propagates). `make mnist_sweep_v2` and `make mnist_hdmi_v2`
+  build the validation ELFs alongside the Tier-1 defaults.
+
 ### Recent milestones (2026-05-23 → 2026-05-24)
 
 - **v2 RTL merge** (commit `0b707ae`) — dual-port SPM in `cgra_pe`, broadcast
