@@ -263,3 +263,22 @@ deterministic CGRA-vs-ARM divergence (`5/3/3` consistently).
 Post-fix, grayscale pass-through gives smooth conv outputs with
 max ~`0x2B36`, no saturation, and 51.5% three-path agreement
 across live frames.
+
+### Known open issues (cosmetic, do not affect functional demo)
+
+- **HDMI-OUT visual cast** on the split-VDMA bitstream — J11 monitor
+  shows a slight right-shift and a purple/magenta tint on what
+  should be the dark-blue panel background. xsdb register dumps
+  confirm color_convert identity matrix, pixel_unpack V_24 mode,
+  VTC enabled, dynclk locked — all SW-visible configs are correct.
+  The cast persists across v2/v3/v3b/v4 builds (i.e., across all
+  split-VDMA variants, timing-passing or not), but is absent on
+  the legacy `cgra_rebuilt_from_base.bit` (shared-VDMA). Suspected
+  root cause: implicit BD change from growing
+  `axi_interconnect_0`'s `NUM_MI` shifted some downstream IP's
+  configuration or HDMI signal phase that my Tcl patch doesn't
+  re-tune. Doesn't block the demo — UART telemetry shows the
+  correct cycle / prediction data, J11 just has a tint.
+- **CGRA-vs-ARM intermittent disagreement** on transition frames
+  (~48% of frames) where the HDMI-IN VDMA captures a partial frame.
+  Steady-state ALL-AGREE on held digits.
