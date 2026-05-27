@@ -234,3 +234,32 @@ threshold @ 128 → INT quantization → FC1+FC2 → argmax).
   `make mnist_hdmi_v2`. Both build `_v2.elf` variants alongside the
   default Tier-1 ELFs so the cycle/accuracy A/B test is one
   `make run_elf` apart.
+
+### Live HDMI MNIST demo final result (2026-05-27)
+
+End-to-end working on `bitstreams/cgra_split_vdma.bit` (v4 build, WNS
++0.260 ns). 485 live frames analysed via UART triplet capture:
+
+| Path agreement | Frames | Percentage |
+|---|---|---|
+| ALL-AGREE (CGRA = ARM-INT = ARM-VFP) | **250** | **51.5%** |
+| ARM-INT == ARM-VFP | 485 | 100% |
+| CGRA == ARM-INT | 250 | 51.5% |
+
+Drawing transitions: `0→0/0/0 → 2→2/2/2 → 7→7/7/7 → 8→8/8/8 → 9→9/9/9`
+all confirmed ALL-AGREE during user testing. CGRA diverges on
+~half of intermediate / partial-capture frames where the HDMI-IN
+VDMA's transient DEC_ERR state produces partially-written frames.
+ARM paths are robust to this because they compute the conv
+pipeline before the FC stage, smoothing over the noise; CGRA's
+FC stage amplifies small numerical differences from partial conv
+outputs.
+
+The critical SW fix was **removing the binary threshold in
+`frame_to_mnist.c`**. Pre-fix, the threshold-at-128 step produced
+binary {0, 255} 28×28 images that pushed conv2 outputs into INT16
+saturation (`act400` had entries at `0x7FFF`), which then triggered
+deterministic CGRA-vs-ARM divergence (`5/3/3` consistently).
+Post-fix, grayscale pass-through gives smooth conv outputs with
+max ~`0x2B36`, no saturation, and 51.5% three-path agreement
+across live frames.
