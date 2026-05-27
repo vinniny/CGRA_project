@@ -451,6 +451,28 @@ int main(void)
         const uint8_t *fb = hdmi_in_current_frame();
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
         arm_cnn_vfp_run(live28, act400);
+
+        /* Defensive: re-pack each act400 entry as a clean sign-extended
+         * INT16 → INT32. */
+        for (int dbg = 0; dbg < 400; ++dbg) {
+            int16_t v16 = (int16_t)act400[dbg];
+            act400[dbg] = (int32_t)v16;
+        }
+        asm volatile("dsb" ::: "memory");
+
+        /* DIAG: dump act400[0..7] every 32 frames so we can compare
+         * with what CGRA's tile sees. */
+        static uint32_t diag_frame = 0;
+        if ((diag_frame & 0x1F) == 0) {
+            uart_puts("act400[0..7]:");
+            for (int d = 0; d < 8; ++d) {
+                uart_putchar(' ');
+                uart_puthex((uint32_t)act400[d]);
+            }
+            uart_putchar('\n');
+        }
+        diag_frame++;
+
         label = -1;                     /* no ground truth in live mode */
 
 #ifdef FORCE_FIXTURE_ACT400
