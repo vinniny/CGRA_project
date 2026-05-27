@@ -165,4 +165,23 @@ int  hdmi_in_recover_if_halted(void);
  */
 void hdmi_in_assert_hpd(void);
 
+/**
+ * Halt the HDMI-IN S2MM VDMA (clear DMACR.RS). Frees HP0 bandwidth
+ * for HDMI-OUT MM2S to read framebuffer pixels at clean 60Hz without
+ * contention. Call this AFTER reading the current frame; the next
+ * iteration's hdmi_in_recover_if_halted() will detect the halt and
+ * re-arm for the next capture.
+ *
+ * Rationale (silicon-validated 2026-05-27): with the split-VDMA
+ * bitstream, HDMI-IN S2MM @ 64-bit M_AXI and HDMI-OUT MM2S @ 32-bit
+ * MM2S both share ps7_0/S_AXI_HP0 via axi_mem_intercon. At 1280x720
+ * S2MM @ 60Hz the HP0 traffic from HDMI-IN can starve HDMI-OUT
+ * MM2S reads, producing colour glitches and pixel right-shift on
+ * the J11 monitor. Demoing without LIVE_INPUT (HDMI-IN VDMA never
+ * runs) confirmed the OUT side is clean; this halt restores that
+ * cleanliness while keeping live capture functional at ~one
+ * frame-per-inference rate.
+ */
+void hdmi_in_halt(void);
+
 #endif /* HDMI_IN_BM_H */

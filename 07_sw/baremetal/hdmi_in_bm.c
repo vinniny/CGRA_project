@@ -286,6 +286,15 @@ void hdmi_in_color_convert_identity(void)
     mmio_w(CCONV_IN_BASE + CC_BIAS_C3, 0);
 }
 
+void hdmi_in_halt(void)
+{
+    /* Clear RS bit -> VDMA stops writing to DDR -> HP0 bandwidth freed
+     * for HDMI-OUT MM2S. The next hdmi_in_recover_if_halted() call
+     * detects DMASR.Halted=1 and re-arms the engine for one more
+     * capture frame. */
+    mmio_w(VDMA_IN_BASE + S2MM_DMACR, 0u);
+}
+
 void hdmi_in_assert_hpd(void)
 {
     /* Xilinx axi_gpio standard register map:

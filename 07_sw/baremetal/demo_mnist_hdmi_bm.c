@@ -450,6 +450,12 @@ int main(void)
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
+        /* Halt the HDMI-IN VDMA NOW so HDMI-OUT MM2S has HP0 to
+         * itself while we render the panels. Next iteration's
+         * hdmi_in_recover_if_halted() re-arms for the next frame.
+         * This eliminates HP0 contention that causes colour-shift
+         * and right-shift on the J11 monitor. */
+        hdmi_in_halt();
 
 #ifdef FORCE_FIXTURE_INPUT28
         /* DIAG: bypass HDMI capture, use a known-good 28x28 fixture.
