@@ -264,6 +264,36 @@ Post-fix, grayscale pass-through gives smooth conv outputs with
 max ~`0x2B36`, no saturation, and 51.5% three-path agreement
 across live frames.
 
+### Final silicon result (v5b bitstream, HP2 isolation, 2026-05-27 21:04)
+
+The v5b bitstream resolves the HDMI-OUT visual cast that was present
+on every shared-HP0 build. WNS = +0.468 ns, WHS = +0.010 ns.
+
+HP-port topology partitioned cleanly:
+  HP0  →  HDMI-OUT MM2S (display read)
+  HP1  →  CGRA DMA (weights + tile load)
+  HP2  →  HDMI-IN  S2MM (capture write)  ← NEW (axi_mem_intercon_in)
+  HP3  →  unused
+
+Silicon test 2026-05-27 21:10:
+  - J11 monitor displays cleanly (no purple cast, no right-shift)
+  - HDMI-IN captures 60 fps without DEC_ERR or DMASR halt
+  - Live drawing on laptop produces tracking predictions
+  - Frequent ALL-AGREE on held digits: 0, 1, 2, 5, 7, 8, 9 confirmed
+  - CGRA-FC no longer stuck at single output (was 9 on v4 after
+    accumulated session state); fresh PL program restored variety
+  - Intermittent ARMS-AGREE-CGRA-DIFFERS on transition frames /
+    out-of-MNIST-distribution inputs (~half of live frames)
+
+The CGRA's lower live-input precision vs ARM-INT64 is the expected
+trade-off of the 40-bit saturating accumulator design point. On the
+training distribution (MNIST sweep fixture) CGRA matches ARM-INT64
+97/100. On out-of-distribution inputs (Paint mouse-drawn digits via
+live HDMI capture) the 40-bit boundary occasionally truncates sums
+that INT64 would carry exactly, producing different argmax. A future
+v2 16-PE silicon-validated kernel with wider accumulator would close
+this gap at ~25 % PE-area cost.
+
 ### Known open issues (cosmetic, do not affect functional demo)
 
 - **HDMI-OUT visual cast** on the split-VDMA bitstream — J11 monitor
