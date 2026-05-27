@@ -209,8 +209,28 @@ threshold @ 128 → INT quantization → FC1+FC2 → argmax).
   preload. Total CGRA cycles target: ~1.3 M (3× ARM-INT). Requires
   Python weight-binary repack and a parallel kernel header
   (`cgra_kernels_cnn_simd.h`).
-- **Tier-3 16-PE parallel** (`cgra_kernels_cnn_v2.h`): all 16 PEs in
-  the array do MAC simultaneously via dual-port SPM (`SRC_SPM` for
-  activations, `SRC_SPM2` for weights). The v2 kernel exists but its
-  4-column readout sequence has a silicon-confirmed accuracy bug on
-  FC1 outputs (debug pending). Theoretical ~4× over Tier-1.
+- **Tier-3 16-PE parallel** (`cgra_kernels_cnn_v2.h`, dst=15 fix
+  committed 2026-05-27): all 16 PEs in the array do MAC simultaneously
+  via dual-port SPM (`SRC_SPM` for activations, `SRC_SPM2` for
+  weights). The original v2 kernel had a latent RF[0] clobber bug:
+  the per-group relay `PASS0(SRC_W, ROUTE_E)` opword used `dst=0`,
+  which during each column's readout pass overwrote the non-readout
+  PEs' MAC results (stored in RF[0]) with whatever was forwarded on
+  the west port. Fix: change relay opword `dst` to 15 (writes to
+  RF[1..15] are functionally invisible per the RTL quirk, so the
+  ROUTE_E still propagates while RF[0] is preserved).
+
+  **Honest cycle expectation** (per the per-group analysis in
+  `cgra_kernels_cnn_v2.h` + Tier-1 measurements): v2's per-group
+  overhead is ~4× v1's because all the SG-DMA chains, MAC-restore,
+  relay-init, and SPM-preload steps now touch 16 PEs instead of 4.
+  Net per-output cycle cost is **roughly equivalent** to Tier-1.
+  The thesis story for v2 is therefore **dual-port SPM correctness**
+  (proves the `SRC_SPM` + `SRC_SPM2` design works under real
+  16-neuron-per-group workloads) and **architectural utilisation**
+  (all 16 PEs active simultaneously), not a raw cycle win over v1.
+
+  Silicon validation harness ready: `make mnist_sweep_v2` and
+  `make mnist_hdmi_v2`. Both build `_v2.elf` variants alongside the
+  default Tier-1 ELFs so the cycle/accuracy A/B test is one
+  `make run_elf` apart.
