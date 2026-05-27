@@ -10,6 +10,13 @@
 #include "cgra_kernels_cnn.h"
 #include "mnist_sweep_fixture.h"
 
+#ifndef USE_FAST_CGRA_FC
+#define USE_FAST_CGRA_FC 1
+#endif
+#if USE_FAST_CGRA_FC
+#include "cgra_kernels_cnn_opt.h"
+#endif
+
 extern const uint32_t cnn_spm_start[];
 
 #define ACT400_DDR 0x00220000UL
@@ -26,14 +33,27 @@ static int run_image(int idx, int32_t fc2_out[10])
 
     if (cnn_fc1_tile_preload(ACT400_DDR)) return -1;
     int32_t fc1_dummy[4];
+#if USE_FAST_CGRA_FC
+    cnn_fc_opt_layer_setup(CNN_FC1_LOOP_COUNT);
+    for (int g = 0; g < (int)CNN_FC1_N_GROUPS; g++)
+        if (cnn_fc1_opt_run_group(g, fc1_dummy)) return -1;
+#else
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; g++)
         if (cnn_fc1_run_group(g, fc1_dummy)) return -1;
+#endif
 
     if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
     int32_t buf[12];
+#if USE_FAST_CGRA_FC
+    cnn_fc_opt_layer_setup(CNN_FC2_LOOP_COUNT);
+#endif
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; g++) {
         int32_t grp[4];
+#if USE_FAST_CGRA_FC
+        if (cnn_fc2_opt_run_group(g, grp)) return -1;
+#else
         if (cnn_fc2_run_group(g, grp)) return -1;
+#endif
         for (int r = 0; r < 4 && g * 4 + r < (int)CNN_FC2_N_OUTPUTS; r++)
             buf[g * 4 + r] = grp[r];
     }
@@ -47,6 +67,11 @@ int main(void)
     uart_puts("\n=== MNIST sweep (");
     uart_putdec((uint32_t)SWEEP_N_IMAGES);
     uart_puts(" images) ===\n");
+#if USE_FAST_CGRA_FC
+    uart_puts("CGRA-FC mode: FAST (Tier-1 soft-reset + hoisted CU regs)\n");
+#else
+    uart_puts("CGRA-FC mode: BASELINE v1\n");
+#endif
 
     arm_pmu_enable();
 

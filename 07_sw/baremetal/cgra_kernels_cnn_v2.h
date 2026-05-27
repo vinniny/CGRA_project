@@ -144,10 +144,21 @@ static inline int cnn_fc_v2_build_chains(
     /* ---- Opword storage area at chains_ddr+CNN_V2_OFF_OPWORDS ---------- */
     volatile uint32_t *op = (volatile uint32_t *)(chains_ddr + CNN_V2_OFF_OPWORDS);
 
-    uint64_t acc_clr_w = CFGW(OP_ACC_CLR, 0,       0,       0, 0,       0);
-    uint64_t mac_v2_w  = CFGW(OP_MAC,     SRC_SPM, SRC_SPM2, 0, 0,      CNN_V2_WGT_OFFSET);
-    uint64_t p0_rf_w   = CFGW(OP_PASS0,   SRC_RF,  0,       0, ROUTE_E, 0);
-    uint64_t p0_we_w   = CFGW(OP_PASS0,   SRC_W,   0,       0, ROUTE_E, 0);
+    uint64_t acc_clr_w = CFGW(OP_ACC_CLR, 0,       0,       0,  0,       0);
+    uint64_t mac_v2_w  = CFGW(OP_MAC,     SRC_SPM, SRC_SPM2, 0, 0,       CNN_V2_WGT_OFFSET);
+    uint64_t p0_rf_w   = CFGW(OP_PASS0,   SRC_RF,  0,       0,  ROUTE_E, 0);
+    /* CRITICAL: dst=15 (NOT 0) for the relay PASS0. During each column's
+     * readout CU pass, the non-readout-column PEs execute PASS0(SRC_W,E)
+     * to forward west-to-east. If dst=0, alu_result (= west port input)
+     * gets written back to RF[0], CLOBBERING that PE's MAC result. The
+     * NEXT column's readout then reads the corrupted RF[0] instead of
+     * the original MAC value -> wrong FC outputs (v2 silicon bug).
+     *
+     * RF[15] writes are functionally invisible per the RTL quirk
+     * (writes to RF[1..15] don't reach the readable RF[0]), so the
+     * ROUTE_E still propagates the value east-bound while the MAC
+     * accumulator-in-RF[0] is preserved on the non-readout PEs. */
+    uint64_t p0_we_w   = CFGW(OP_PASS0,   SRC_W,   0,       15, ROUTE_E, 0);
 
     op[0] = (uint32_t)(acc_clr_w >> 32); op[1] = (uint32_t)(acc_clr_w & 0xFFFFFFFFuL);
     op[2] = (uint32_t)(mac_v2_w  >> 32); op[3] = (uint32_t)(mac_v2_w  & 0xFFFFFFFFuL);

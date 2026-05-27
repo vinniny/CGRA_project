@@ -161,3 +161,56 @@ MAC·SIMD, RELU, MAX, LIF, CMP, SHL/SHR, AND/OR/XOR, LOAD/STORE_SPM,
 TILE_AUTO_INC, SPM_AUTO_INC, config-broadcast, SG-DMA, DMA→SPM,
 nested LOOP/LOOP2, PASS0 east reduction, IRQ — **19 of 21 ISA ops
 plus all major data movement and control paths**.
+
+---
+
+## 6. Live HDMI MNIST silicon results (2026-05-26 / 2026-05-27)
+
+End-to-end pipeline measured on Haoyue Zynq-7000 with the split-VDMA
+bitstream (`bitstreams/cgra_split_vdma.bit` — separate HDMI-IN VDMA at
+`0x4302_0000` and HDMI-OUT VDMA at `0x4300_0000`, line buffer 4096,
+explicit `Data_S2MM → S_AXI_HP0 @ 0x10000000-0x1FFFFFFF` address map).
+
+| Path | ARM CCNT cycles / inference | Speedup vs ARM-INT |
+|---|---|---|
+| ARM-INT FC (INT64 accumulator)   | ~3.71 M | 1.00× (baseline) |
+| ARM-VFP FC (float MAC)           | ~2.89 M | 1.28× |
+| CGRA FC (4-PE, Tier-1 fast)      | **~1.74 M** | **2.13×** |
+
+All three paths produce bit-identical predictions on the same live
+HDMI 1280×720 capture (laptop → splitter → board J10 → 28×28 ROI →
+threshold @ 128 → INT quantization → FC1+FC2 → argmax).
+
+### Architecture decisions silicon-validated tonight
+
+- **Split-VDMA topology**: previously one shared `axi_vdma` (MM2S to
+  HDMI-out, S2MM from HDMI-in). PG020 §6.4 specifies DMACR.Reset on
+  either channel resets the whole IP, so re-initialising HDMI-in
+  tore down HDMI-out timing. Solution: dedicated `axi_vdma_in` for
+  S2MM at `0x4302_0000`, original `axi_vdma` becomes MM2S-only.
+- **Tier-1 fast FC kernel** (`cgra_kernels_cnn_opt.h`): replaces the
+  ACC_CLR SG-DMA + CU pass with `cgra_cu_reset()` (clears all 16 PE
+  accumulators in ~150 cycles via `CU_CTRL=2; CU_CTRL=0` without
+  disturbing config RAM), hoists `LOOP_START/END/COUNT`,
+  `SPM_AUTO_INC`, `TILE_AUTO_INC` out of the per-group loop, shortens
+  the readout CU pass from `PC_END=15` to `PC_END=5` (4 east-chain
+  hops × 3-stage pipeline = 5 cycles to drain).
+- **Threshold-at-128 in `frame_to_mnist.c`**: live 28×28 inputs need
+  hard binarisation to match the INT16 quantization range of the
+  CGRA weights; anti-aliased grey strokes were collapsing all paths
+  to the same wrong digit before this fix.
+
+### Open improvements
+
+- **Tier-2 INT16x2 SIMD** (`DATA_MODE_INT16X2`): pack two INT16
+  weights / activations per 32-bit SPM word, use the SIMD dot
+  product mode (`acc += op0[lo]·op1[lo] + op0[hi]·op1[hi]`).
+  Estimated additional ~50 % drop on MAC compute, ~50 % on SPM
+  preload. Total CGRA cycles target: ~1.3 M (3× ARM-INT). Requires
+  Python weight-binary repack and a parallel kernel header
+  (`cgra_kernels_cnn_simd.h`).
+- **Tier-3 16-PE parallel** (`cgra_kernels_cnn_v2.h`): all 16 PEs in
+  the array do MAC simultaneously via dual-port SPM (`SRC_SPM` for
+  activations, `SRC_SPM2` for weights). The v2 kernel exists but its
+  4-column readout sequence has a silicon-confirmed accuracy bug on
+  FC1 outputs (debug pending). Theoretical ~4× over Tier-1.
