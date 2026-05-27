@@ -310,25 +310,48 @@ images:
 | Float reference (sanity)      | 97.70%     | (Python ref) |
 | INT-quantisation loss          | 0.50%     | — |
 
-Per-layer CGRA cycle budget (16 PEs @ 50 MHz):
+Per-layer CGRA cycle budget with realistic overheads (16 PEs @ 50 MHz,
+silicon-tuned constants — DMA setup, HP-port bandwidth, SG-DMA traversal,
+ARM polling, CU register writes):
 
-| Stage | Cycles | Time @ 50 MHz |
-|---|---|---|
-| Conv1 + ReLU | 9 664 | 0.193 ms |
-| Pool1 | 438 | 0.009 ms |
-| Conv2 + ReLU | 9 517 | 0.190 ms |
-| Pool2 | 200 | 0.004 ms |
-| FC1 | 2 400 | 0.048 ms |
-| FC2 | 264 | 0.005 ms |
-| **Total** | **22 483** | **0.450 ms** |
+| Stage | Cycles | Time | Dominant cost |
+|---|---|---|---|
+| Conv1 + ReLU | 6 147 | 0.123 ms | MAC 51 % / output_dma 31 % |
+| Pool1 | 949 | 0.019 ms | output_dma 58 % |
+| Conv2 + ReLU | 10 940 | 0.219 ms | **MAC 82 %** (compute-bound — ideal) |
+| Pool2 | 387 | 0.008 ms | output_dma 60 % |
+| FC1 | 10 176 | 0.204 ms | **weight_dma 73 %** (memory-bound) |
+| FC2 | 1 370 | 0.027 ms | weight_dma 71 % |
+| **Total** | **29 969** | **0.599 ms** | — |
+
+Aggregated bottleneck breakdown across full inference:
+
+```
+mac_compute   47.7%  ████████████████████████  (actual work)
+weight_dma    33.5%  ████████████████          (#1 non-compute cost)
+output_dma    13.9%  ██████                    (Conv→Pool roundtrip)
+input_dma      2.8%  █
+cu_setup       1.2%
+arm_sync       0.9%
+```
 
 Projected speedup vs current ARM-VFP full SW path:
 
 ```
 Current (silicon-measured):  21 020 000 ARM cyc per inference
-Full CGRA (projected):          299 473 ARM cyc (= 22 483 × 13.32 ratio)
-Speedup:                              ~70×
+Full CGRA (this model):         399 187 ARM cyc per inference
+Speedup:                              ~52×
 ```
+
+Further optimisations available (each is a kernel-level change, no
+RTL changes needed):
+
+| Optimisation | Save | Cumulative speedup |
+|---|---|---|
+| Fuse Conv + Pool (skip DDR roundtrip) | 700 cyc | ~54× |
+| Persistent weight load at boot | 10 k cyc | ~75× |
+| Double-buffer output DMA vs next layer's weight DMA | 3 k cyc | ~80× |
+| HP1 + HP2 in parallel (no bus contention) | 2 k cyc | ~88× |
 
 The hardware primitives are silicon-validated (`make sim` 9159/9159
 passing). The only remaining gap is writing the `cnn_conv3x3_layer()`
