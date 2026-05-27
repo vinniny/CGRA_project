@@ -89,12 +89,8 @@ connect_bd_intf_net \
     [get_bd_intf_pins $new_vdma/S_AXIS_S2MM]
 puts "  hdmi_in/out_stream -> axi_vdma_in/S_AXIS_S2MM"
 
-# ----- 5. Re-wire M_AXI: new VDMA -> axi_mem_intercon S00 --------------
-puts "\n=== 5. M_AXI rewire ==="
-set m_intercon [get_bd_cells /video/axi_mem_intercon]
-if {[llength $m_intercon] == 0} {
-    error "Could not find /video/axi_mem_intercon"
-}
+# ----- 5. M_AXI rewire: HDMI-IN -> HP1 (own port, no HP0 contention) ---
+puts "\n=== 5. M_AXI rewire (HDMI-IN -> HP1, isolated from HDMI-OUT) ==="
 
 # Remove old S2MM connection between original VDMA's M_AXI_S2MM and intercon
 set old_m_axi [get_bd_intf_nets -of_objects \
@@ -105,12 +101,29 @@ if {[llength $old_m_axi] > 0} {
 }
 # (M_AXI_S2MM port disappears since c_include_s2mm = 0)
 
-# Connect new VDMA's M_AXI_S2MM to axi_mem_intercon S00_AXI (was the
-# original S2MM's slot, now free for the new VDMA)
+# Enable S_AXI_HP1 on PS7. Default base.tcl uses only HP0.
+set ps7 [get_bd_cells /ps7_0]
+set_property -dict [list \
+    CONFIG.PCW_USE_S_AXI_HP1 {1} \
+] $ps7
+puts "  ps7_0.S_AXI_HP1 enabled"
+
+# New interconnect for HDMI-IN -> HP1 (independent from HDMI-OUT's HP0).
+set hp1_intercon [create_bd_cell -type ip \
+    -vlnv xilinx.com:ip:axi_interconnect:2.1 /video/axi_mem_intercon_in]
+set_property -dict [list \
+    CONFIG.NUM_SI {1} \
+    CONFIG.NUM_MI {1} \
+] $hp1_intercon
+puts "  /video/axi_mem_intercon_in created (1 master, 1 slave)"
+
 connect_bd_intf_net \
     [get_bd_intf_pins $new_vdma/M_AXI_S2MM] \
-    [get_bd_intf_pins $m_intercon/S00_AXI]
-puts "  axi_vdma_in/M_AXI_S2MM -> axi_mem_intercon/S00_AXI"
+    [get_bd_intf_pins $hp1_intercon/S00_AXI]
+connect_bd_intf_net \
+    [get_bd_intf_pins $hp1_intercon/M00_AXI] \
+    [get_bd_intf_pins $ps7/S_AXI_HP1]
+puts "  axi_vdma_in/M_AXI_S2MM -> axi_mem_intercon_in -> ps7_0/S_AXI_HP1"
 
 # ----- 6. Clocks + resets ----------------------------------------------
 puts "\n=== 6. Clocks + resets ==="
@@ -131,6 +144,16 @@ connect_bd_net $rstn_ctrl [get_bd_pins $new_vdma/axi_resetn]
 connect_bd_net $fclk1     [get_bd_pins $new_vdma/s_axis_s2mm_aclk]
 connect_bd_net $fclk1     [get_bd_pins $new_vdma/m_axi_s2mm_aclk]
 puts "  $new_vdma clocks wired (FCLK1 data, FCLK0 ctrl)"
+
+# HP1 interconnect + PS7's HP1 port clocks/resets
+connect_bd_net $fclk1     [get_bd_pins $hp1_intercon/ACLK]
+connect_bd_net $fclk1     [get_bd_pins $hp1_intercon/S00_ACLK]
+connect_bd_net $fclk1     [get_bd_pins $hp1_intercon/M00_ACLK]
+connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/ARESETN]
+connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/S00_ARESETN]
+connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/M00_ARESETN]
+connect_bd_net $fclk1     [get_bd_pins $ps7/S_AXI_HP1_ACLK]
+puts "  HP1 intercon + ps7_0/S_AXI_HP1 clocks/resets wired (FCLK1)"
 
 # ----- 7. S_AXI_LITE control via axi_interconnect_0 --------------------
 puts "\n=== 7. S_AXI_LITE control ==="
