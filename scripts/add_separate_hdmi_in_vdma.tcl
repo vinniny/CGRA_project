@@ -161,20 +161,21 @@ puts "  $new_mi clock/reset wired"
 # ----- 8. Address assignment -------------------------------------------
 puts "\n=== 8. Address assignment ==="
 # Assign new VDMA's S_AXI_LITE at 0x43020000 (free slot next to original
-# VDMA at 0x43000000). Also give its M_AXI_S2MM the same DDR window as
-# the original (full DDR low-OCM aperture).
+# VDMA at 0x43000000).
 assign_bd_address -offset 0x43020000 -range 64K \
     [get_bd_addr_segs $new_vdma/S_AXI_LITE/Reg]
 
-# The new VDMA's M_AXI_S2MM should reach DDR via HP0. The address segment
-# for the new master should already auto-route to ps7_0/S_AXI_HP0 since
-# axi_mem_intercon goes there. Just assign the segment if needed.
-catch {
-    assign_bd_address -target_address_space \
-        [get_bd_addr_spaces $new_vdma/Data_S2MM] \
-        [get_bd_addr_segs ps7_0/S_AXI_HP0/HP0_DDR_LOWOCM]
-}
-puts "  $new_vdma/S_AXI_LITE at 0x43020000"
+# CRITICAL: the new VDMA's M_AXI_S2MM master MUST be explicitly mapped
+# to ps7_0/S_AXI_HP0/HP0_DDR_LOWOCM with the SAME 256 MB DDR window the
+# original axi_vdma used (0x1000_0000 - 0x1FFF_FFFF). Without this,
+# every S2MM write triggers an AXI decode error -> DMASR.DMADecErr=1 ->
+# VDMA halts. (Silicon-validated 2026-05-26: previous build with auto-
+# routing produced exactly this fault.)
+assign_bd_address -offset 0x10000000 -range 0x10000000 \
+    -target_address_space [get_bd_addr_spaces $new_vdma/Data_S2MM] \
+    [get_bd_addr_segs ps7_0/S_AXI_HP0/HP0_DDR_LOWOCM] -force
+puts "  $new_vdma/S_AXI_LITE @ 0x43020000"
+puts "  $new_vdma/Data_S2MM -> ps7_0/S_AXI_HP0 @ 0x10000000 (256 MB)"
 
 # ----- 9. Validate + save ----------------------------------------------
 puts "\n=== 9. Validate + save ==="
