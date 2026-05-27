@@ -122,7 +122,9 @@ static int run_cgra_fc(const int32_t act400[400])
 {
     volatile int32_t *act400_ddr = (volatile int32_t *)ACT400_DDR;
     for (int j = 0; j < 400; ++j) act400_ddr[j] = act400[j];
-    asm volatile("dsb" ::: "memory");
+    /* Cache-clean the ACT400 region so the CGRA AXI master sees the
+     * fresh ARM-side writes via DDR (no-op if D-cache is disabled). */
+    cgra_dcache_flush_range((const void *)ACT400_DDR, 400u * sizeof(int32_t));
 
     int32_t fc1_acc[64];
 #if USE_V2_PARALLEL
@@ -156,7 +158,7 @@ static int run_cgra_fc(const int32_t act400[400])
 
     volatile int32_t *act64_ddr = (volatile int32_t *)ACT64_DDR;
     for (int j = 0; j < 64; ++j) act64_ddr[j] = act64[j];
-    asm volatile("dsb" ::: "memory");
+    cgra_dcache_flush_range((const void *)ACT64_DDR, 64u * sizeof(int32_t));
 
     int32_t fc2_acc[12];
     for (int i = 0; i < 12; ++i) fc2_acc[i] = 0;

@@ -304,6 +304,34 @@ static inline void cgra_cu_reset(void)
     for (volatile int i = 0; i < 50;  i++) asm volatile("nop");
 }
 
+/* ── DDR coherency for CGRA DMA reads ───────────────────────────────────
+ * Clean (write-back) the L1 D-cache range covering [addr, addr+bytes) so
+ * the CGRA AXI master sees ARM-side writes via DDR. Cortex-A9 line size
+ * is 32 bytes. Uses DCCMVAC = "Clean by MVA to Point of Coherency".
+ * No-op if D-cache is disabled (the MCR instruction is harmless then). */
+static inline void cgra_dcache_flush_range(const void *addr, uint32_t bytes)
+{
+    uintptr_t start = (uintptr_t)addr & ~31u;          /* align down */
+    uintptr_t end   = ((uintptr_t)addr + bytes + 31u) & ~31u;
+    for (uintptr_t p = start; p < end; p += 32u) {
+        asm volatile("mcr p15, 0, %0, c7, c10, 1" :: "r"(p) : "memory");
+    }
+    asm volatile("dsb" ::: "memory");
+}
+
+/* Invalidate L1 D-cache range so ARM-side reads pick up CGRA AXI master
+ * writes from DDR. Uses DCIMVAC = "Invalidate by MVA to PoC". Use AFTER
+ * the CGRA finishes writing back results. */
+static inline void cgra_dcache_invalidate_range(const void *addr, uint32_t bytes)
+{
+    uintptr_t start = (uintptr_t)addr & ~31u;
+    uintptr_t end   = ((uintptr_t)addr + bytes + 31u) & ~31u;
+    for (uintptr_t p = start; p < end; p += 32u) {
+        asm volatile("mcr p15, 0, %0, c7, c6, 1" :: "r"(p) : "memory");
+    }
+    asm volatile("dsb" ::: "memory");
+}
+
 /* ── Configure one PE (slot 0 — auto-broadcasts to all 16 slots) ──────── */
 /* Config word layout: {24'd0, imm[15:0], 2'b00, route[3:0], dst[3:0],   */
 /*                      src1[3:0], src0[3:0], opcode[5:0]}               */

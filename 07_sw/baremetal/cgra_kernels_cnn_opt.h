@@ -102,13 +102,14 @@ static inline int cnn_fc_opt_run_group(
     if (cgra_cu_wait(5000000u)) return -1;
 
     /* Step 5: Readout — swap col=0 slot 0 to PASS0(SRC_RF) and run the
-     * east chain. PC_END=5 is enough to drain RF[0] through 4 east hops
-     * with the 3-stage pipeline (col=0 decode @0, _r @1, _r2 @2 →
-     * col=1 captures @3, col=2 @4, col=3 @5). v1 used 15 — wasted ~10
-     * idle cycles. */
+     * east chain. PC_END=15 matches v1 — silicon test 2026-05-27 showed
+     * PC_END=5 produced wrong live-input predictions (the in-flight
+     * pipeline data didn't reach the result FIFO before CU stopped on
+     * shorter sweeps). The "savings" of PC_END=5 were ~10 CGRA cyc/group
+     * = ~160 cyc/FC1, negligible vs total. Revert to v1's PC_END=15. */
     cgra_sg_dma_start(base + 0x120u);
     if (cgra_sg_dma_wait(5000000u)) return -1;
-    cgra_wr(CGRA_CU_PC_END, 5u);
+    cgra_wr(CGRA_CU_PC_END, 15u);
     cgra_cu_start();
     if (cgra_cu_wait(1000000u)) return -1;
 
