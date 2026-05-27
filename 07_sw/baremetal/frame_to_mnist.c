@@ -55,15 +55,22 @@ void downsample_roi_to_mnist(const uint8_t *fb,
              * Result lies in [0..255] — same format as sweep_input28[]. */
             const uint32_t y_inv = 255u - (y_lin > 255u ? 255u : y_lin);
 
-            /* Contrast snap: threshold at 128 so the image looks MNIST-like
-             * (0 = background, 255 = ink). Live HDMI capture has anti-
-             * aliased edges and slight DC offset which compress activation
-             * dynamic range and trip CGRA's INT quantisation (silicon
-             * symptom: CGRA always predicts 1 regardless of input). ARM-VFP
-             * masks this with float smoothing; CGRA-INT and ARM-INT do not.
-             * Snap restores the high-contrast bimodal histogram that MNIST
-             * (and the silicon-validated 97% sweep) was trained on. */
-            out784[oy * 28u + ox] = (y_inv >= 128u) ? 255u : 0u;
+            /* Pass through the grayscale value -- DO NOT threshold to
+             * binary. Silicon test 2026-05-27: thresholding produced a
+             * 28x28 image with stark 0/255 edges that pushed conv2
+             * outputs into INT16 saturation (act400 had 0x7FFF entries).
+             * The saturated act400 then triggered CGRA-vs-ARM-INT
+             * divergence at the 40-bit accumulator boundary (CGRA saw
+             * cgra=5, ARM saw int=3 on the same array). Bypassing the
+             * threshold (sending grayscale 0..255 like sweep_input28)
+             * keeps activations balanced and all three FC paths agree.
+             *
+             * The original justification for the threshold ("CGRA-INT
+             * needs bimodal histogram to predict correctly") was wrong:
+             * the silicon-validated mnist_sweep_fixture uses normal
+             * grayscale values directly, and forcing sweep_input28[0]
+             * into the live pipeline gave 7/7/7 ALL-AGREE. */
+            out784[oy * 28u + ox] = (uint8_t)y_inv;
         }
     }
 }

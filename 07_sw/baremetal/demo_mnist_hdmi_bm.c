@@ -450,6 +450,16 @@ int main(void)
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
+
+#ifdef FORCE_FIXTURE_INPUT28
+        /* DIAG: bypass HDMI capture, use a known-good 28x28 fixture.
+         * Then arm_cnn_vfp_run() processes the SAME deterministic
+         * input the sweep test uses. If CGRA still disagrees with ARM,
+         * the bug is INSIDE arm_cnn_vfp_run's runtime behavior; if
+         * they agree, the bug is in downsample_roi_to_mnist output. */
+        for (int dbg = 0; dbg < 28*28; ++dbg)
+            live28[dbg] = sweep_input28[0][dbg];
+#endif
         arm_cnn_vfp_run(live28, act400);
 
         /* Defensive: re-pack each act400 entry as a clean sign-extended
