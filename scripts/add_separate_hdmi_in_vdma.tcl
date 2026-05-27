@@ -54,19 +54,19 @@ puts "\n=== 3. Create axi_vdma_in (S2MM only) ==="
 set new_vdma [create_bd_cell -type ip \
     -vlnv xilinx.com:ip:axi_vdma:6.3 /video/axi_vdma_in]
 set_property -dict [list \
-    CONFIG.c_include_mm2s         {0}   \
-    CONFIG.c_include_mm2s_dre     {0}   \
-    CONFIG.c_include_mm2s_sf      {0}   \
-    CONFIG.c_include_s2mm         {1}   \
-    CONFIG.c_include_s2mm_dre     {0}   \
-    CONFIG.c_include_s2mm_sf      {1}   \
-    CONFIG.c_m_axi_s2mm_data_width  {32}   \
-    CONFIG.c_s_axis_s2mm_tdata_width {32}  \
-    CONFIG.c_num_fstores          {4}    \
-    CONFIG.c_s2mm_genlock_mode    {0}    \
+    CONFIG.c_include_mm2s         {0}    \
+    CONFIG.c_include_mm2s_dre     {0}    \
+    CONFIG.c_include_mm2s_sf      {0}    \
+    CONFIG.c_include_s2mm         {1}    \
+    CONFIG.c_include_s2mm_dre     {0}    \
+    CONFIG.c_include_s2mm_sf      {1}    \
+    CONFIG.c_m_axi_s2mm_data_width   {64}    \
+    CONFIG.c_s_axis_s2mm_tdata_width {32}    \
+    CONFIG.c_num_fstores           {4}    \
+    CONFIG.c_s2mm_genlock_mode     {0}    \
     CONFIG.c_s2mm_linebuffer_depth {4096} \
-    CONFIG.c_s2mm_max_burst_length {32}  \
-    CONFIG.c_include_sg           {0}    \
+    CONFIG.c_s2mm_max_burst_length {32}   \
+    CONFIG.c_include_sg            {0}    \
 ] $new_vdma
 puts "  $new_vdma created (S2MM-only)"
 
