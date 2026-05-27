@@ -47,33 +47,206 @@ INT40_MIN = -549_755_813_888          # -2**39
 NUM_PES = 16
 
 
+# ============================================================================
+#  REALISTIC OVERHEAD MODEL
+#
+#  Constants below are derived from silicon-measured behavior on the
+#  cgra_split_vdma.bit bitstream:
+#
+#  - FC1 (4 PEs × 16 groups × 400 INT16 MACs) measured at 115k CGRA cycles.
+#    Pure MAC content = 6.4k cycles. So overhead = 109k for that path =
+#    ~6.8k cycles per group, dominated by SG-DMA setup + ARM polling.
+#
+#  - MAC throughput (Suite MTP): 81% single-pass, 99.7% steady-state at 64+
+#    passes. CONV inner loops are long enough to hit ~95% efficiency.
+#
+#  - HP-port bandwidth: 64-bit AXI @ 100 MHz = 800 MB/s = 8 bytes/AXI cyc.
+#    Translated to CGRA cycles (50 MHz): 16 bytes per CGRA cycle peak.
+#    Real sustained throughput: ~12 bytes/CGRA cyc with bursts + overhead.
+#
+#  - ARM-PS polling: each cgra_*_wait() call polls APB_STATUS in a busy loop.
+#    Each poll costs ~30 ARM cycles. A wait completes when CGRA finishes,
+#    so polling cycles burn while CGRA is computing in parallel -- but the
+#    READ-MORE-THAN-NEEDED overhead is small if waits are well-tuned.
+#    Per layer there are ~4-6 sync points (DMA wait, CU wait); each adds
+#    a fixed ~80 ARM cycle "phase-change" cost regardless of compute time.
+# ============================================================================
+
+ARM_FREQ_MHZ  = 666
+CGRA_FREQ_MHZ = 50
+ARM_PER_CGRA  = ARM_FREQ_MHZ / CGRA_FREQ_MHZ          # = 13.32
+
+# Overhead constants (all in CGRA cycles unless noted)
+APB_WRITE_CGRA       = 2          # ARM->APB write = ~30 ARM cyc / 13.32
+APB_READ_CGRA        = 3
+DMA_SETUP_CGRA       = 100        # write SRC/DST/SIZE/CTRL regs + state machine spin-up
+SG_DMA_DESC_CGRA     = 50         # per descriptor traversal
+CU_START_CGRA        = 30         # CU_CTRL write + CU PC reset
+PHASE_SYNC_ARM_CYC   = 80         # ARM-side wall-clock cost per sync point
+PHASE_SYNC_CGRA      = int(PHASE_SYNC_ARM_CYC / ARM_PER_CGRA) + 1  # ~7
+
+# HP-port effective bandwidth (silicon-realistic, accounting for burst gaps):
+HP_BYTES_PER_CGRA_CYC = 12        # peak 16, sustained ~12 with AXI overhead
+
+# MAC efficiency
+MAC_EFF_LONG  = 0.97              # for long inner loops (TILE_AUTO_INC enabled)
+MAC_EFF_SHORT = 0.80              # for short loops with many setup cycles
+
+
 @dataclass
-class CycleBudget:
-    """Track estimated CGRA cycles per layer, assuming 16 PEs × 1 MAC/cyc
-    at 50 MHz. SPM loads / DMA setup add per-layer overhead."""
-    conv1: int = 0
-    pool1: int = 0
-    conv2: int = 0
-    pool2: int = 0
-    quant: int = 0
-    fc1:   int = 0
-    fc2:   int = 0
+class StageBudget:
+    """One pipeline stage's cycle breakdown — separates compute from data
+    movement from ARM coordination so we can identify the bottleneck."""
+    name:         str  = ""
+    input_dma:    int  = 0   # DDR -> tile/SPM bytes / HP bandwidth + DMA setup
+    weight_dma:   int  = 0   # weights -> PE SPMs
+    mac_compute:  int  = 0   # pure MAC dataflow (1 MAC/cyc/PE × NUM_PES)
+    cu_setup:    int  = 0    # CU register writes + CU_START
+    output_dma:   int  = 0   # results -> DDR for next layer
+    arm_sync:     int  = 0   # ARM-side sync overhead between phases
 
     @property
     def total(self) -> int:
-        return sum(getattr(self, k) for k in
-                   ['conv1', 'pool1', 'conv2', 'pool2', 'quant', 'fc1', 'fc2'])
+        return (self.input_dma + self.weight_dma + self.mac_compute
+                + self.cu_setup + self.output_dma + self.arm_sync)
+
+    def breakdown(self) -> str:
+        if self.total == 0:
+            return "(none)"
+        items = []
+        for k in ['input_dma', 'weight_dma', 'mac_compute',
+                  'cu_setup', 'output_dma', 'arm_sync']:
+            v = getattr(self, k)
+            if v > 0:
+                pct = 100 * v / self.total
+                items.append(f"{k}={v}({pct:.0f}%)")
+        return "  ".join(items)
+
+
+@dataclass
+class CycleBudget:
+    """Aggregates StageBudgets for the full inference."""
+    stages: list = field(default_factory=list)
+
+    def add(self, stage: StageBudget):
+        self.stages.append(stage)
+
+    @property
+    def total(self) -> int:
+        return sum(s.total for s in self.stages)
 
     def report(self):
-        print(f"\n  Estimated CGRA cycle budget per inference (50 MHz):")
-        for k in ['conv1', 'pool1', 'conv2', 'pool2', 'quant', 'fc1', 'fc2']:
-            cyc = getattr(self, k)
-            print(f"    {k:8s}  {cyc:>9d} cyc  ({cyc/50_000:6.3f} ms)")
-        print(f"    {'-'*45}")
-        print(f"    TOTAL     {self.total:>9d} cyc  ({self.total/50_000:6.3f} ms)")
-        # ARM equivalents at 666 MHz / 50 MHz = 13.32× ratio
-        arm_eq = int(self.total * 13.32)
-        print(f"    ARM equiv {arm_eq:>9d} cyc  ({arm_eq/666_000:6.3f} ms @ 666 MHz)")
+        print(f"\n  Per-stage CGRA cycle budget (50 MHz, 16 PE peak):")
+        print(f"  {'stage':<10s} {'total':>8s}  {'ms':>7s}   bottleneck-breakdown")
+        # Find global bottleneck category
+        cat_totals = {k: 0 for k in
+            ['input_dma', 'weight_dma', 'mac_compute',
+             'cu_setup', 'output_dma', 'arm_sync']}
+        for s in self.stages:
+            ms = s.total / (CGRA_FREQ_MHZ * 1000)  # cyc / (cyc/us / us/ms)
+            print(f"  {s.name:<10s} {s.total:>8d}  {ms:>5.3f}    {s.breakdown()}")
+            for k in cat_totals:
+                cat_totals[k] += getattr(s, k)
+        print(f"  {'─'*70}")
+        ms_tot = self.total / (CGRA_FREQ_MHZ * 1000)
+        print(f"  {'TOTAL':<10s} {self.total:>8d}  {ms_tot:>5.3f} ms")
+        arm_eq = int(self.total * ARM_PER_CGRA)
+        print(f"  {'ARM equiv':<10s} {arm_eq:>8d}  {arm_eq/(ARM_FREQ_MHZ*1000):>5.3f} ms"
+              f" @ {ARM_FREQ_MHZ} MHz")
+        # Bottleneck analysis
+        print(f"\n  Bottleneck analysis (aggregated across all stages):")
+        for k, v in sorted(cat_totals.items(), key=lambda kv: -kv[1]):
+            pct = 100 * v / max(self.total, 1)
+            bar = '█' * int(pct / 2)
+            print(f"    {k:<14s} {v:>8d} cyc  {pct:>5.1f}%  {bar}")
+
+
+def conv_stage_budget(c_in:  int, c_out: int,
+                       h_in:  int, w_in:  int,
+                       kh:    int, kw:    int,
+                       num_pes: int,
+                       name:  str) -> StageBudget:
+    """Realistic CGRA cycle budget for a Conv3x3 (or similar) layer using
+    the v2 RTL primitives (dual-port SPM, broadcast DMA, 16-PE parallel)."""
+    h_out, w_out = h_in - kh + 1, w_in - kw + 1
+    s = StageBudget(name=name)
+
+    # ---- Input DMA: c_in × h_in × w_in × 2 bytes (INT16) into tile/SPM
+    in_bytes = c_in * h_in * w_in * 2
+    s.input_dma = DMA_SETUP_CGRA + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+
+    # ---- Weight load: SG-DMA across up to num_pes PEs (one PE per output channel)
+    pe_groups = (c_out + num_pes - 1) // num_pes
+    w_per_pe = kh * kw * c_in * 2   # bytes per neuron per group
+    s.weight_dma = pe_groups * (num_pes * SG_DMA_DESC_CGRA
+                                + (w_per_pe + HP_BYTES_PER_CGRA_CYC - 1)
+                                  // HP_BYTES_PER_CGRA_CYC)
+
+    # ---- MAC compute: total MACs / num_pes, at long-run efficiency
+    total_macs = c_out * h_out * w_out * kh * kw * c_in
+    macs_per_pe_group = total_macs / num_pes / max(pe_groups, 1)
+    s.mac_compute = int((macs_per_pe_group / MAC_EFF_LONG) * pe_groups)
+
+    # ---- CU setup: register writes + CU_START per PE group
+    s.cu_setup = pe_groups * (5 * APB_WRITE_CGRA + CU_START_CGRA)
+
+    # ---- Output writeback: c_out × h_out × w_out × 4 bytes (INT32 retained for ReLU clamp)
+    out_bytes = c_out * h_out * w_out * 4
+    s.output_dma = DMA_SETUP_CGRA + (out_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+
+    # ---- ARM sync: ~5 sync points per PE group (input DMA done, weight DMA
+    # done, CU done, readout done, output DMA done)
+    s.arm_sync = pe_groups * 5 * PHASE_SYNC_CGRA
+
+    return s
+
+
+def pool_stage_budget(c: int, h_in: int, w_in: int,
+                      num_pes: int, name: str) -> StageBudget:
+    s = StageBudget(name=name)
+    # Input reuse from prior stage; output is c × (h/2) × (w/2) × 4 bytes
+    h_out, w_out = h_in // 2, w_in // 2
+    out_bytes = c * h_out * w_out * 4
+    # 4 MAX ops per output spread across num_pes
+    s.mac_compute = int((c * h_out * w_out * 4 + num_pes - 1) // num_pes / MAC_EFF_LONG)
+    s.cu_setup    = 3 * APB_WRITE_CGRA + CU_START_CGRA
+    s.output_dma  = DMA_SETUP_CGRA + (out_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+    s.arm_sync    = 2 * PHASE_SYNC_CGRA
+    return s
+
+
+def quant_stage_budget(n_elements: int, num_pes: int, name: str) -> StageBudget:
+    s = StageBudget(name=name)
+    # Two passes: find max-abs, then arithmetic right shift. Each pass uses
+    # num_pes lanes (CGRA's ALU SHR opcode), so ~2 × n_elements / num_pes cycles.
+    s.mac_compute = (2 * n_elements + num_pes - 1) // num_pes
+    s.cu_setup    = 4 * APB_WRITE_CGRA + CU_START_CGRA
+    s.arm_sync    = 2 * PHASE_SYNC_CGRA
+    return s
+
+
+def fc_stage_budget(n_in: int, n_out: int, num_pes: int,
+                    name: str) -> StageBudget:
+    """FC layer: n_out neurons, n_in inputs each. v2 16-PE parallel:
+    one PE = one neuron, ceil(n_out/16) groups."""
+    s = StageBudget(name=name)
+    pe_groups = (n_out + num_pes - 1) // num_pes
+    # Input is shared across all PEs in a group (broadcast). One DMA load
+    # per group at most; for tile-based input it's loaded once total.
+    in_bytes = n_in * 2
+    s.input_dma  = DMA_SETUP_CGRA + (in_bytes + HP_BYTES_PER_CGRA_CYC - 1) // HP_BYTES_PER_CGRA_CYC
+    # Weight per group: num_pes PEs × n_in × 2 bytes
+    w_bytes = num_pes * n_in * 2
+    s.weight_dma = pe_groups * (num_pes * SG_DMA_DESC_CGRA
+                                + (w_bytes + HP_BYTES_PER_CGRA_CYC - 1)
+                                  // HP_BYTES_PER_CGRA_CYC)
+    # MAC: n_in per neuron, num_pes neurons in parallel per group
+    s.mac_compute = int(pe_groups * n_in / MAC_EFF_LONG)
+    s.cu_setup    = pe_groups * (5 * APB_WRITE_CGRA + CU_START_CGRA)
+    # Readout: APB reads of RESULT_ROW + DDR writeback for fc1_acc array
+    s.output_dma  = pe_groups * (num_pes * APB_READ_CGRA + DMA_SETUP_CGRA)
+    s.arm_sync    = pe_groups * 5 * PHASE_SYNC_CGRA
+    return s
 
 
 # ============================================================================
@@ -169,19 +342,9 @@ def conv3x3_layer(input_feat: np.ndarray,   # [H, W, C_in] float
                 float_val = acc * scale_in * scale_w
                 output[oy, ox, oc] = max(0.0, float_val)   # ReLU
 
-    # Cycle estimate: 16 PEs in parallel, one per output channel (max).
-    # Each PE does (out_H × out_W) windows × (9 × C_in) MACs.
-    macs_per_pe = (out_H * out_W) * (9 * C_in)
-    cyc = macs_per_pe                            # 1 MAC/cycle/PE peak
-    # Per-output-channel SPM/tile preload overhead (~200 cyc per channel)
-    cyc += 200 * ((C_out + NUM_PES - 1) // NUM_PES)
-    # Output writeback to DDR per output pixel: ~5 cyc each (amortised)
-    cyc += 5 * out_H * out_W * ((C_out + NUM_PES - 1) // NUM_PES)
-    if layer_name == 'conv1':
-        budget.conv1 = cyc
-    else:
-        budget.conv2 = cyc
-
+    budget.add(conv_stage_budget(
+        c_in=C_in, c_out=C_out, h_in=H, w_in=W, kh=3, kw=3,
+        num_pes=NUM_PES, name=layer_name))
     return output
 
 
@@ -191,62 +354,26 @@ def maxpool_layer(input_feat: np.ndarray,
     """2x2 max-pool stride 2. Uses CGRA MAX opcode primitive."""
     output = cgra_max_pool_2x2(input_feat)
     H, W, C = input_feat.shape
-    # 4 MAX ops per output pixel; 16 PEs handle 16 output pixels in parallel
-    n_out_pix = (H // 2) * (W // 2) * C
-    cyc = (n_out_pix * 4 + NUM_PES - 1) // NUM_PES
-    cyc += 100   # one DMA + minor setup
-    if layer_name == 'pool1':
-        budget.pool1 = cyc
-    else:
-        budget.pool2 = cyc
+    budget.add(pool_stage_budget(c=C, h_in=H, w_in=W,
+                                 num_pes=NUM_PES, name=layer_name))
     return output
 
 
 def requant_to_int16(x:        np.ndarray,
                      budget:   CycleBudget,
                      name:     str = "quant") -> np.ndarray:
-    """After conv2+pool2 the INT32 outputs must be re-quantised to INT16
-    so FC1 (which expects INT16 act) can MAC them. Use the per-tensor
-    max-abs scale, then INT16-clip."""
+    """Quantise INT32/INT64 features back to INT16 for the next layer."""
     max_abs = int(np.abs(x).max())
     if max_abs == 0:
-        budget.quant = 100
         return x.astype(np.int16)
-    # Shift so the max-abs entry fits exactly in INT16
     shift = 0
     while (max_abs >> shift) > INT16_MAX and shift < 31:
         shift += 1
     out = (x >> shift).astype(np.int16)
     out = np.clip(out, INT16_MIN, INT16_MAX).astype(np.int16)
     n_elem = int(np.prod(x.shape))
-    # Two passes (find max, then shift): n_elem each = 2 * n_elem cyc / 16 PEs
-    budget.quant = (2 * n_elem + NUM_PES - 1) // NUM_PES + 200
-    return out
-
-
-def fc_layer(input_flat: np.ndarray,        # [N_in] INT16
-             weights:    np.ndarray,        # [N_out, N_in] INT16
-             bias:       np.ndarray,        # [N_out] INT32
-             budget:     CycleBudget,
-             name:       str = "fc1") -> np.ndarray:
-    """FC layer using CGRA INT40-MAC. Outputs INT32 (post-bias, pre-ReLU)."""
-    N_out, N_in = weights.shape
-    # Use INT64 to hold the INT40 accumulator output. requant_to_int16
-    # downstream handles the wide range and clips to INT16.
-    out = np.zeros(N_out, dtype=np.int64)
-    for n in range(N_out):
-        acc = cgra_mac_int40(input_flat, weights[n]) + np.int64(bias[n])
-        acc = max(INT40_MIN, min(INT40_MAX, int(acc)))
-        out[n] = acc
-    # Cycle estimate: 16 PEs (one per output neuron, up to 16) doing N_in MACs
-    cyc_per_pe = N_in
-    n_groups   = (N_out + NUM_PES - 1) // NUM_PES
-    cyc        = cyc_per_pe * n_groups
-    cyc       += 200 * n_groups   # SPM preload per group
-    if name == 'fc1':
-        budget.fc1 = cyc
-    else:
-        budget.fc2 = cyc
+    budget.add(quant_stage_budget(n_elements=n_elem,
+                                  num_pes=NUM_PES, name=name))
     return out
 
 
@@ -311,15 +438,13 @@ def load_weights() -> dict:
 #  Full forward pass through the emulator
 # ============================================================================
 
-def fc_layer_float(flat_float: np.ndarray,  # float input
-                   weights_q:  np.ndarray,  # [N_out, N_in] INT16
-                   bias_q:     np.ndarray,  # [N_out] INT32
+def fc_layer_float(flat_float: np.ndarray,
+                   weights_q:  np.ndarray,
+                   bias_q:     np.ndarray,
                    scale_w:    float,
                    budget:     CycleBudget,
                    name:       str = "fc1") -> np.ndarray:
-    """FC using INT MAC but float-rescaled outputs. Mirrors the bare-
-    metal path (CGRA does INT MAC; ARM reads RESULT_ROW as INT32 and
-    multiplies back to float by scale_w × scale_act)."""
+    """FC using INT MAC but float-rescaled outputs."""
     N_out, N_in = weights_q.shape
     in_max = float(np.abs(flat_float).max()) + 1e-9
     scale_in = in_max / INT16_MAX
@@ -332,13 +457,8 @@ def fc_layer_float(flat_float: np.ndarray,  # float input
         acc = max(INT40_MIN, min(INT40_MAX, int(acc)))
         out[n] = float(acc) * scale_in * scale_w
 
-    # Cycle estimate
-    n_groups = (N_out + NUM_PES - 1) // NUM_PES
-    cyc = N_in * n_groups + 200 * n_groups
-    if name == 'fc1':
-        budget.fc1 = cyc
-    else:
-        budget.fc2 = cyc
+    budget.add(fc_stage_budget(n_in=N_in, n_out=N_out,
+                               num_pes=NUM_PES, name=name))
     return out
 
 
@@ -449,12 +569,15 @@ def main():
     test_ds = datasets.MNIST(SCRIPT_DIR / "data", train=False, download=True)
     correct_int = 0
     correct_flt = 0
-    budget  = CycleBudget()
+    budget_for_report = None    # capture LAST image's per-inference budget
     t0      = time.time()
     for i in range(args.images):
         img, label = test_ds[i]
         img_arr = np.asarray(img)
-        pred_int = emulate_inference(img_arr, w, budget)
+        # Fresh budget per image — same network structure so all identical;
+        # we keep the LAST one for reporting.
+        budget_for_report = CycleBudget()
+        pred_int = emulate_inference(img_arr, w, budget_for_report)
         if pred_int == label:
             correct_int += 1
         if args.float_ref:
@@ -475,7 +598,8 @@ def main():
         print(f"  Float-reference (dequant INT16 weights):    "
               f"{correct_flt}/{args.images} = {100*correct_flt/args.images:.2f}%")
     print(f"  Emulator wall time: {elapsed:.1f}s  ({elapsed/args.images*1000:.0f} ms/image, Python)")
-    budget.report()
+    if budget_for_report is not None:
+        budget_for_report.report()
 
 
 if __name__ == "__main__":
