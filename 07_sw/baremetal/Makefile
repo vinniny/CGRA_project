@@ -114,7 +114,7 @@ DEMO_LPR_CGRA_V2_SMOKE_TARGET := demo_lpr_cgra_v2_smoke.elf
 CNN_CFLAGS := -O1 -Wall -ffreestanding -nostdlib \
                    -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
                    -ffunction-sections -fdata-sections \
-                   -I. $(BOARD_DEFS)
+                   -I. $(BOARD_DEFS) $(EXTRA_CFLAGS)
 CNN_LDFLAGS := -T linker_cnn.ld -nostdlib -Wl,--gc-sections
 
 # ── demo_mnist_sweep: N-image sweep on FC1+FC2 (D4) ─────────────────────
@@ -209,7 +209,28 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_per_stage
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_sweep_v2 mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_hdmi_v2 mnist_per_stage
+
+# v2-parallel-kernel convenience targets (silicon-test the fixed v2
+# kernel after v3 bitstream lands). Each rebuilds the default Tier-1
+# variant afterwards so the tree has BOTH ELFs side-by-side:
+#   demo_mnist_sweep.elf       <- Tier-1 (default, silicon-validated)
+#   demo_mnist_sweep_v2.elf    <- V2 PARALLEL (under silicon test)
+mnist_sweep_v2:
+	rm -f demo_mnist_sweep.elf
+	$(MAKE) mnist_sweep EXTRA_CFLAGS='-DUSE_V2_PARALLEL=1 -DUSE_FAST_CGRA_FC=0'
+	mv demo_mnist_sweep.elf demo_mnist_sweep_v2.elf
+	$(MAKE) mnist_sweep
+	@echo "[BUILD] demo_mnist_sweep_v2.elf (V2 PARALLEL, 16 PEs, dst=15 fix)"
+	@echo "[BUILD] demo_mnist_sweep.elf    (Tier-1 default, silicon-validated)"
+
+mnist_hdmi_v2:
+	rm -f demo_mnist_hdmi_bm.elf
+	LIVE_INPUT=1 $(MAKE) mnist_hdmi EXTRA_CFLAGS='-DUSE_V2_PARALLEL=1 -DUSE_FAST_CGRA_FC=0'
+	mv demo_mnist_hdmi_bm.elf demo_mnist_hdmi_bm_v2.elf
+	LIVE_INPUT=1 $(MAKE) mnist_hdmi
+	@echo "[BUILD] demo_mnist_hdmi_bm_v2.elf (V2 PARALLEL, 16 PEs, dst=15 fix)"
+	@echo "[BUILD] demo_mnist_hdmi_bm.elf    (Tier-1 default, silicon-validated)"
 
 all: $(TARGET)
 

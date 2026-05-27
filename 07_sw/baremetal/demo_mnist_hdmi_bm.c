@@ -20,14 +20,20 @@
 #include "cgra_kernels_cnn.h"
 #include "cgra_kernels_cnn_v2.h"     /* 16-PE FC with dual-port SPM */
 
-/* Tier-1 fast FC kernel: soft-reset replaces ACC_CLR SG-DMA + CU pass,
- * CU regs hoisted out of per-group loop, readout PC_END=5 (was 15).
- * Same 4-PE silicon-validated math — bit-identical predictions.
- * Disable with -DUSE_FAST_CGRA_FC=0 to fall back to the v1 kernel. */
+/* Kernel-selection compile-time flags (precedence: V2_PARALLEL > FAST > v1):
+ *   -DUSE_V2_PARALLEL=1  -> 16-PE parallel (cgra_kernels_cnn_v2.h, dst=15
+ *                          fix). Theoretical ~4× over Tier-1 if silicon-
+ *                          validated.
+ *   -DUSE_FAST_CGRA_FC=1 -> Tier-1 fast FC (default, silicon-validated
+ *                          97/100 on the sweep). 4 PEs × 16 groups.
+ *   neither              -> v1 baseline. */
+#ifndef USE_V2_PARALLEL
+#define USE_V2_PARALLEL  0
+#endif
 #ifndef USE_FAST_CGRA_FC
 #define USE_FAST_CGRA_FC 1
 #endif
-#if USE_FAST_CGRA_FC
+#if !USE_V2_PARALLEL && USE_FAST_CGRA_FC
 #include "cgra_kernels_cnn_opt.h"
 #endif
 #include "arm_cnn_bm.h"
@@ -118,21 +124,32 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int j = 0; j < 400; ++j) act400_ddr[j] = act400[j];
     asm volatile("dsb" ::: "memory");
 
-    if (cnn_fc1_tile_preload(ACT400_DDR)) return -1;
     int32_t fc1_acc[64];
-#if USE_FAST_CGRA_FC
+#if USE_V2_PARALLEL
+    /* v2: broadcast acts to all 16 PE SPMs, 4 groups × 16 PEs in parallel */
+    if (cnn_fc1_v2_act_preload(ACT400_DDR)) return -1;
+    for (int g = 0; g < (int)CNN_FC1_V2_N_GROUPS; ++g) {
+        int32_t grp[16];
+        if (cnn_fc1_v2_run_group(g, grp)) return -1;
+        for (int i = 0; i < 16 && g*16+i < (int)CNN_FC1_V2_N_OUTPUTS; ++i)
+            fc1_acc[g*16+i] = grp[i];
+    }
+#else
+    if (cnn_fc1_tile_preload(ACT400_DDR)) return -1;
+# if USE_FAST_CGRA_FC
     cnn_fc_opt_layer_setup(CNN_FC1_LOOP_COUNT);
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc1_opt_run_group(g, grp)) return -1;
         for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
     }
-#else
+# else
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc1_run_group(g, grp)) return -1;
         for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
     }
+# endif
 #endif
     int32_t act64[64];
     fc1_post_process(fc1_acc, act64);
@@ -141,21 +158,29 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int j = 0; j < 64; ++j) act64_ddr[j] = act64[j];
     asm volatile("dsb" ::: "memory");
 
-    if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
     int32_t fc2_acc[12];
-#if USE_FAST_CGRA_FC
+    for (int i = 0; i < 12; ++i) fc2_acc[i] = 0;
+#if USE_V2_PARALLEL
+    if (cnn_fc2_v2_act_preload(ACT64_DDR)) return -1;
+    int32_t grp16[16];
+    if (cnn_fc2_v2_run_group(0, grp16)) return -1;
+    for (int i = 0; i < 10; ++i) fc2_acc[i] = grp16[i];
+#else
+    if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
+# if USE_FAST_CGRA_FC
     cnn_fc_opt_layer_setup(CNN_FC2_LOOP_COUNT);
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc2_opt_run_group(g, grp)) return -1;
         for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
     }
-#else
+# else
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc2_run_group(g, grp)) return -1;
         for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
     }
+# endif
 #endif
     return argmax_with_bias(fc2_acc);
 }
@@ -365,7 +390,9 @@ int main(void)
      * showing "no signal" entirely, which is worse. */
     if (hdmi_init() < 0) { uart_puts("FAIL: hdmi_init\n"); for(;;); }
     uart_puts("HDMI ready, building FC chains...\n");
-#if USE_FAST_CGRA_FC
+#if USE_V2_PARALLEL
+    uart_puts("CGRA-FC mode: V2 PARALLEL (16 PEs, dual-port SPM, dst=15 fix)\n");
+#elif USE_FAST_CGRA_FC
     uart_puts("CGRA-FC mode: FAST (soft-reset + hoisted CU regs + short readout)\n");
 #else
     uart_puts("CGRA-FC mode: BASELINE v1 (USE_FAST_CGRA_FC=0)\n");
@@ -381,10 +408,16 @@ int main(void)
 
     uint32_t fc1_w_ddr = (uint32_t)(uintptr_t)cnn_spm_start;
     uint32_t fc2_w_ddr = fc1_w_ddr + CNN_FC1_N_OUTPUTS * CNN_FC1_SPM_BPN;
+#if USE_V2_PARALLEL
+    if (cnn_fc1_v2_build_chains(fc1_w_ddr) || cnn_fc2_v2_build_chains(fc2_w_ddr)) {
+        uart_puts("FAIL: v2 FC chain build\n"); for(;;);
+    }
+#else
     /* v1 chains: silicon-validated 97 % accuracy on MNIST sweep. */
     if (cnn_fc1_build_chains(fc1_w_ddr) || cnn_fc2_build_chains(fc2_w_ddr)) {
         uart_puts("FAIL: FC chain build\n"); for(;;);
     }
+#endif
 
     render_static_chrome();
     hdmi_flush_fb();
