@@ -452,6 +452,16 @@ int main(void)
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
         arm_cnn_vfp_run(live28, act400);
         label = -1;                     /* no ground truth in live mode */
+
+#ifdef FORCE_FIXTURE_ACT400
+        /* DIAGNOSTIC: override the live-derived act400 with sweep_act400[0].
+         * If CGRA + ARM-INT predictions now agree -> the divergence is in
+         * how arm_cnn_vfp_run's output reaches CGRA differently from ARM,
+         * not in the FC RTL itself. If they still disagree -> bug is in the
+         * CGRA FC chain proper. Built with -DFORCE_FIXTURE_ACT400=1. */
+        for (int dbg = 0; dbg < 400; dbg++) act400[dbg] = sweep_act400[0][dbg];
+        label = sweep_labels[0];
+#endif
 #else
         /* ARM-VFP Conv+Pool — accuracy-of-record path. */
         arm_cnn_vfp_run(sweep_input28[i], act400);
