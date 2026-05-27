@@ -101,12 +101,12 @@ if {[llength $old_m_axi] > 0} {
 }
 # (M_AXI_S2MM port disappears since c_include_s2mm = 0)
 
-# Enable S_AXI_HP1 on PS7. Default base.tcl uses only HP0.
+# Enable S_AXI_HP2 on PS7. Default base.tcl uses only HP0.
 set ps7 [get_bd_cells /ps7_0]
 set_property -dict [list \
-    CONFIG.PCW_USE_S_AXI_HP1 {1} \
+    CONFIG.PCW_USE_S_AXI_HP2 {1} \
 ] $ps7
-puts "  ps7_0.S_AXI_HP1 enabled"
+puts "  ps7_0.S_AXI_HP2 enabled"
 
 # New interconnect for HDMI-IN -> HP1 (independent from HDMI-OUT's HP0).
 set hp1_intercon [create_bd_cell -type ip \
@@ -122,8 +122,8 @@ connect_bd_intf_net \
     [get_bd_intf_pins $hp1_intercon/S00_AXI]
 connect_bd_intf_net \
     [get_bd_intf_pins $hp1_intercon/M00_AXI] \
-    [get_bd_intf_pins $ps7/S_AXI_HP1]
-puts "  axi_vdma_in/M_AXI_S2MM -> axi_mem_intercon_in -> ps7_0/S_AXI_HP1"
+    [get_bd_intf_pins $ps7/S_AXI_HP2]
+puts "  axi_vdma_in/M_AXI_S2MM -> axi_mem_intercon_in -> ps7_0/S_AXI_HP2"
 
 # ----- 6. Clocks + resets ----------------------------------------------
 puts "\n=== 6. Clocks + resets ==="
@@ -152,8 +152,8 @@ connect_bd_net $fclk1     [get_bd_pins $hp1_intercon/M00_ACLK]
 connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/ARESETN]
 connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/S00_ARESETN]
 connect_bd_net $rstn_vid  [get_bd_pins $hp1_intercon/M00_ARESETN]
-connect_bd_net $fclk1     [get_bd_pins $ps7/S_AXI_HP1_ACLK]
-puts "  HP1 intercon + ps7_0/S_AXI_HP1 clocks/resets wired (FCLK1)"
+connect_bd_net $fclk1     [get_bd_pins $ps7/S_AXI_HP2_ACLK]
+puts "  HP1 intercon + ps7_0/S_AXI_HP2 clocks/resets wired (FCLK1)"
 
 # ----- 7. S_AXI_LITE control via axi_interconnect_0 --------------------
 puts "\n=== 7. S_AXI_LITE control ==="
@@ -189,14 +189,14 @@ assign_bd_address -offset 0x43020000 -range 64K \
     [get_bd_addr_segs $new_vdma/S_AXI_LITE/Reg]
 
 # CRITICAL: the new VDMA's M_AXI_S2MM master MUST be explicitly mapped
-# to ps7_0/S_AXI_HP1 (NOT HP0 — see below). HP1 isolates HDMI-IN's
+# to ps7_0/S_AXI_HP2 (NOT HP0 — see below). HP1 isolates HDMI-IN's
 # bandwidth from HDMI-OUT, eliminating the silicon-observed colour /
 # right-shift glitches when both shared HP0.
 assign_bd_address -offset 0x10000000 -range 0x10000000 \
     -target_address_space [get_bd_addr_spaces $new_vdma/Data_S2MM] \
-    [get_bd_addr_segs ps7_0/S_AXI_HP1/HP1_DDR_LOWOCM] -force
+    [get_bd_addr_segs ps7_0/S_AXI_HP2/HP2_DDR_LOWOCM] -force
 puts "  $new_vdma/S_AXI_LITE @ 0x43020000"
-puts "  $new_vdma/Data_S2MM -> ps7_0/S_AXI_HP1 @ 0x10000000 (256 MB, isolated from HDMI-OUT)"
+puts "  $new_vdma/Data_S2MM -> ps7_0/S_AXI_HP2 @ 0x10000000 (256 MB, isolated from HDMI-OUT)"
 
 # ----- 9. Validate + save ----------------------------------------------
 puts "\n=== 9. Validate + save ==="
