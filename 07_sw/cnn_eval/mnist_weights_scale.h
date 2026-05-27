@@ -4,33 +4,33 @@
 #include <stdint.h>
 
 /* ---- Conv1 ---- */
-#define MNIST_CONV1_SCALE_W_F   0.00003041f
+#define MNIST_CONV1_SCALE_W_F   0.00002881f
 #define MNIST_CONV1_N_OUT        8
 #define MNIST_CONV1_N_IN         1
 #define MNIST_CONV1_K            3
 
 /* ---- Conv2 ---- */
-#define MNIST_CONV2_SCALE_W_F   0.00004060f
+#define MNIST_CONV2_SCALE_W_F   0.00002957f
 #define MNIST_CONV2_N_OUT       16
 #define MNIST_CONV2_N_IN         8
 #define MNIST_CONV2_K            3
 
 /* ---- FC1 (400→64) ---- */
-#define MNIST_FC1_SCALE_W_F     0.00002294f
+#define MNIST_FC1_SCALE_W_F     0.00002011f
 #define MNIST_FC1_N_IN         400
 #define MNIST_FC1_N_OUT         64
 #define MNIST_FC1_N_WORDS       400
 
 /* ---- FC2 (64→10) ---- */
-#define MNIST_FC2_SCALE_W_F     0.00003170f
+#define MNIST_FC2_SCALE_W_F     0.00002657f
 #define MNIST_FC2_N_IN          64
 #define MNIST_FC2_N_OUT         10
 #define MNIST_FC2_N_WORDS       64
 
 /* ---- Bias arrays (INT32, accumulator units) ---- */
 static const int32_t mnist_fc1_bias_q[64] = {
-    -30, 0, 3160, 0, 6521, 69, -9827, -1745, 42356, -5556, -4911, -20289, -913, -13505, -1171, 0, 20714, -2786, -1222, 0, 236, -1852, 8815, -350, -3237, 25236, 3798, -5961, 8135, -4826, 0, -6128, -3966, -19504, 16995, 20058, 0, -8299, -11990, 15723, -9118, 27842, 0, -1631, -4352, 87, 18595, 13118, -7834, -19433, -7933, -2051, 0, -2228, -227, -65, -2255, 16608, 0, 7267, 4579, 0, -4848, -3910
+    14143, -341, 5516, 8569, 4913, 5711, 2778, 4777, 689, 2688, 6736, 7686, 5031, -1106, 4283, 9602, -1946, 2994, 4685, 5784, 5953, 3517, 3932, 14052, 3962, -4840, 7048, -2079, -1469, 3498, 7038, 2009, 18724, -1529, 1029, 6864, 7744, 14931, 2427, 2607, 7978, 2958, 3668, 2835, 3047, 3476, -1438, 8915, 4243, 1720, 10484, 61, 3261, 3893, 2853, -276, 9205, -31, 5825, 130, 11312, 6523, 5456, 5058
 };
 static const int32_t mnist_fc2_bias_q[10] = {
-    -5619, 19885, -9902, 6785, 11034, -5470, -9298, -1765, 6585, -16268
+    -19350, -10801, 2536, 14670, 6411, 11189, -5664, -3216, 19177, -13347
 };
