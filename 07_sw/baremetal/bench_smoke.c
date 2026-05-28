@@ -146,6 +146,14 @@ int main(void)
     uart_puts("\n=========================================================\n");
     uart_puts("  SMOKE PASS — bitstream healthy, proceed with workload\n");
     uart_puts("=========================================================\n");
-    while (1) ;
+
+    /* Continuous UART tuning pattern: emits ASCII content every ~100ms so
+     * the host can scan baud rates against live data. "U" = 0x55, perfectly
+     * alternating bits, easiest to recognize at any baud. */
+    uint32_t i = 0;
+    while (1) {
+        if ((i++ & 0xFFFFF) == 0)
+            uart_puts("UUUU=== smoke tuning ===UUUU\n");
+    }
     return 0;
 }

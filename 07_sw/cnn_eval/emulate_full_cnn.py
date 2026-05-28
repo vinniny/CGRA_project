@@ -97,11 +97,11 @@ APB_READ_CGRA   = 4               # reads bring back data, slightly longer
 # Per-descriptor SG-DMA traversal: cgra_kernels_cnn_opt.h budgets ~800 cyc
 # for 8 descs ⇒ ~100 cyc/desc end-to-end (decoder + DDR fetch of next
 # pointer + execution-stage handoff). 50 was too low.
-SG_DMA_DESC_CGRA = 100
+SG_DMA_DESC_CGRA = 70
 
 # cgra_sg_dma_start() itself has a setup phase (program SG_HEAD register,
 # trigger DMA, wait for first descriptor fetch) before any desc executes.
-SG_DMA_CHAIN_SETUP_CGRA = 80
+SG_DMA_CHAIN_SETUP_CGRA = 200
 
 # Regular 1D DMA setup: write SRC/DST/SIZE/CTRL + arb + first burst.
 DMA_SETUP_CGRA   = 120
@@ -113,7 +113,7 @@ CU_START_CGRA    = 40
 # CGRA-side completion time. Silicon-derived: ARM polls APB STATUS every
 # ~30 ARM cyc; a typical wait has 3-15 polls before completion. The
 # delta vs CGRA-completion-time is ~80-300 ARM cyc per phase.
-PHASE_SYNC_CGRA  = 100            # mid-estimate, in CGRA cycles
+PHASE_SYNC_CGRA  = 140            # mid-estimate, in CGRA cycles
 
 # HP-port effective bandwidth: 64-bit AXI @ 100 MHz peak = 800 MB/s.
 # At 50 MHz CGRA that's 16 B/CGRA-cyc peak. Sustained ~12 B/CGRA-cyc

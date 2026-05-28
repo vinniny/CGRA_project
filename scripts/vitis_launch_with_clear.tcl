@@ -44,14 +44,15 @@ catch {targets -set -filter {name =~ "DAP*"}}
 catch {rst -dap}
 after 500
 
-# ----- KEY ESCALATION STEP: wipe the PL to break any wedged AXI state -----
-# Without this, a previous run's CGRA DMA holding VALID can keep the PS
-# interconnect stuck even after rst -dap.
-catch {targets -set -filter {name =~ "xc7z020"}}
-puts "\n\[Pre\] fpga -clear (wipe PL config to drain wedged AXI state)..."
-catch {fpga -clear} e_clear
-puts "  fpga -clear result: '$e_clear'"
-after 500
+# ----- NOTE: fpga -clear is NOT a valid xsct option in Vitis 2025.1.
+# rst -processor unblocks a stuck while(1) but then breaks dow with
+# "Cannot flush CPU cache" (verified 2026-05-28). The cleanest sequence
+# is to just let `fpga -file` reset the PL and the implicit `stop` halt
+# the A9 — both verified working in run bi6xwgyjq (2026-05-28 14:48).
+#
+# If the A9 is stuck from a prior run, run this BEFORE the launch script:
+#     xsct -eval 'connect; targets -set -filter {name =~ "ARM*A9*#0"}; rst -processor; exit'
+# wait ~1s, then re-launch.
 
 # ----- Load the requested bitstream -----
 puts "\n\[1\] fpga -file $BIT"

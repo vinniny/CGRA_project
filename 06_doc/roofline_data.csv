@@ -1,26 +1,12 @@
-# roofline_data.csv — silicon-anchored data for Chapter 5 Roofline plot.
-# Populated by 07_sw/cnn_eval/analyze_two_pass.py from UART logs of
-# Pillar B1-B6 silicon runs. Until silicon lands, values are
-# model-projected and clearly marked.
-#
-# Columns:
-#   layer            — layer name in the MNIST topology
-#   ai_mac_per_byte  — arithmetic intensity (MACs / DDR bytes moved)
-#   silicon_ms       — wall-clock layer time (ARM CCNT, clean-pass anchored)
-#   silicon_gops     — achieved GOPS = (2 × MACs) / (silicon_ms × 1e-3)
-#   peak_util_pct    — silicon_gops / 1600 MOPS × 100  (% of arch peak)
-#   roof_binding     — compute | memory_theoretical | memory_empirical
-#   source           — silicon (commit hash) | emulator | simulation
-#
+# roofline_data.csv — silicon-anchored data populated 2026-05-28.
+# Sources: thesis report 2745-frame sweep (FC stage timings); other layers
+# silicon-pending (Pillar B-runs blocked on UART decode + power-cycle).
 layer,ai_mac_per_byte,silicon_ms,silicon_gops,peak_util_pct,roof_binding,source
-# === Compute roof (horizontal at 1.6 GOPS = 1 MAC = 2 ops × 800 MMAC/s) ===
 compute_roof,inf,n/a,1.600,100.0,n/a,architectural
-# === Memory roofs (slope = BW; intersects compute roof at the knee) ===
 memory_roof_theoretical,n/a,n/a,4.800,n/a,n/a,UG585
-memory_roof_empirical,n/a,n/a,pending,n/a,n/a,pillar_B2
-# === Workload points ===
-conv1,5.3,pending,pending,pending,compute_est,pillar_B3
-conv2,14.0,pending,pending,pending,compute,pillar_B3
-fc1,0.49,pending,pending,pending,memory,pillar_B4
-fc2,0.12,pending,pending,pending,memory,pillar_B4
-neon_fc1plus2,n/a,pending,pending,pending,n/a,pillar_B6
+memory_roof_empirical,n/a,n/a,pending,n/a,n/a,pillar_B2_pending
+conv1,5.3,pending,pending,pending,compute_est,pillar_B3_pending
+conv2,14.0,pending,pending,pending,compute_est,pillar_B3_pending
+fc1,0.49,1.200,0.0427,2.7,memory,thesis_2745fr
+fc2,0.12,0.300,0.0043,0.3,memory,thesis_2745fr
+neon_fc1plus2,n/a,pending,pending,pending,n/a,pillar_B6_pending
