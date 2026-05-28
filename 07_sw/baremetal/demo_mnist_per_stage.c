@@ -278,6 +278,79 @@ int main(void)
 
     int correct_int = 0, correct_cgra = 0;
 
+#ifdef TWO_PASS_PMU
+    /* ────────── CLEAN PASS (per senior review §29) ──────────────────────
+     * No per-stage CCNT reads — only outer bracket per image. Gives the
+     * unperturbed absolute end-to-end latency without observer effect
+     * from the dozens of PMU reads in the instrumented pass below.
+     * Host-side analysis applies: silicon_layer_time = clean_total ×
+     * (instrumented_layer / instrumented_total). */
+    uart_puts("\n--- CLEAN PASS (no per-stage instrumentation) ---\n");
+    uint64_t s_clean_full_hw = 0;   /* Conv+Pool+Quant+CGRA-FC pipeline */
+    uint64_t s_clean_full_sw = 0;   /* same with ARM-INT FC          */
+    for (int i = 0; i < N_TEST; ++i) {
+        int label = (int)sweep_labels[i];
+        uint32_t tA, tB;
+        int32_t  act400_c[FC1_N_IN];
+        int32_t  fc1_acc_c[FC1_N_OUT], act64_c[FC1_N_OUT], fc2_acc_c[12];
+
+        /* Full HW path (Conv-VFP + CGRA-FC) — one outer bracket */
+        tA = arm_ccnt_read();
+        normalize_input(sweep_input28[i], buf_normalized);
+        conv2d(buf_normalized, c1_w_f, c1_b_f, buf_conv1_out,
+               C1_IN_H, C1_IN_W, C1_IN_C, C1_OUT_H, C1_OUT_W, C1_OUT_C, C1_KH, C1_KW);
+        relu_inplace(buf_conv1_out, C1_OUT_H * C1_OUT_W * C1_OUT_C);
+        maxpool_2x2(buf_conv1_out, buf_pool1_out, C1_OUT_H, C1_OUT_W, C1_OUT_C);
+        conv2d(buf_pool1_out, c2_w_f, c2_b_f, buf_conv2_out,
+               C2_IN_H, C2_IN_W, C2_IN_C, C2_OUT_H, C2_OUT_W, C2_OUT_C, C2_KH, C2_KW);
+        relu_inplace(buf_conv2_out, C2_OUT_H * C2_OUT_W * C2_OUT_C);
+        maxpool_2x2(buf_conv2_out, buf_pool2_out, C2_OUT_H, C2_OUT_W, C2_OUT_C);
+        chw_quantize(buf_pool2_out, act400_c);
+
+        volatile int32_t *act400_ddr = (volatile int32_t *)ACT400_DDR;
+        for (int j = 0; j < FC1_N_IN; ++j) act400_ddr[j] = act400_c[j];
+        asm volatile("dsb" ::: "memory");
+        cnn_fc1_tile_preload(ACT400_DDR);
+        for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
+            int32_t grp[4];
+            cnn_fc1_run_group(g, grp);
+            for (int r = 0; r < 4; ++r) fc1_acc_c[g*4 + r] = grp[r];
+        }
+        fc1_post_process(fc1_acc_c, act64_c);
+        volatile int32_t *act64_ddr = (volatile int32_t *)ACT64_DDR;
+        for (int j = 0; j < FC1_N_OUT; ++j) act64_ddr[j] = act64_c[j];
+        asm volatile("dsb" ::: "memory");
+        cnn_fc2_tile_preload(ACT64_DDR);
+        for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
+            int32_t grp[4];
+            cnn_fc2_run_group(g, grp);
+            for (int r = 0; r < 4 && g*4+r < FC2_N_OUT; ++r) fc2_acc_c[g*4+r] = grp[r];
+        }
+        (void)argmax_with_bias(fc2_acc_c);
+        (void)label;
+        tB = arm_ccnt_read();
+        s_clean_full_hw += (uint64_t)(tB - tA);
+
+        /* Full SW path (ARM-INT Conv+Pool + ARM-INT FC) — one outer bracket */
+        int32_t act400_int[FC1_N_IN];
+        int32_t fc1_acc_i[FC1_N_OUT], act64_i[FC1_N_OUT], fc2_acc_i[FC2_N_OUT];
+        tA = arm_ccnt_read();
+        (void)arm_cnn_int_run(sweep_input28[i], act400_int);
+        arm_int_fc1(act400_int, fc1_acc_i);
+        fc1_post_process(fc1_acc_i, act64_i);
+        arm_int_fc2(act64_i, fc2_acc_i);
+        (void)argmax_with_bias(fc2_acc_i);
+        tB = arm_ccnt_read();
+        s_clean_full_sw += (uint64_t)(tB - tA);
+    }
+    uart_puts("CLEAN HW (VFP+CGRA): 0x");
+        uart_puthex((uint32_t)(s_clean_full_hw / (uint64_t)N_TEST)); uart_putchar('\n');
+    uart_puts("CLEAN SW (INT+INT) : 0x");
+        uart_puthex((uint32_t)(s_clean_full_sw / (uint64_t)N_TEST)); uart_putchar('\n');
+    uart_puts("--- end clean pass ---\n\n");
+    uart_puts("--- INSTRUMENTED PASS (per-stage CCNT, observer-effect inflates total) ---\n");
+#endif
+
     for (int i = 0; i < N_TEST; ++i) {
         int label = (int)sweep_labels[i];
         uint32_t t0, t1;

@@ -205,11 +205,38 @@ ARM_CNN_VFP_CFLAGS  := -O2 -Wall -ffreestanding -nostdlib \
                        -ffunction-sections -fdata-sections \
                        -DARM_CNN_VARIANT=1 -I. $(BOARD_DEFS)
 
+# ── arm_fc_neon_bm.c built at -O3 + NEON intrinsics — fair NEON baseline
+# per senior review §30. Isolated compilation unit so the rest of the
+# -O1 baremetal codebase keeps building.
+ARM_FC_NEON_OBJ     := arm_fc_neon_bm.o
+ARM_FC_NEON_CFLAGS  := -O3 -funroll-loops -Wall -ffreestanding -nostdlib \
+                       -mcpu=cortex-a9 -mfpu=neon-vfpv3 -mfloat-abi=hard \
+                       -ffunction-sections -fdata-sections \
+                       -I. $(BOARD_DEFS)
+
 # ── bench_compare: ARM-vs-CGRA head-to-head on canonical kernels ────────
 BCMP_SRCS    := start.s bench_compare.c gic.c
 BCMP_TARGET  := bench_compare.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_sweep_v2 mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_hdmi_v2 mnist_per_stage
+# ── Four-pillar silicon characterization (senior review 2026-05-28) ─────
+# Bottom-up Roofline anchoring: arch peak + memory BW + per-layer +
+# end-to-end. Built as standalone ELFs so each pillar's measurement is
+# unperturbed by the others.
+BENCH_MAC_MICRO_SRCS  := start.s bench_mac_micro.c gic.c
+BENCH_MAC_MICRO_TGT   := bench_mac_micro.elf
+
+BENCH_DMA_STREAM_SRCS := start.s bench_dma_stream.c gic.c
+BENCH_DMA_STREAM_TGT  := bench_dma_stream.elf
+
+# bench_neon_fc links arm_fc_int_bm + arm_fc_vfp_bm (scalar baselines) +
+# the -O3 NEON object for the headline FC measurement. Needs CNN_CFLAGS +
+# linker_cnn.ld because the SPM weight blob lives in DDR.
+BENCH_NEON_FC_SRCS    := start.s bench_neon_fc.c \
+                         arm_fc_int_bm.c arm_fc_vfp_bm.c \
+                         demo_mnist_weights.S gic.c
+BENCH_NEON_FC_TGT     := bench_neon_fc.elf
+
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_sweep_v2 mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_hdmi_v2 mnist_per_stage mnist_per_stage_two_pass bench_mac_micro bench_dma_stream bench_neon_fc
 
 # v2-parallel-kernel convenience targets (silicon-test the fixed v2
 # kernel after v3 bitstream lands). Each rebuilds the default Tier-1
@@ -257,6 +284,16 @@ xsdb_inject: $(XSDB_INJ_TARGET)
 mnist_hdmi: $(MNIST_HDMI_TARGET)
 
 mnist_per_stage: $(MNIST_PER_STAGE_TARGET)
+
+mnist_per_stage_two_pass:
+	rm -f demo_mnist_per_stage.elf
+	$(MAKE) mnist_per_stage EXTRA_CFLAGS='-DTWO_PASS_PMU=1'
+	mv demo_mnist_per_stage.elf demo_mnist_per_stage_two_pass.elf
+	@echo "[BUILD] demo_mnist_per_stage_two_pass.elf (clean + instrumented passes)"
+
+bench_mac_micro:  $(BENCH_MAC_MICRO_TGT)
+bench_dma_stream: $(BENCH_DMA_STREAM_TGT)
+bench_neon_fc:    $(BENCH_NEON_FC_TGT)
 
 demo: $(DEMO_TARGET)
 
@@ -372,6 +409,33 @@ $(XSDB_INJ_TARGET): $(XSDB_INJ_SRCS) uart.h hdmi_in_bm.h frame_to_mnist.h \
 # arm_cnn_bm.c built as the VFP variant — linked into demo_mnist_hdmi_bm.
 $(ARM_CNN_VFP_OBJ): arm_cnn_bm.c arm_cnn_bm.h
 	$(CC) $(ARM_CNN_VFP_CFLAGS) -c $< -o $@
+
+# arm_fc_neon_bm.c built at -O3 + NEON intrinsics — linked into
+# bench_neon_fc only (and any future hetero-pipeline demo). Isolated
+# compilation unit so other ELFs continue to build with -O1 + vfpv3.
+$(ARM_FC_NEON_OBJ): arm_fc_neon_bm.c arm_fc_bm.h ../cnn_eval/mnist_weights_scale.h
+	$(CC) $(ARM_FC_NEON_CFLAGS) -c $< -o $@
+
+# ── Four-pillar silicon characterization build rules ───────────────────
+# Pillar 1: MAC microbench (pure compute, no SPM/DMA/readout)
+$(BENCH_MAC_MICRO_TGT): $(BENCH_MAC_MICRO_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_MAC_MICRO_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_MAC_MICRO_TGT) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+# Pillar 2: DMA streaming bench (saturate HP port, no compute)
+$(BENCH_DMA_STREAM_TGT): $(BENCH_DMA_STREAM_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_DMA_STREAM_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_DMA_STREAM_TGT) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
+
+# Pillar 5: NEON FC1+FC2 timing — links scalar baselines + -O3 NEON object
+$(BENCH_NEON_FC_TGT): $(BENCH_NEON_FC_SRCS) $(ARM_FC_NEON_OBJ) \
+                      uart.h cgra.h arm_fc_bm.h linker_cnn.ld
+	$(CC) $(CNN_CFLAGS) $(CNN_LDFLAGS) \
+	      $(BENCH_NEON_FC_SRCS) $(ARM_FC_NEON_OBJ) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_NEON_FC_TGT) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
 
 # ── demo_mnist_per_stage build rule ────────────────────────────────────
 $(MNIST_PER_STAGE_TARGET): $(MNIST_PER_STAGE_SRCS) \
