@@ -102,11 +102,124 @@ general warning — but still requires verification.
 
 ---
 
-## Brutal verdict
+## Brutal verdict (initial)
 
 > ***"Your .xsa is likely coherent, but the implementation it points to
 > is garbage (likely timing or a bad route). Revert to the last git tag
 > that worked and export from there."***
+
+## REFINED Senior Response (User-sourced, takes precedence)
+
+### §1 — refined: write_hw_platform never re-impls
+> *"write_hw_platform does NOT re-run implementation or bitstream
+> generation under the hood. It strictly packages the existing outputs
+> from your local runs directory into the .xsa zip archive.
+> If your .bit MD5 differs, it is **almost certainly due to timestamp
+> metadata** — Vivado injects generation date, time, and absolute build
+> path into the bitstream header. If any script, makefile, or stray GUI
+> click triggered a fresh `write_bitstream` on the implemented DCP — even
+> if RTL and routing are 100% identical — the resulting .bit will have
+> a different MD5 hash."*
+
+To verify whether two .bit files have identical *configuration payload*
+(ignoring header timestamps):
+```
+write_bitstream -mask_file ...
+diff <(strip headers from bit1) <(strip headers from bit2)
+```
+
+### §2 — refined: ILA workflow (skip APM)
+> *"Skip the AXI Performance Monitor (APM) on the PS side. Your System
+> ILA is sitting right on the HP0 boundary; if a transaction makes it
+> across the AXI interface, the ILA will see the handshake. The APM
+> will just tell you what the ILA already knows with less granularity."*
+
+**Trigger setup**:
+- You CAN'T trigger on "never asserts done."
+- Trigger on the START of the transaction: `AWVALID == 1 && AWREADY == 1`
+  (writes) or `ARVALID == 1 && ARREADY == 1` (reads).
+- Set trigger position to 5-10% so the ILA buffer captures the stall
+  tail.
+
+**Refined smoking guns**:
+
+1. `dbg_dma_fifo_full == 1 AND WVALID == 1 AND WREADY == 0`
+   → Zynq-7000 PS is backpressuring. HP0 FIFO clogged, DDR controller
+     deadlocked, or **HP0 not properly initialized by FSBL/ps7_init**.
+
+2. `dbg_dma_read_state stuck in WAIT_RDATA AND ARREADY was previously 1`
+   → PS accepted the address but RVALID never asserted or RLAST dropped.
+
+3. `dbg_dma_busy == 1 but NO AXI VALID signals asserted`
+   → CGRA internal FSM stuck. DMA tasked but logic failed to format
+     the AXI request, or stuck waiting for internal CGRA data.
+
+### §3 — REFINED Recovery Ranking
+
+> *"Stop fighting the tooling. Your immediate goal is to root-cause the
+> DMA hang, not to appease the Vitis workspace."*
+
+#### 🏆 Rank 1: Option (D) — XSCT + Hardware Manager (< 5 min)
+
+**Bypass the .xsa and Vitis entirely for this debug session.**
+
+1. Open **Vivado Hardware Manager** and program the FPGA with existing
+   `.bit` and `.ltx` (debug-probes file).
+2. Open **xsct** (Xilinx Software Command-Line Tool).
+3. Connect to target, source the **legacy `scripts/ps7_init.tcl`**, run
+   `ps7_init` + `ps7_post_config`. This wakes the PS, enables FCLKs to
+   PL, and unlocks the HP0 ports.
+4. Use **`mwr` from xsct** to manually write CGRA APB control registers
+   to kick off the DMA.
+5. Watch the ILA trigger.
+
+> *"The legacy ps7_init.tcl WILL work perfectly as long as you haven't
+> radically altered the required FCLK frequencies or MIO configurations
+> since that legacy file was generated."*
+
+#### Rank 2: Option (C) — Full Rebuild (30-60 min)
+
+> *"If your CGRA requires a complex, multi-megabyte software payload
+> running on the ARM cores to generate the failure condition, manual
+> XSCT pokes won't cut it. Take the 45-minute hit. Clean the project,
+> synthesize, implement, and export a fresh .xsa. Use the time to
+> review your RTL constraints."*
+
+#### Rank 3: Option (B) — Git revert
+Only if the build system perfectly caches intermediate DCPs. Otherwise
+a revert triggers full rebuild → equivalent to Option C with extra
+version-control friction.
+
+---
+
+## Final action plan (per refined senior advice)
+
+**Rank 1 (Option D) is the right next step. We have all the artifacts:**
+- `backups/silicon-debug-20260528/cgra_top_pre-vivado-regen.bit` (old .bit)
+- `bitstreams/cgra_vtpg_ila.ltx` (debug probes, if matches old .bit) OR
+  the `.ltx` co-located with whatever .bit Vivado was actually using
+- `scripts/ps7_init.tcl` (legacy, paired with old .bit)
+- `scripts/xsdb_program.tcl` (existing JTAG load script)
+
+**Concrete next-session steps:**
+1. Restore old .bit to `bitstreams/cgra_top.bit`
+2. Power-cycle PYNQ-Z2
+3. `make program BIT=bitstreams/cgra_top.bit` (uses legacy ps7_init)
+4. Open Vivado Hardware Manager in a separate session, refresh
+   hw_server, load `bitstreams/cgra_vtpg_ila.ltx` (or matching .ltx)
+5. In xsct: write the CGRA registers to trigger a smoke-style DMA
+   (DMA_SRC, DMA_DST, DMA_SIZE, DMA_CTRL=1)
+6. Capture ILA trace, identify which smoking gun is firing
+7. Fix accordingly
+
+If smoke-style DMA WORKS via direct xsct mwr (no ELF intermediate),
+then the issue was in the ELF/Vitis chain, not the bitstream. We can
+then either fix the ELF flow or just use xsct mwr for the silicon
+measurements (slower but possible).
+
+If smoke-style DMA HANGS via direct xsct mwr, the bitstream's DMA is
+genuinely broken — escalate to Option C (rebuild).
+
 
 ---
 
