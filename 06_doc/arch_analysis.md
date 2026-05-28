@@ -91,7 +91,7 @@ to 64 words gives a proportionally larger tolerance window.
 **B2: MAC accumulator pipeline hazard (measured: 66.6% throughput)**
 - Root cause: 3-stage pipeline (decode→_r→_r2), 2-cycle hazard window before accumulator
   result is visible to the next MAC. Only 10 out of 15 back-to-back MACs accumulate.
-- Silicon measurement (Cat 2, 2026-04-22 Haoyue 7020): 15×MAC b2b → 10 effective = **66.6%**;
+- Silicon measurement (Cat 2, 2026-04-22 Zynq-7020 silicon): 15×MAC b2b → 10 effective = **66.6%**;
   with 2-NOP spacing → 80%; with 1-NOP spacing → 62.5% (worse — pipeline alignment effect).
 - **Status: Deferred — not worth fixing at current bottleneck profile.**
   Amdahl's law: CU compute is only 7.4% of Conv2 frame time (Cat 15). Even perfect 100%
@@ -233,7 +233,7 @@ Halves routing PE waste for long-distance transfers. ~8% area increase.
 
 ## 4. Summary Priority Table
 
-*(Updated 2026-04-22 with silicon measurements from Haoyue 7020 @ 50 MHz)*
+*(Updated 2026-04-22 with silicon measurements from Zynq-7020 @ 50 MHz — measurements taken on the legacy Haoyue board; current platform is PYNQ-Z2, same XC7Z020 die.)*
 
 | ID | Fix | Status | Measured result | Risk |
 |---|---|---|---|---|

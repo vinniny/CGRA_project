@@ -2,9 +2,12 @@
 ## Feature × Demo Matrix
 
 Validates that every capability exercised by the proposed demos is
-**silicon-confirmed** (Haoyue Zynq-7000, SPM_DEPTH=1024 bitstream,
+**silicon-confirmed** on Zynq-7020 (XC7Z020). Current platform is
+PYNQ-Z2; the silicon-validated bitstream was first brought up on the
+legacy Haoyue 7020 board and the measurements transfer because both
+boards share the same XC7Z020 die. SPM_DEPTH=1024 bitstream;
 9148/9148 sim suites green per `make sim` 2026-05-18, 96/96 bare-metal
-checks passing).
+checks passing.
 
 ---
 
@@ -166,7 +169,7 @@ plus all major data movement and control paths**.
 
 ## 6. Live HDMI MNIST silicon results (2026-05-26 / 2026-05-27)
 
-End-to-end pipeline measured on Haoyue Zynq-7000 with the split-VDMA
+End-to-end pipeline measured on Zynq-7020 silicon (taken on the legacy Haoyue board; current platform is PYNQ-Z2, same XC7Z020 die) with the split-VDMA
 bitstream (`bitstreams/cgra_split_vdma.bit` — separate HDMI-IN VDMA at
 `0x4302_0000` and HDMI-OUT VDMA at `0x4300_0000`, line buffer 4096,
 explicit `Data_S2MM → S_AXI_HP0 @ 0x10000000-0x1FFFFFFF` address map).

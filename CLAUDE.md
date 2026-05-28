@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-4x4 CGRA (Coarse-Grained Reconfigurable Array) accelerator IP for Sparse Spiking Neural Networks (SNN), License Plate Recognition (LPR) inference, and MNIST CNN inference. Targets Xilinx Zynq-7000 (XC7Z020) at 50 MHz with PetaLinux 2022.2 deployment. All RTL is SystemVerilog. Simulation uses Cadence Xcelium 20.09. Current bitstream: `bitstreams/cgra_top.bit` (SPM_DEPTH=1024, silicon-validated on Haoyue board).
+4x4 CGRA (Coarse-Grained Reconfigurable Array) accelerator IP for Sparse Spiking Neural Networks (SNN), License Plate Recognition (LPR) inference, and MNIST CNN inference. Targets Xilinx Zynq-7000 (XC7Z020) at 50 MHz with PetaLinux 2022.2 deployment. All RTL is SystemVerilog. Simulation uses Cadence Xcelium 20.09. Current bitstream: `bitstreams/cgra_top.bit` (SPM_DEPTH=1024). Active board: PYNQ-Z2 (Zynq-7020 XC7Z020). Earlier silicon validation on the Haoyue 7020 board is historical — measurements transfer to PYNQ-Z2 because both use the same XC7Z020 die, but Haoyue is no longer the active platform.
 
 ## Build & Simulation Commands
 
