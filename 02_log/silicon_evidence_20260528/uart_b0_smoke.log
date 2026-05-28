@@ -1,0 +1,18 @@
+
+=========================================================
+  bench_smoke — atomic bitstream validation (Gemini §7)
+  S0: PS health → S1: scratchpad RW → S2: loopback DMA
+  abort on any FAIL — fix .xsa coupling, do NOT power-cycle
+=========================================================
+
+[S0] PS HEALTH CHECK
+  DDR ctrl status (0xF8000600) = 0x0x00000000
+  SLCR PLL  status (0xF8000100) = 0x0x00028008
+  PASS: PS registers readable, system alive
+
+[S1] CGRA MMIO PING-PONG (write/readback)
+  wrote 0xDEADBEEF -> CGRA_DMA_SRC, read back = 0x0xDEADBEEF
+  wrote 0xCAFEBABE -> CGRA_DMA_SRC, read back = 0x0xCAFEBABE
+  PASS: CGRA APB decode + scratchpad RW functional
+
+[S2] SHORT LOOPBACK DMA (64 B DDR -> CGRA_TILE_BCAST)
