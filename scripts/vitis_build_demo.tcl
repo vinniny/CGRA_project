@@ -37,6 +37,8 @@ set XSA     [_env_or CGRA_XSA      $REPO/bitstreams/cgra_vtpg_ila.xsa]
 set WS      [_env_or CGRA_WS       /tmp/cgra_vitis_ws]
 set APP     [_env_or CGRA_DEMO     demo_vtpg]
 set SRCS    [_env_or CGRA_DEMO_SRCS "start.s demo_vtpg.c hdmi_in_bm.c hdmi_in_bm.h vtpg.h gic.c gic.h uart.h linker.ld"]
+set LINKER  [_env_or CGRA_LINKER   linker.ld]
+set EXTRA   [_env_or CGRA_EXTRA_CFLAGS ""]
 set PLAT    [file rootname [file tail $XSA]]
 
 puts "==========================================================="
@@ -98,8 +100,15 @@ foreach f $SRCS {
 
 # ----- 4. App config ------------------------------------------------------
 puts "\n=== 4. app config ==="
-app config -name $APP -set linker-script $APP_SRC/linker.ld
+app config -name $APP -set linker-script $APP_SRC/$LINKER
 app config -name $APP -add define-compiler-symbols BOARD_CGRA_ONLY
+if {$EXTRA ne ""} {
+    foreach sym [split $EXTRA " "] {
+        if {[string match "-D*" $sym]} {
+            app config -name $APP -add define-compiler-symbols [string range $sym 2 end]
+        }
+    }
+}
 app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard}
 # Vitis 2025.1 invokes the assembler for .s files WITHOUT inheriting
 # -mcpu/-mfpu from compiler-misc -- ARMv7 ISB/VFP/WFI then fail. Set the
