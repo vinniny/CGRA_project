@@ -24,13 +24,18 @@
 #include "cgra.h"
 #include "uart.h"
 
-/* Vitis BSP enables D-cache at boot. cgra_config_pe_slot writes config
- * words to DDR via volatile pointers without flushing — works with
- * caches off (Makefile build) but fails when caches are on (Vitis
- * build). Declare the BSP helper here rather than pull in xil_cache.h
- * so this ELF stays portable between Makefile and Vitis builds. */
-extern void Xil_DCacheDisable(void);
-extern void Xil_ICacheDisable(void);
+/* Disable caches via CP15 SCTLR directly. Same reasoning as bench_smoke.c:
+ * weak stubs don't override Vitis's libxil; the BSP's Xil_DCacheDisable
+ * has setup baggage that complicates our minimal main(); direct CP15 is
+ * cleanest and works in both Makefile and Vitis builds. */
+static inline void cache_disable_cp15(void)
+{
+    uint32_t sctlr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
+    sctlr &= ~((1u << 2) | (1u << 12));   /* C (DCache) + I (ICache) */
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" : : "r"(sctlr));
+    __asm__ volatile("isb");
+}
 
 /* CU_STATUS_DONE defined in cgra.h (bit 1 = done) */
 #define DDR_STAGE       0x00100000u
@@ -127,11 +132,9 @@ static void run_one(const char *label, uint32_t loop_count)
 
 int main(void)
 {
-    /* Match the Makefile-build behavior — caches OFF — so that
-     * cgra_config_pe_slot's volatile DDR writes are immediately visible
-     * to the CGRA DMA engine. */
-    Xil_DCacheDisable();
-    Xil_ICacheDisable();
+    /* Caches OFF — cgra_config_pe_slot's volatile DDR writes must be
+     * immediately visible to the CGRA DMA engine. */
+    cache_disable_cp15();
 
     uart_init();
     arm_pmu_enable();

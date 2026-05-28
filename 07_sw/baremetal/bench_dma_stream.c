@@ -20,6 +20,16 @@
 #include "cgra.h"
 #include "uart.h"
 
+/* Caches OFF — DDR writes must be immediately visible to CGRA DMA. */
+static inline void cache_disable_cp15(void)
+{
+    uint32_t sctlr;
+    __asm__ volatile("mrc p15, 0, %0, c1, c0, 0" : "=r"(sctlr));
+    sctlr &= ~((1u << 2) | (1u << 12));
+    __asm__ volatile("mcr p15, 0, %0, c1, c0, 0" : : "r"(sctlr));
+    __asm__ volatile("isb");
+}
+
 #define DDR_SRC_BASE   0x00100000u  /* 1 MB scratch region in DDR */
 #define DDR_SRC_BYTES  (1u << 20)   /* 1 MB */
 
@@ -61,6 +71,7 @@ static void measure_one(const char *label, uint32_t nbytes, int n_iter)
 
 int main(void)
 {
+    cache_disable_cp15();
     uart_init();
     arm_pmu_enable();
     arm_ccnt_reset();
