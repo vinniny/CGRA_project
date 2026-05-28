@@ -1,0 +1,8 @@
+
+=========================================================
+  bench_mac_micro — Pillar 1: architectural-peak MAC/cyc
+  PE[0,3] OP_MAC(SRC_IMM=1, SRC_IMM=1) — pure compute, no SPM/DMA
+  16 slots × N passes  (contribs = 16·N − 3 closed form)
+=========================================================
+[CGRA cold-reset complete]
+

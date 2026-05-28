@@ -37,7 +37,10 @@ puts "  ps7_init  : $PS_INIT"
 puts "  ELF       : $ELF"
 puts "==========================================================="
 
-# ----- Connect + clear DAP error if any -----
+# ----- Connect + light recovery -----
+# NOTE: `rst -system` works to unwedge A9 BUT also resets FCLK0/PL state,
+# leaving the CGRA unclocked → APB hangs on next access. So we use a
+# lighter recovery here and rely on power-cycle for hard wedges.
 connect -url tcp:localhost:3121
 configparams force-mem-accesses 1
 catch {targets -set -filter {name =~ "DAP*"}}
