@@ -24,6 +24,14 @@
 #include "cgra.h"
 #include "uart.h"
 
+/* Vitis BSP enables D-cache at boot. cgra_config_pe_slot writes config
+ * words to DDR via volatile pointers without flushing — works with
+ * caches off (Makefile build) but fails when caches are on (Vitis
+ * build). Declare the BSP helper here rather than pull in xil_cache.h
+ * so this ELF stays portable between Makefile and Vitis builds. */
+extern void Xil_DCacheDisable(void);
+extern void Xil_ICacheDisable(void);
+
 /* CU_STATUS_DONE defined in cgra.h (bit 1 = done) */
 #define DDR_STAGE       0x00100000u
 #define PE_TEST         3u   /* PE[0,3] east edge — direct RESULT_ROW0 readout */
@@ -39,6 +47,15 @@ static int cu_run_wait(void)
     return -1;
 }
 
+/* NOP-fill all 16 PEs — required before any kernel, otherwise stale
+ * config slots from prior runs can stall the CU. Mirrors
+ * bench_cgra.c:cfg_all_nop(). */
+static void cfg_all_nop(void)
+{
+    for (uint32_t pe = 0; pe < 16; pe++)
+        cgra_config_pe(pe, DDR_STAGE, OP_NOP, 0, 0, 0, 0, 0);
+}
+
 static void bench_setup(void)
 {
     cgra_cu_reset();
@@ -50,7 +67,9 @@ static void bench_setup(void)
     cgra_wr(CGRA_LOOP2_END,   0);
     cgra_wr(CGRA_LOOP2_COUNT, 0);
     cgra_wr(CGRA_TILE_AUTO_INC, 0);
+    cgra_wr(CGRA_TILE_BANK_SEL, 0);
     cgra_wr(CGRA_CU_PC_END,   15);
+    cfg_all_nop();
 }
 
 /* Configure PE[0,3] with slot 0 = ACC_CLR, slots 1..15 = MAC(IMM=1, IMM=1).
@@ -71,12 +90,18 @@ static void run_one(const char *label, uint32_t loop_count)
     cfg_mac_kernel();
     cgra_wr(CGRA_LOOP_COUNT, loop_count);
 
-    if (cu_run_wait() != 0) {
-        uart_puts(label); uart_puts(": TIMEOUT\n");
-        return;
-    }
+    int tmo = cu_run_wait();
     uint32_t cycles   = cgra_rd(CGRA_CU_CYCLES);
     uint32_t contribs = cgra_rd(CGRA_RESULT_ROW0);
+    uint32_t status   = cgra_rd(CGRA_CU_STATUS);
+    if (tmo != 0) {
+        uart_puts(label);
+        uart_puts(": TIMEOUT  CU_STATUS=0x");  uart_puthex(status);
+        uart_puts(" CU_CYCLES="); uart_putdec(cycles);
+        uart_puts(" ROW0=");      uart_putdec(contribs);
+        uart_putchar('\n');
+        return;
+    }
     uint32_t passes   = loop_count + 1u;
     uint32_t expected = 16u * passes - 3u;  /* closed-form for SRC_IMM */
 
@@ -102,6 +127,12 @@ static void run_one(const char *label, uint32_t loop_count)
 
 int main(void)
 {
+    /* Match the Makefile-build behavior — caches OFF — so that
+     * cgra_config_pe_slot's volatile DDR writes are immediately visible
+     * to the CGRA DMA engine. */
+    Xil_DCacheDisable();
+    Xil_ICacheDisable();
+
     uart_init();
     arm_pmu_enable();
     arm_ccnt_reset();
@@ -110,7 +141,16 @@ int main(void)
     uart_puts("  bench_mac_micro — Pillar 1: architectural-peak MAC/cyc\n");
     uart_puts("  PE[0,3] OP_MAC(SRC_IMM=1, SRC_IMM=1) — pure compute, no SPM/DMA\n");
     uart_puts("  16 slots × N passes  (contribs = 16·N − 3 closed form)\n");
-    uart_puts("=========================================================\n\n");
+    uart_puts("=========================================================\n");
+
+    /* Cold-reset CGRA to recover from any prior state (mirrors
+     * bench_compare.c:386-391). Without this, residual PL state from a
+     * failed prior run can hang the first DMA inside cgra_config_pe. */
+    cgra_cu_reset();
+    cgra_clear_irqs();
+    cgra_wr(CGRA_DMA_CTRL, 0u);
+    for (volatile uint32_t k = 0; k < 1000u; k++) ;
+    uart_puts("[CGRA cold-reset complete]\n\n");
 
     run_one("MTP01", 0u);   /*  1 pass    — 1-pass slot efficiency  */
     run_one("MTP02", 9u);   /* 10 passes  — steady-state efficiency */

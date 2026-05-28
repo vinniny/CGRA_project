@@ -464,3 +464,4 @@ vivado_*.backup.jou
 vivado_*.backup.log
 .Xil/
 NA/
+backups/

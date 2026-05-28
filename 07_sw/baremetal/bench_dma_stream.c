@@ -71,15 +71,16 @@ int main(void)
     uart_puts("  ARM CCNT @ 666.67 MHz brackets each cgra_dma()\n");
     uart_puts("=========================================================\n\n");
 
-    /* Fill 1 MB of DDR with a non-trivial pattern */
-    fill_ddr_pattern((uint32_t *)DDR_SRC_BASE, DDR_SRC_BYTES / 4u);
-    asm volatile("dsb" ::: "memory");
-
-    /* Cold-reset CGRA / clear stale DMA state */
+    /* Cold-reset CGRA / clear stale DMA state — must happen BEFORE the
+     * first DMA call. Same pattern as bench_compare.c:386-391. */
     cgra_cu_reset();
     cgra_wr(CGRA_DMA_CTRL, 0u);
     cgra_wr(CGRA_IRQ_STATUS, 0x7u);
     for (volatile uint32_t k = 0; k < 1000u; k++) ;
+
+    /* Fill 1 MB of DDR with a non-trivial pattern */
+    fill_ddr_pattern((uint32_t *)DDR_SRC_BASE, DDR_SRC_BYTES / 4u);
+    asm volatile("dsb" ::: "memory");
 
     uart_puts("Single-shot per-size sweep (100 iter avg):\n");
     measure_one("S01", 1024u,         100);   /*  1 KB */

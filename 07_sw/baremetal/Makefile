@@ -236,7 +236,7 @@ BENCH_NEON_FC_SRCS    := start.s bench_neon_fc.c \
                          demo_mnist_weights.S gic.c
 BENCH_NEON_FC_TGT     := bench_neon_fc.elf
 
-.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_sweep_v2 mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_hdmi_v2 mnist_per_stage mnist_per_stage_two_pass bench_mac_micro bench_dma_stream bench_neon_fc
+.PHONY: all clean dis demo bench bench_res bench_tai demo_lpr demo_lpr_cgra demo_lpr_cgra_v2 demo_lpr_cgra_v2_smoke mnist_sweep mnist_sweep_v2 mnist_cgra_v2 bench_compare hdmi_text hdmi_in_capture vtpg_capture hdmi_live bench_vdma mnist_hdmi mnist_hdmi_v2 mnist_per_stage mnist_per_stage_two_pass bench_mac_micro bench_dma_stream bench_neon_fc bench_smoke
 
 # v2-parallel-kernel convenience targets (silicon-test the fixed v2
 # kernel after v3 bitstream lands). Each rebuilds the default Tier-1
@@ -460,3 +460,12 @@ dis: $(TARGET)
 
 clean:
 	rm -f *.elf *.o
+
+# ── bench_smoke: atomic-validation smoke test (Gemini senior protocol) ──
+BENCH_SMOKE_SRCS  := start.s bench_smoke.c gic.c
+BENCH_SMOKE_TGT   := bench_smoke.elf
+bench_smoke: $(BENCH_SMOKE_TGT)
+$(BENCH_SMOKE_TGT): $(BENCH_SMOKE_SRCS) uart.h cgra.h gic.h linker.ld
+	$(CC) $(CFLAGS) $(LDFLAGS) $(BENCH_SMOKE_SRCS) -lgcc -o $@
+	@echo "[BUILD] $(BENCH_SMOKE_TGT) OK"
+	@$(VITIS)/gnu/aarch32/lin/gcc-arm-none-eabi/bin/arm-none-eabi-size $@
