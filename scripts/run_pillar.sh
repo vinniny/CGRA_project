@@ -78,7 +78,10 @@ fi
 
 CGRA_BIT="${CGRA_BIT:-bitstreams/cgra_top.bit}"
 UART_DEV="${UART_DEV:-/dev/ttyUSB1}"
-UART_BAUD="${UART_BAUD:-115200}"
+# TUL PYNQ-Z2 PS_CLK = 50 MHz (not the standard 33.333 MHz on Digilent boards)
+# → IO_PLL = 2700 MHz → UART_REF_CLK = 150 MHz → actual baud = 150e6/124/7 = 172,811
+# Verified empirically 2026-05-28 against bench_uart_tuning.elf.
+UART_BAUD="${UART_BAUD:-172800}"
 
 # --- B0 smoke gate: skip only on explicit request ------------------------
 if [[ "$PILLAR" != "smoke" && "$PILLAR" != "B0" && "$SKIP_SMOKE" != "--skip-smoke" ]]; then
@@ -98,8 +101,17 @@ echo "  UART log  : $LOG"
 echo "  Wait      : ${WAIT}s"
 echo "==========================================================="
 
-stty -F "$UART_DEV" "$UART_BAUD" raw -echo
-timeout $((WAIT + 5)) cat "$UART_DEV" > "$LOG" 2>&1 &
+# Use pyserial — stty doesn't support arbitrary bauds like 172800 on Linux
+python3 -u -c "
+import serial, time, sys
+ser = serial.Serial('$UART_DEV', baudrate=$UART_BAUD, timeout=2)
+end = time.time() + $WAIT + 4
+while time.time() < end:
+    d = ser.read(2000)
+    if d:
+        sys.stdout.buffer.write(d); sys.stdout.flush()
+ser.close()
+" > "$LOG" 2>&1 &
 UART_PID=$!
 sleep 1
 
