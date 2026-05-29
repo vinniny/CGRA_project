@@ -118,6 +118,8 @@ int main(void)
     uart_puts(total == 0 ? "*** ALL PASS — DDR CLEAN ***" : "*** FAILURES PRESENT ***");
     uart_puts(" total_errs="); uart_puthex(total); uart_putchar('\n');
     uart_puts("=== ddr_stress complete ===\n");
-    for (;;) { }
+    /* End in WFI (not a tight spin) so the JTAG debugger can halt the core
+     * cleanly for the next ps7_init — avoids the A9 spin-loop wedge. */
+    for (;;) { __asm__ volatile("wfi"); }
     return 0;
 }
