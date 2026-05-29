@@ -65,7 +65,11 @@ static void bench_setup(void)
 {
     cgra_cu_reset();
     cgra_clear_irqs();
-    cgra_wr(CGRA_LOOP_START, 0);
+    /* LOOP_START=1 keeps slot-0 ACC_CLR OUT of the loop body: PC 0 runs once
+     * on entry (clears the accumulator), then the hardware loop replays slots
+     * 1..15 (MAC only) LOOP_COUNT times, so the accumulator persists across
+     * passes instead of being re-cleared every wrap. */
+    cgra_wr(CGRA_LOOP_START, 1);
     cgra_wr(CGRA_LOOP_END,   15);
     cgra_wr(CGRA_LOOP_COUNT,  0);
     cgra_wr(CGRA_LOOP2_START, 0);
@@ -108,11 +112,13 @@ static void run_one(const char *label, uint32_t loop_count)
         return;
     }
     uint32_t passes   = loop_count + 1u;
-    uint32_t expected = 16u * passes - 3u;  /* closed-form for SRC_IMM */
+    /* 15 MAC slots/pass (slot 0 = ACC_CLR is outside the loop body now). */
+    uint32_t mac_slots = 15u * passes;
+    uint32_t expected = mac_slots;  /* ideal: 1 contrib per MAC slot */
 
     /* Efficiencies in tenths-of-percent (e.g. 997 → "99.7%") */
     uint32_t slot_eff_x10  = (passes > 0)
-        ? (contribs * 1000u) / (16u * passes) : 0u;
+        ? (contribs * 1000u) / mac_slots : 0u;
     uint32_t cycle_eff_x10 = (cycles > 0)
         ? (contribs * 1000u) / cycles : 0u;
 
