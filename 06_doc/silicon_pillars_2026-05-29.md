@@ -93,3 +93,38 @@ has a correctness bug (timing valid, result wrong). Needs a separate fix.
   v17 bit + REF ps7_init combo).
 - Fix NEON FC 4-accumulator correctness bug.
 - Fix `bench_mac_micro` contribs readout (result-FIFO semantics).
+
+---
+
+## HARSH TEST UPDATE — v18 clean-.xsa CGRA regression (2026-05-29)
+
+Harsh testing of the *clean v18 .xsa* surfaced a CGRA-PL regression that the
+earlier v17+REF combo did not have. Same `bench_mac_micro.elf` throughout:
+
+| build / clock | MTP01 | contribs |
+|---|---|---|
+| combo (v17 bit) @ FCLK0=100 | cycles=15 ✓ | 10  (and MNIST 94/100) |
+| v18 bit @ FCLK0=100 | cycles=15 ✓ | **0** |
+| v18 bit @ FCLK0=50 (design clock) | **TIMEOUT** (CU stuck, 21M cyc) | 0 |
+
+- DDR is clean on v18 regardless (64 MB march, 0 errors).
+- Basic CGRA datapath works on v18 (JTAG: APB ping-pong + DDR→bcast DMA done, err=0).
+- The **CU/MAC path** regressed: contribs 10→0 at the same clock, and the CU
+  times out at the 50 MHz design clock (but not at 100). "fails@50 / works@100"
+  is a reset/CDC signature, not setup-timing.
+
+**Root-cause hypothesis:** the v18 build ran `upgrade_ip [get_ips]` +
+`reset_target all` + `generate_target all`, which re-synthesised the
+cgra_top / interconnect IPs differently from the v17 build (which was
+build-only and reused the existing products). The v17 known-good bitstream
+was overwritten by the v18 impl run and is not recoverable.
+
+**Implication for the Windows GUI recreation (the real deliverable):**
+- DDR config (PARTNO=Custom + REF trace delays, see windows_gui_recreation_recipe.md)
+  is correct and orthogonal — keep it.
+- Do NOT blanket-`upgrade_ip` the CGRA/interconnect IPs; keep them at the
+  versions that produced the working v17 PL.
+- After building, VALIDATE THE CGRA at 50 MHz, not just DDR: run
+  bench_mac_micro (expect no MTP timeout) and demo_mnist_per_stage
+  (expect ~94/100 ARM-INT, ~87/100 CGRA). contribs readout is a known
+  result-FIFO artifact; use MNIST argmax accuracy as the functional gate.
