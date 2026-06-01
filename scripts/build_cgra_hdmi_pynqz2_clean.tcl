@@ -189,7 +189,7 @@ set_property -dict [list \
 
 # AXI-Lite from periph fabric (M02) -> bridge -> CGRA APB
 connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M02_AXI] [get_bd_intf_pins axi_apb_bridge_0/AXI4_LITE]
-connect_bd_intf_net [get_bd_intf_pins axi_apb_bridge_0/APB_M]   [get_bd_intf_pins cgra_top_0/s_apb]
+connect_bd_intf_net [get_bd_intf_pins axi_apb_bridge_0/APB_M]   [get_bd_intf_pins cgra_top_0/interface_apb]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_apb_bridge_0/s_axi_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_apb_bridge_0/s_axi_aresetn]
 
@@ -334,7 +334,7 @@ set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_
 assign_bd_address [get_bd_addr_segs {axi_dynclk_0/s00_axi/reg0}]
 set_property offset 0x43C00000 [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_dynclk_0_reg0}]
 
-assign_bd_address [get_bd_addr_segs {cgra_top_0/s_apb/Reg}]
+assign_bd_address [get_bd_addr_segs {cgra_top_0/interface_apb/Reg}]
 set_property offset 0x43C10000 [get_bd_addr_segs {processing_system7_0/Data/SEG_cgra_top_0_Reg}]
 set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_cgra_top_0_Reg}]
 
