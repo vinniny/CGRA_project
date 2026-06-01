@@ -29,7 +29,7 @@ app create -name $APP -platform $PLAT -domain standalone_domain -template "Empty
 set SRC [file join $WS $APP src]
 file delete -force $SRC; file mkdir $SRC
 foreach f {start.s demo_mnist_hdmi_bm.c arm_fc_int_bm.c arm_fc_vfp_bm.c \
-           hdmi_bm.c fb_lib_bm.c hdmi_in_bm.c frame_to_mnist.c \
+           arm_cnn_bm.c hdmi_bm.c fb_lib_bm.c hdmi_in_bm.c frame_to_mnist.c \
            demo_mnist_weights.S demo_mnist_conv_weights.S gic.c \
            uart.h cgra.h cgra_kernels_cnn.h cgra_kernels_cnn_opt.h \
            cgra_kernels_cnn_v2.h arm_cnn_bm.h arm_fc_bm.h frame_to_mnist.h \
@@ -41,6 +41,10 @@ foreach f {start.s demo_mnist_hdmi_bm.c arm_fc_int_bm.c arm_fc_vfp_bm.c \
 foreach f {font5x7.c font5x7.h} {
     if {[file exists [file join $FONTDIR $f]]} { file copy -force [file join $FONTDIR $f] $SRC/ } else { puts "  MISSING(font): $f" }
 }
+# font sibling for fb_lib_bm.c's hardcoded "../linux/demo_mnist_hdmi/font5x7.h"
+set FONTSIB [file join $WS $APP linux demo_mnist_hdmi]
+file delete -force $FONTSIB; file mkdir $FONTSIB
+catch {file copy -force [file join $FONTDIR font5x7.h] $FONTSIB/}  ;# .h only — .c compiles once from src/
 # cnn_eval sibling for ../cnn_eval header + .incbin weight blobs
 set CE [file join $WS $APP cnn_eval]
 file delete -force $CE; file mkdir $CE
@@ -51,6 +55,7 @@ app config -name $APP -set linker-script [file join $SRC linker_cnn.ld]
 app config -name $APP -add define-compiler-symbols BOARD_CGRA_ONLY
 app config -name $APP -add define-compiler-symbols CGRA_BASE=0x43C10000
 app config -name $APP -add define-compiler-symbols LIVE_INPUT
+app config -name $APP -add define-compiler-symbols ARM_CNN_VARIANT=1
 app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
 app config -name $APP -add assembler-flags "-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -I$SRC"
 app config -name $APP -set build-config Debug
