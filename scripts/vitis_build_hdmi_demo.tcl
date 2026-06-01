@@ -54,8 +54,15 @@ foreach f {mnist_weights_scale.h mnist_weights_spm.bin mnist_weights_conv.bin} {
 app config -name $APP -set linker-script [file join $SRC linker_cnn.ld]
 app config -name $APP -add define-compiler-symbols BOARD_CGRA_ONLY
 app config -name $APP -add define-compiler-symbols CGRA_BASE=0x43C10000
-app config -name $APP -add define-compiler-symbols LIVE_INPUT
 app config -name $APP -add define-compiler-symbols ARM_CNN_VARIANT=1
+# LIVE_INPUT (HDMI-in capture) needs the richer BD (color_convert/pixel_pack/
+# gpio); on the lean clean BD test HDMI-OUT first.  CGRA_LIVE=1 re-enables it.
+if {[_env_or CGRA_LIVE 0] ne "0"} {
+    app config -name $APP -add define-compiler-symbols LIVE_INPUT
+    puts "  LIVE_INPUT enabled"
+} else {
+    puts "  LIVE_INPUT disabled (HDMI-OUT-only test build)"
+}
 app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
 app config -name $APP -add assembler-flags "-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -I$SRC"
 app config -name $APP -set build-config Debug

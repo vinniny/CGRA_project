@@ -8,6 +8,10 @@ open_project $PROJ
 set_property top design_1_wrapper [current_fileset]
 catch {reset_run impl_1}
 catch {reset_run synth_1}
+# reset any failed OOC IP synth runs (the OOM run left v_tc/v_vid_in/etc failed)
+foreach r [get_runs] {
+    if {[string match "*_synth_1" $r] && $r ne "synth_1"} { catch {reset_run $r} }
+}
 # DRC override safety net (in case any HDMI port lacks a LOC/IOSTANDARD)
 set hook /tmp/drc_override_hdmi.tcl
 set fp [open $hook w]
@@ -16,7 +20,7 @@ puts $fp "set_property SEVERITY {Warning} \[get_drc_checks UCIO-1\]"
 close $fp
 set_property STEPS.WRITE_BITSTREAM.TCL.PRE $hook [get_runs impl_1]
 
-launch_runs impl_1 -to_step write_bitstream -jobs 6
+launch_runs impl_1 -to_step write_bitstream -jobs 1
 wait_on_run impl_1
 set st   [get_property STATUS   [get_runs impl_1]]
 set prog [get_property PROGRESS [get_runs impl_1]]

@@ -555,6 +555,7 @@ int main(void)
         uart_puts("  cycCGRA="); uart_puthex(cyc_cgra);
         uart_puts(" cycINT="); uart_puthex(cyc_int);
         uart_puts(" cycVFP="); uart_puthex(cyc_vfp);
+        uart_puts(" vdmaSR="); uart_puthex(hdmi_out_dmasr());
         uart_putchar('\n');
 
         delay_cycles(CPU_HZ / 5);  /* ~200 ms dwell */

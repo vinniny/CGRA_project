@@ -1,19 +1,24 @@
 /* hdmi_bm.c — see hdmi_bm.h. */
 
 #include "hdmi_bm.h"
+#include "uart.h"
 
 #include <stdint.h>
 
 /* MMIO base addresses (matches scripts/hdmi_first_light.sh + base.hwh). */
 #define SLCR_BASE       0xF8000000UL
-#define VDMA_BASE       0x43000000UL
-#define DYNCLK_BASE     0x43C10000UL
-#define VTC_BASE        0x43C20000UL
-#define CC_OUT_BASE     0x43C60000UL  /* hdmi_out/color_convert */
-#define PU_OUT_BASE     0x43C70000UL  /* hdmi_out/pixel_unpack */
+/* Address map for the CLEAN dual-HDMI BD (cgra_hdmi_dual.xsa), confirmed
+ * from design_1.hwh 2026-06-01.  NOTE: this differs from the old CGRA_PYNQ
+ * base — dynclk moved to 0x43C00000 (0x43C10000 is now the CGRA), and the
+ * clean OUT pipeline has NO color_convert / pixel_unpack (vdma RGB ->
+ * v_axi4s_vid_out -> rgb2dvi), so hls_configure() is not used. */
+#define VDMA_BASE       0x43000000UL  /* axi_vdma_0  (HDMI-OUT MM2S)   */
+#define DYNCLK_BASE     0x43C00000UL  /* axi_dynclk_0                  */
+#define VTC_BASE        0x43C20000UL  /* v_tc_0      (HDMI-OUT)        */
 
 /* Forward decl for cycle-counter delay. */
 static void delay_us(uint32_t us);
+uint32_t hdmi_measure_frame_cycles(void);
 
 static inline void mmio_w(uint32_t addr, uint32_t val)
 {
@@ -109,27 +114,6 @@ static void vdma_program_mm2s(uint32_t fb_phys)
     mmio_w(VDMA_BASE + 0x50, 0x000001E0u); /* VSIZE = 480 (write LAST) */
 }
 
-/* ------------------ color_convert identity + pixel_unpack V_24 --------- */
-static void hls_configure(void)
-{
-    /* color_convert: identity 3x3 matrix in ap_fixed<10,2> (1.0 = 0x100). */
-    mmio_w(CC_OUT_BASE + 0x10, 0x100u); /* c1_c1 */
-    mmio_w(CC_OUT_BASE + 0x18, 0x000u); /* c1_c2 */
-    mmio_w(CC_OUT_BASE + 0x20, 0x000u); /* c1_c3 */
-    mmio_w(CC_OUT_BASE + 0x28, 0x000u); /* c2_c1 */
-    mmio_w(CC_OUT_BASE + 0x30, 0x100u); /* c2_c2 */
-    mmio_w(CC_OUT_BASE + 0x38, 0x000u); /* c2_c3 */
-    mmio_w(CC_OUT_BASE + 0x40, 0x000u); /* c3_c1 */
-    mmio_w(CC_OUT_BASE + 0x48, 0x000u); /* c3_c2 */
-    mmio_w(CC_OUT_BASE + 0x50, 0x100u); /* c3_c3 */
-    mmio_w(CC_OUT_BASE + 0x58, 0x000u); /* bias_c1 */
-    mmio_w(CC_OUT_BASE + 0x60, 0x000u); /* bias_c2 */
-    mmio_w(CC_OUT_BASE + 0x68, 0x000u); /* bias_c3 */
-
-    /* pixel_unpack: mode = 0 (V_24 = 3 bytes/pixel packed in DDR). */
-    mmio_w(PU_OUT_BASE + 0x10, 0x0u);
-}
-
 /* Force every HDMI IP into a known idle state before reconfiguration.
  * Needed because XSDB-driven ELF reloads don't power-cycle the PL — when
  * the previous ELF left VDMA/VTC running, the new hdmi_init() would
@@ -153,22 +137,66 @@ static void hdmi_force_idle(void)
 
 int hdmi_init(void)
 {
-    /* In bare-metal we control SLCR directly. ps7_init.tcl set FCLK0 to
-     * some value; we override to 100 MHz here so dynclk's MMCM sees the
-     * reference it was synthesised for. */
-    mmio_w(SLCR_BASE + 0x008, 0x0000DF0Du); /* SLCR_UNLOCK */
-    mmio_w(SLCR_BASE + 0x170, 0x00100A00u); /* FPGA0_CLK_CTRL: DIV0=10,DIV1=1,IO_PLL */
-    mmio_w(SLCR_BASE + 0x004, 0x0000767Bu); /* SLCR_LOCK */
+    /* NO FCLK0 override here.  The clean dual-HDMI BD clocks the whole
+     * AXI-lite fabric (v_tc/vdma/dynclk/CGRA) from FCLK0=50 MHz and feeds
+     * dynclk's MMCM reference from FCLK1=100 MHz — both already set
+     * correctly by the Vivado-generated ps7_init.  The old SLCR 0x170
+     * override (DIV0=10 off IO_PLL) assumed IO_PLL=1000 (crystal=33.333);
+     * with the corrected crystal=50 it pushed FCLK0 to 160 MHz and wedged
+     * the video-IP AXI bus.  Removed. */
 
-    /* Quench any leftover state from a previous ELF run. Without this,
-     * ELF reloads via XSDB cause HDMI tearing/misalignment until SRST. */
+    /* Quench any leftover state from a previous ELF run. */
+    uart_puts("  hdmi: force_idle\n"); uart_drain();
     hdmi_force_idle();
 
-    if (dynclk_program_25_175MHz() < 0) return -1;
-    hls_configure();
+    uart_puts("  hdmi: dynclk @0x43C00000\n"); uart_drain();
+    int lk = dynclk_program_25_175MHz();
+    uart_puts("    dynclk STATUS="); uart_puthex(mmio_r(DYNCLK_BASE + 0x04));
+    uart_puts(" CTRL="); uart_puthex(mmio_r(DYNCLK_BASE)); uart_putchar('\n'); uart_drain();
+    if (lk < 0) { uart_puts("  hdmi: dynclk NO LOCK\n"); uart_drain(); return -1; }
+    uart_puts("  hdmi: vtc 640x480\n"); uart_drain();
     vtc_program_640x480();
+    uart_puts("    vtc CTL="); uart_puthex(mmio_r(VTC_BASE));
+    uart_puts(" STAT="); uart_puthex(mmio_r(VTC_BASE + 0x04)); uart_putchar('\n'); uart_drain();
+    uart_puts("  hdmi: vdma mm2s\n"); uart_drain();
     vdma_program_mm2s(HDMI_FB_PHYS);
+    uart_puts("    vdma DMASR="); uart_puthex(mmio_r(VDMA_BASE + 0x04));
+    uart_puts(" DMACR="); uart_puthex(mmio_r(VDMA_BASE)); uart_putchar('\n'); uart_drain();
+    uart_puts("  hdmi: measuring frame rate...\n"); uart_drain();
+    uint32_t fc = hdmi_measure_frame_cycles();
+    uart_puts("    frame_cyc="); uart_puthex(fc);
+    uart_puts("  (60fps@666MHz ~= 0x00A98AC0)\n"); uart_drain();
+    uart_puts("  hdmi: out path up\n"); uart_drain();
     return 0;
+}
+
+/* Live HDMI-OUT VDMA MM2S status (DMASR @ +0x04) for runtime diagnostics. */
+uint32_t hdmi_out_dmasr(void) { return mmio_r(VDMA_BASE + 0x04); }
+
+/* Measure CPU cycles per displayed frame by timing VDMA MM2S FrmCntIrq edges.
+ * In genlock/parked mode the VDMA completes one frame per downstream vsync, so
+ * the edge rate == display frame rate == pixel-clock-determined.  Returns avg
+ * CPU cycles between frame completions over N frames, or 0 on timeout (frames
+ * never completing -> downstream not consuming).  Compare to APU_HZ/60. */
+uint32_t hdmi_measure_frame_cycles(void)
+{
+    if (!ccnt_inited) ccnt_init();
+    /* DMACR: keep RS(bit0), set FrmCntIrqEn(bit12) + IRQFrameCount=1(bits15:8). */
+    uint32_t cr = mmio_r(VDMA_BASE);
+    mmio_w(VDMA_BASE, (cr & ~0x0000FF00u) | (1u << 12) | (1u << 8));
+    const uint32_t TO = 200000000u;            /* ~0.3 s @ 666 MHz watchdog */
+    mmio_w(VDMA_BASE + 0x04, 0x00001000u);     /* W1C FrmCntIrq */
+    uint32_t g = ccnt_read();
+    while (!(mmio_r(VDMA_BASE + 0x04) & 0x1000u)) if (ccnt_read() - g > TO) return 0;
+    mmio_w(VDMA_BASE + 0x04, 0x00001000u);
+    uint32_t t0 = ccnt_read();
+    const int N = 10;
+    for (int i = 0; i < N; ++i) {
+        uint32_t s = ccnt_read();
+        while (!(mmio_r(VDMA_BASE + 0x04) & 0x1000u)) if (ccnt_read() - s > TO) return 0;
+        mmio_w(VDMA_BASE + 0x04, 0x00001000u);
+    }
+    return (ccnt_read() - t0) / (uint32_t)N;
 }
 
 /* ----- pixel ops ------------------------------------------------------- */

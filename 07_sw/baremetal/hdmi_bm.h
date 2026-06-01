@@ -24,7 +24,8 @@
 
 #include <stdint.h>
 
-#define HDMI_FB_PHYS    0x1F000000UL
+#define HDMI_FB_PHYS    0x10000000UL  /* mid-DDR; 0x1F000000 hit VDMA DMADecErr
+                                       * at the HP0 high-DDR edge on the clean BD */
 #define HDMI_FB_W       640
 #define HDMI_FB_H       480
 #define HDMI_FB_BPP     3
@@ -55,6 +56,9 @@ static inline void hdmi_pixel(int x, int y, uint32_t rgb)
 /* Clear / rect helpers (no clipping — caller must keep within FB bounds). */
 void hdmi_clear(uint32_t rgb);
 void hdmi_rect(int x, int y, int w, int h, uint32_t rgb);
+
+/* Live HDMI-OUT VDMA MM2S status register (DMASR) for runtime diagnostics. */
+uint32_t hdmi_out_dmasr(void);
 
 /* Flush dcache so VDMA sees writes. Safe to call after a batch of pixel
  * writes; a no-op if caches are not enabled. */

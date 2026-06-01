@@ -212,6 +212,19 @@ connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK1]    [get_bd_pins axi_
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_dynclk_0/s00_axi_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_dynclk_0/s00_axi_aresetn]
 
+# 6a'. proc_sys_reset_video — PIXEL clock domain reset.  CRITICAL (silicon-
+# confirmed 2026-06-01): v_axi4s_vid_out + rgb2dvi run on PXL_CLK_O; resetting
+# them from the 100M-domain reset leaves their pixel-domain logic without a
+# clean reset release -> no DE/valid video -> monitor shows "no signal" even
+# though dynclk locks, v_tc generates and the VDMA streams.  dcm_locked =
+# dynclk LOCKED_O so the video reset deasserts only after PXL_CLK locks.
+create_bd_cell -type ip -vlnv $IP_RST proc_sys_reset_video
+catch {set_property CONFIG.C_EXT_RESET_HIGH \
+    [get_property CONFIG.C_EXT_RESET_HIGH [get_bd_cells rst_ps7_0_100M]] [get_bd_cells proc_sys_reset_video]}
+connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]             [get_bd_pins proc_sys_reset_video/slowest_sync_clk]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins proc_sys_reset_video/ext_reset_in]
+connect_bd_net [get_bd_pins axi_dynclk_0/LOCKED_O]             [get_bd_pins proc_sys_reset_video/dcm_locked]
+
 # 6b. v_tc_0 (timing generator only)
 create_bd_cell -type ip -vlnv $IP_VTC v_tc_0
 set_property CONFIG.enable_detection {false} [get_bd_cells v_tc_0]
@@ -247,7 +260,16 @@ connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXIS_MM2S]  [get_bd_intf_pins
 connect_bd_intf_net [get_bd_intf_pins v_tc_0/vtiming_out]      [get_bd_intf_pins v_axi4s_vid_out_0/vtiming_in]
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins v_axi4s_vid_out_0/aclk]
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins v_axi4s_vid_out_0/vid_io_out_clk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins v_axi4s_vid_out_0/aresetn]
+connect_bd_net [get_bd_pins proc_sys_reset_video/peripheral_aresetn] [get_bd_pins v_axi4s_vid_out_0/aresetn]
+# CRITICAL (silicon-confirmed 2026-06-01): aclken + vid_io_out_ce must be tied
+# HIGH or the video datapath is gated off -> no DE -> rgb2dvi blanks -> monitor
+# "no signal".  (The HDMI-IN v_vid_in path ties its CE via xlconst_vidin_ce;
+# the OUT path needs the same.)
+create_bd_cell -type ip -vlnv $IP_CONST xlconst_vidout_ce
+set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] [get_bd_cells xlconst_vidout_ce]
+connect_bd_net [get_bd_pins xlconst_vidout_ce/dout] [get_bd_pins v_axi4s_vid_out_0/aclken]
+connect_bd_net [get_bd_pins xlconst_vidout_ce/dout] [get_bd_pins v_axi4s_vid_out_0/vid_io_out_ce]
+connect_bd_net [get_bd_pins proc_sys_reset_video/peripheral_reset] [get_bd_pins v_axi4s_vid_out_0/vid_io_out_reset]
 
 # 6e. rgb2dvi (Digilent) -- replaces Haoyue's HDMI_Transmitter_0
 puts "  NOTE: rgb2dvi VLNV must match what is in your ip_repo. Adjust below."
@@ -256,14 +278,17 @@ create_bd_cell -type ip -vlnv $IP_RGB rgb2dvi_0
 # and can be driven by axi_dynclk_0/PXL_CLK_5X_O. Default (kGenerateSerialClk=true)
 # hides the pin, which trips the Linux Vivado build.
 set_property -dict [list \
-    CONFIG.kGenerateSerialClk {false} \
+    CONFIG.kGenerateSerialClk {true} \
     CONFIG.kRstActiveHigh     {false} \
 ] [get_bd_cells rgb2dvi_0]
-# kGenerateSerialClk=false → SerialClk becomes external (drivable by PXL_CLK_5X_O)
+# kGenerateSerialClk=true (silicon-confirmed 2026-06-01): rgb2dvi self-generates
+# the 5x TMDS serial clock internally from the locked 25.175 MHz PixelClk.  The
+# earlier false setting (depending on dynclk PXL_CLK_5X_O) produced no valid TMDS
+# -> monitor "no signal".  With true, the external SerialClk pin is hidden, so
+# do NOT connect PXL_CLK_5X_O.
 # kRstActiveHigh=false     → aRst_n becomes visible (matches active-low resets here)
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins rgb2dvi_0/PixelClk]
-connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_5X_O]         [get_bd_pins rgb2dvi_0/SerialClk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins rgb2dvi_0/aRst_n]
+connect_bd_net [get_bd_pins proc_sys_reset_video/peripheral_aresetn] [get_bd_pins rgb2dvi_0/aRst_n]
 connect_bd_intf_net [get_bd_intf_pins v_axi4s_vid_out_0/vid_io_out] [get_bd_intf_pins rgb2dvi_0/RGB]
 
 # 6f. xlconstant for hdmi_tx_en (must be 1 -- default is 0 = disabled!)
