@@ -250,7 +250,7 @@ static int argmax_with_bias(const int32_t fc2_acc[FC2_N_OUT])
 static void put_hex_field(const char *lbl, uint64_t cyc_sum)
 {
     uint32_t avg = (uint32_t)(cyc_sum / (uint64_t)N_TEST);
-    uart_puts(lbl); uart_puts(" 0x"); uart_puthex(avg); uart_putchar('\n');
+    uart_puts(lbl); uart_putchar(' '); uart_puthex(avg); uart_putchar('\n');
 }
 
 int main(void)

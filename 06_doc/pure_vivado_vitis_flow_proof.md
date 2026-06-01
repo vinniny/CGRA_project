@@ -35,3 +35,39 @@ The Windows recreation is the same flow via the Vitis IDE GUI
 (Platform Component from .xsa → Application Component → Build → Run on
 Hardware). See `06_doc/windows_gui_recreation_recipe.md`. Do NOT use the
 Vivado pynq-z2 board preset for DDR; use PARTNO=Custom + the REF delays.
+
+---
+
+## Canonical demo numbers — Vitis Empty-App, caches-OFF, FCLK0=50 (2026-06-01)
+
+Decision: the **Vitis Empty-Application build is the canonical reference** for
+defense (matches the live board exactly). The Vitis launch resets the A9 to
+caches-OFF deterministically, so every run is reproducible. (The earlier
+"combo" numbers were ~6× faster only because a prior ELF had left caches ON —
+not a controlled measurement.) Methodology statement for the thesis:
+**"caches disabled — raw-HW + on-chip-SPM measurement; APU 650 MHz, FCLK0 50 MHz."**
+
+`mnist_demo` (per-stage, two-pass), reproducible to <0.02 % jitter:
+
+| stage (per inference) | cycles @650 MHz | time |
+|---|---|---|
+| Conv2+ReLU (VFP, ARM) | 53.1 M | 81.7 ms |
+| **ROW FC total — ARM-INT** | 13.34 M | 20.53 ms |
+| **ROW FC total — CGRA** | 1.73 M | **2.66 ms** |
+| end-to-end (VFP conv + CGRA FC) | 106.8 M | 164.3 ms |
+| **CGRA-FC speedup vs ARM-INT-FC** | — | **7.72×** |
+| Accuracy | ARM-INT 94/100, **CGRA 87/100** | |
+
+Build (identical Linux xsct / Windows xsct.bat — the GUI recipe):
+```
+xsct scripts/vitis_build_mnist_demo.tcl          # platform + app from cgra_top.xsa
+# then run:
+CGRA_XSA_DIR=<ws>/mnist_demo/_ide \
+CGRA_BIT=<ws>/mnist_demo/_ide/bitstream/cgra_top.bit \
+CGRA_ELF=<ws>/mnist_demo/Debug/mnist_demo.elf \
+xsct scripts/vitis_launch_autohw.tcl
+```
+GUI equivalent: Platform Component from cgra_top.xsa → Application Component
+(Empty Application C) → import 07_sw/baremetal sources + a sibling cnn_eval/
+folder with the 3 weight files → set linker_cnn.ld, defines BOARD_CGRA_ONLY +
+TWO_PASS_PMU=1, assembler -I<src> → Build → Run on Hardware.
