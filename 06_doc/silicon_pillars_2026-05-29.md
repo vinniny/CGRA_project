@@ -128,3 +128,27 @@ was overwritten by the v18 impl run and is not recoverable.
   bench_mac_micro (expect no MTP timeout) and demo_mnist_per_stage
   (expect ~94/100 ARM-INT, ~87/100 CGRA). contribs readout is a known
   result-FIFO artifact; use MNIST argmax accuracy as the functional gate.
+
+---
+
+## RESOLUTION — v18 CGRA "regression" was a FALSE ALARM (2026-06-01)
+
+Decisive functional test: demo_mnist_per_stage on the clean v18 .xsa at the
+50 MHz design clock gives **CGRA accuracy 87/100, ARM-INT 94/100 — identical
+to the v17 combo**. The CGRA is fully functional on the clean v18 .xsa.
+
+The earlier "regression" symptoms were not real:
+- `bench_mac_micro contribs=0` — result-FIFO/RESULT_SKIP readout artifact
+  (0 vs 10 are both meaningless; the bench's readout, not the MAC, is at fault).
+- one-off `MTP01 TIMEOUT` at 50 MHz — did NOT reproduce; MNIST exercises the
+  CU thousands of times with zero issue.
+
+Corroborated by static analysis of the v18 routed checkpoint:
+- timing fully met (WNS +2.578 ns, hold +0.023 ns, 0 failing endpoints),
+- CDC clean (only debug-hub↔clk_fpga_0, all Safe; 0 unsafe),
+- no combinational loops, no unconstrained endpoints.
+
+**Verdict: the clean v18 .xsa (ca3dbd5e) is the VALIDATED canonical artifact** —
+DDR clean (64 MB march, 0 errors), CGRA correct (MNIST 87/100) at FCLK0=50,
+timing met, CDC clean. No rebuild needed. Functional gate = MNIST argmax
+accuracy, NOT the bench_mac_micro contribs readout.
