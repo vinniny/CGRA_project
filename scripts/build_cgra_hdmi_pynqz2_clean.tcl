@@ -270,6 +270,12 @@ set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] [get_bd_ce
 connect_bd_net [get_bd_pins xlconst_vidout_ce/dout] [get_bd_pins v_axi4s_vid_out_0/aclken]
 connect_bd_net [get_bd_pins xlconst_vidout_ce/dout] [get_bd_pins v_axi4s_vid_out_0/vid_io_out_ce]
 connect_bd_net [get_bd_pins proc_sys_reset_video/peripheral_reset] [get_bd_pins v_axi4s_vid_out_0/vid_io_out_reset]
+# GENLOCK (silicon-confirmed via ILA 2026-06-02, locked=0 without this): the
+# vid-out core must pace the VTC generator via vtg_ce -> gen_clken + clken, or
+# the VTC free-runs independent of the stream and v_axi4s_vid_out never frame-
+# aligns (locked stays 0 -> no DE -> no TMDS).  Also tie fid=0 (progressive).
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vtg_ce] [get_bd_pins v_tc_0/gen_clken]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vtg_ce] [get_bd_pins v_tc_0/clken]
 
 # 6e. rgb2dvi (Digilent) -- replaces Haoyue's HDMI_Transmitter_0
 puts "  NOTE: rgb2dvi VLNV must match what is in your ip_repo. Adjust below."
