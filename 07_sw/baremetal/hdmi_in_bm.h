@@ -40,23 +40,25 @@
  * Override at compile time:
  *   make CFLAGS_EXTRA='-DHDMI_IN_W=800 -DHDMI_IN_H=600' <target>           */
 #ifndef HDMI_IN_W
-#define HDMI_IN_W            1280u
+#define HDMI_IN_W            1920u   /* laptop sends 1920x1080 (no EDID -> 1080p default) */
 #endif
 #ifndef HDMI_IN_H
-#define HDMI_IN_H            720u
+#define HDMI_IN_H            1080u
 #endif
 #define HDMI_IN_BPP          3u
-#define HDMI_IN_ROW_STRIDE   (HDMI_IN_W * HDMI_IN_BPP)             /* 3840 */
-#define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 2 764 800 */
+#define HDMI_IN_ROW_STRIDE   (HDMI_IN_W * HDMI_IN_BPP)             /* 5760 @1080p */
+#define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 6 220 800 @1080p */
 
 /* ── Triple-buffer base addresses in DDR ──────────────────────────────── */
 /* In the cgra_pynq_base working BD, the HDMI VDMA's address range is
  * 0x10000000 - 0x1FFFFFFF (256 MB window into DDR). Frames lock inside that.
  * Choose 3 frames in the lower part of that window. */
-/* 4 MB stride per FB (each 1280x720x3 = 2.64 MB; rounded up). */
+/* 8 MB stride per FB (each 1920x1080x3 = 6.22 MB; rounded up to 8 MB).
+ * 3-frame ring 0x1100_0000 / 0x1180_0000 / 0x1200_0000, all inside the VDMA's
+ * 0x1000_0000-0x1FFF_FFFF window and clear of the HDMI-OUT FB at 0x1000_0000. */
 #define HDMI_IN_FB0          0x11000000UL
-#define HDMI_IN_FB1          0x11400000UL
-#define HDMI_IN_FB2          0x11800000UL
+#define HDMI_IN_FB1          0x11800000UL
+#define HDMI_IN_FB2          0x12000000UL
 
 /* ── AXI-Lite register bases (cgra_pynq_base working BD) ─────────────────
  * The working BD has ONE axi_vdma at 0x43000000 that handles both MM2S
@@ -182,6 +184,8 @@ void hdmi_in_assert_hpd(void);
  * cleanliness while keeping live capture functional at ~one
  * frame-per-inference rate.
  */
+uint32_t hdmi_in_dmasr(void);
+uint32_t hdmi_in_cur_store(void);
 void hdmi_in_halt(void);
 
 #endif /* HDMI_IN_BM_H */

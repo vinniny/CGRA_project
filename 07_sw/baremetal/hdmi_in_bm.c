@@ -234,6 +234,13 @@ void hdmi_in_enable_vtc(void)                   { /* no v_tc detector on lean BD
 void hdmi_in_color_convert_ycbcr2rgb(void)      { /* no color_convert on lean BD */ }
 void hdmi_in_color_convert_identity(void)       { /* no color_convert on lean BD */ }
 
+/* Diagnostics: raw S2MM status reg + which frame-store the VDMA last wrote. */
+uint32_t hdmi_in_dmasr(void) { return mmio_r(VDMA_IN_BASE + S2MM_DMASR); }
+uint32_t hdmi_in_cur_store(void)
+{
+    return (mmio_r(VDMA_IN_BASE + S2MM_DMASR) & DMASR_FRMSTORE_MASK) >> DMASR_FRMSTORE_SHIFT;
+}
+
 void hdmi_in_halt(void)
 {
     /* Clear RS bit -> VDMA stops writing to DDR -> HP0 bandwidth freed

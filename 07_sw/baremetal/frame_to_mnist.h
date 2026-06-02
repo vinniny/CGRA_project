@@ -26,7 +26,10 @@ typedef struct {
  *
  * If you want a smaller / different crop region (e.g. a small Paint
  * window not maximized), override per-call. */
-#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 360, .y = 80, .w = 560, .h = 560})
+/* 1920×1080 source (laptop, no EDID -> 1080p; 1024×768 desktop scaled to fill).
+ * 768×768 square centred at the frame centre (960,540): draw a big digit in the
+ * MIDDLE of the laptop screen.  768/28 = 27.4 -> ~27×27 box-filter per output px. */
+#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 576, .y = 156, .w = 768, .h = 768})
 
 /**
  * Downsample a region of the captured frame into a 28×28 UINT8 tensor.

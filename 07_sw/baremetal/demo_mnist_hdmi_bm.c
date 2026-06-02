@@ -443,19 +443,36 @@ int main(void)
          * config — recover before reading. Without this, the FB stays
          * frozen at the first frame and the demo doesn't update as
          * the user draws. */
-        hdmi_in_recover_if_halted();
-        /* Brief settle so VDMA has time to write at least the top of a
-         * new frame before we sample it. */
-        for (volatile int s = 0; s < 200000; s++) ;
+        /* Free-running 3-frame ring (CIRC_PARK, started in hdmi_in_init):
+         * the IN VDMA captures continuously at the source frame rate;
+         * current_frame() returns the previously COMPLETED store, so we
+         * always read a whole frame.  recover_if_halted only re-arms on a
+         * real error.  Do NOT halt per-iteration + 0.3ms settle (that read a
+         * frame where only the top ~1% of lines were captured). */
+        hdmi_in_recover_if_halted();   /* no-op unless errored */
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
+        /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
+         * sum, every 16 frames. Tells us if vdma_1 advances stores & whether
+         * the captured pixels actually change as the user draws. */
+        {
+            static uint32_t df = 0;
+            if ((df++ & 0x3) == 0) {
+                uint32_t roi_off = (uint32_t)540 * HDMI_IN_ROW_STRIDE
+                                 + (uint32_t)960 * 3u;  /* 1080p frame centre */
+                uint32_t dsum = 0; for (int k = 0; k < 28*28; k++) dsum += live28[k];
+                uart_puts("IN inSR="); uart_puthex(hdmi_in_dmasr());
+                uart_puts(" store="); uart_puthex(hdmi_in_cur_store());
+                uart_puts(" px@roi="); uart_puthex(((const uint8_t*)fb)[roi_off]);
+                uart_putchar(','); uart_puthex(((const uint8_t*)fb)[roi_off+1]);
+                uart_putchar(','); uart_puthex(((const uint8_t*)fb)[roi_off+2]);
+                uart_puts(" ds28sum="); uart_puthex(dsum); uart_putchar('\n');
+            }
+        }
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
-        /* Halt the HDMI-IN VDMA NOW so HDMI-OUT MM2S has HP0 to
-         * itself while we render the panels. Next iteration's
-         * hdmi_in_recover_if_halted() re-arms for the next frame.
-         * This eliminates HP0 contention that causes colour-shift
-         * and right-shift on the J11 monitor. */
-        hdmi_in_halt();
+        /* IN VDMA left free-running (no per-iteration halt) so the ring keeps
+         * completing whole frames.  HP0 carries IN-capture (~166 MB/s) +
+         * OUT-display (~166 MB/s); well under the port's ~1.2 GB/s. */
 
 #ifdef FORCE_FIXTURE_INPUT28
         /* DIAG: bypass HDMI capture, use a known-good 28x28 fixture.
