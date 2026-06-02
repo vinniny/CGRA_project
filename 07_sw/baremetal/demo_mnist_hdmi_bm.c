@@ -452,9 +452,11 @@ int main(void)
         hdmi_in_recover_if_halted();   /* no-op unless errored */
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
+        downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
         /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
-         * sum, every 16 frames. Tells us if vdma_1 advances stores & whether
-         * the captured pixels actually change as the user draws. */
+         * sum, every 4 frames.  Tells us if vdma_1 advances stores & whether
+         * the captured pixels actually change as the user draws.  (Computed
+         * AFTER downsample so ds28sum reflects THIS frame, not stale data.) */
         {
             static uint32_t df = 0;
             if ((df++ & 0x3) == 0) {
@@ -469,7 +471,6 @@ int main(void)
                 uart_puts(" ds28sum="); uart_puthex(dsum); uart_putchar('\n');
             }
         }
-        downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
         /* IN VDMA left free-running (no per-iteration halt) so the ring keeps
          * completing whole frames.  HP0 carries IN-capture (~166 MB/s) +
          * OUT-display (~166 MB/s); well under the port's ~1.2 GB/s. */

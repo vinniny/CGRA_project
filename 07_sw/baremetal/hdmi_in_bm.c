@@ -50,7 +50,7 @@ static void delay_us(uint32_t us)
 #define S2MM_DMACR              0x30u
 #define S2MM_DMASR              0x34u
 #define S2MM_REG_INDEX          0x38u
-#define S2MM_FRMSTORE           0x48u   /* number of frame stores - 1 (PG020 §6) */
+#define S2MM_FRMSTORE           0x48u   /* number of frame stores (count, PG020 §6) — set =c_num_fstores=3 */
 #define S2MM_VSIZE              0xA0u
 #define S2MM_HSIZE              0xA4u
 #define S2MM_FRMDLY_STRIDE      0xA8u
@@ -204,7 +204,7 @@ void hdmi_in_init(void)
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_4,  HDMI_IN_FB0);
     /* FRMSTORE = N-1 = 2 (= 3 stores active). Default 0 means "1 store"
      * which combined with CIRC_PARK=1 led to DEC_ERR on this VDMA build. */
-    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      2u);
+    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      3u);   /* 3 stores (matches c_num_fstores=3 + 3-store ring in current_frame); was 2 (under-provisioned) */
     mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
 
     /* RS=1, CIRCULAR_PARK=1, frame counter disabled → free-running 3-frame
@@ -295,7 +295,7 @@ int hdmi_in_recover_if_halted(void)
     mmio_w(VDMA_IN_BASE + S2MM_START_ADDR_4,  HDMI_IN_FB0);
     /* FRMSTORE = N-1 = 2 (= 3 stores active). Default 0 means "1 store"
      * which combined with CIRC_PARK=1 led to DEC_ERR on this VDMA build. */
-    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      2u);
+    mmio_w(VDMA_IN_BASE + S2MM_FRMSTORE,      3u);   /* 3 stores (matches c_num_fstores=3 + 3-store ring in current_frame); was 2 (under-provisioned) */
     mmio_w(VDMA_IN_BASE + S2MM_PARK_PTR,      0u);
     mmio_w(VDMA_IN_BASE + S2MM_DMACR,
            DMACR_RS_BIT | DMACR_CIRC_PARK_BIT);
