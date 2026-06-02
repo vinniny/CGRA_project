@@ -32,3 +32,20 @@ CGRA argmax accuracy on the labelled sweep images: **35/40** (consistent with th
 Conv+Pool feeding the CGRA FC).
 
 (Speedup ratios are independent of the CCNT prescaler / exact APU frequency.)
+
+## Accuracy (full sweep, 100 distinct labelled images, same run)
+
+| FC implementation     | argmax accuracy | speedup vs CGRA |
+|-----------------------|-----------------|-----------------|
+| ARM-VFP-FC (float)    | **99 / 100**    | CGRA 3.96× faster |
+| ARM-INT-FC (INT64)    | **94 / 100**    | CGRA 7.93× faster |
+| **CGRA-FC** (INT16 tiled) | **86 / 100** | baseline |
+
+All three FC paths consume the **same** `act400` (one ARM-VFP Conv+Pool front
+end), so the accuracy gap is purely the FC arithmetic: float (99%) > INT64
+(94%) > CGRA INT16-tiled (86%, the documented ~87% CGRA MNIST — INT16
+quantization + SPM-auto-inc / result-FIFO per-neuron deltas).
+
+**Defense framing:** the CGRA trades accuracy for throughput — **4–8× faster FC
+at 86% accuracy vs the 99% float baseline**, end-to-end on silicon including
+DMA + readout overhead.
