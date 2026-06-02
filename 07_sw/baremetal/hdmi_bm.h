@@ -48,9 +48,12 @@ static inline void hdmi_pixel(int x, int y, uint32_t rgb)
     volatile uint8_t *p = hdmi_fb_pixels()
                         + (uintptr_t)y * HDMI_FB_STRIDE
                         + (uintptr_t)x * HDMI_FB_BPP;
-    p[0] = (uint8_t)(rgb         & 0xFFu); /* B */
-    p[1] = (uint8_t)((rgb >>  8) & 0xFFu); /* G */
-    p[2] = (uint8_t)((rgb >> 16) & 0xFFu); /* R */
+    /* Clean dual-HDMI BD pipeline maps framebuffer byte0->G, byte1->B, byte2->R
+     * (silicon-confirmed 2026-06-02: intended FBM_YELLOW 0xFFFF00 displayed as
+     * purple 0xFF00FF until G/B were swapped here).  Write G,B,R accordingly. */
+    p[0] = (uint8_t)((rgb >>  8) & 0xFFu); /* G -> byte0 */
+    p[1] = (uint8_t)(rgb         & 0xFFu); /* B -> byte1 */
+    p[2] = (uint8_t)((rgb >> 16) & 0xFFu); /* R -> byte2 */
 }
 
 /* Clear / rect helpers (no clipping — caller must keep within FB bounds). */

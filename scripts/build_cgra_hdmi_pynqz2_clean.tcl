@@ -284,16 +284,19 @@ create_bd_cell -type ip -vlnv $IP_RGB rgb2dvi_0
 # and can be driven by axi_dynclk_0/PXL_CLK_5X_O. Default (kGenerateSerialClk=true)
 # hides the pin, which trips the Linux Vivado build.
 set_property -dict [list \
-    CONFIG.kGenerateSerialClk {true} \
+    CONFIG.kGenerateSerialClk {false} \
     CONFIG.kRstActiveHigh     {false} \
 ] [get_bd_cells rgb2dvi_0]
-# kGenerateSerialClk=true (silicon-confirmed 2026-06-01): rgb2dvi self-generates
-# the 5x TMDS serial clock internally from the locked 25.175 MHz PixelClk.  The
-# earlier false setting (depending on dynclk PXL_CLK_5X_O) produced no valid TMDS
-# -> monitor "no signal".  With true, the external SerialClk pin is hidden, so
-# do NOT connect PXL_CLK_5X_O.
+# kGenerateSerialClk=false (silicon-confirmed 2026-06-02): drive rgb2dvi's
+# SerialClk from dynclk PXL_CLK_5X_O — the 5x and 1x come from the SAME MMCM so
+# they're phase-coherent, and the BUFIO feeds the OSERDES directly.  Tried =true
+# (rgb2dvi self-generates 5x): that introduced a CDC between the external
+# PixelClk and rgb2dvi's internal clock -> placement-sensitive TMDS lane
+# corruption (solid-white FB showed white/yellow stripes = blue lane dropping).
+# (The earlier "no signal" with =false was the genlock bug, now fixed, NOT this.)
 # kRstActiveHigh=false     → aRst_n becomes visible (matches active-low resets here)
 connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_O]            [get_bd_pins rgb2dvi_0/PixelClk]
+connect_bd_net [get_bd_pins axi_dynclk_0/PXL_CLK_5X_O]         [get_bd_pins rgb2dvi_0/SerialClk]
 connect_bd_net [get_bd_pins proc_sys_reset_video/peripheral_aresetn] [get_bd_pins rgb2dvi_0/aRst_n]
 connect_bd_intf_net [get_bd_intf_pins v_axi4s_vid_out_0/vid_io_out] [get_bd_intf_pins rgb2dvi_0/RGB]
 
