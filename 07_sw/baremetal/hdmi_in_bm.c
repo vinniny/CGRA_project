@@ -171,25 +171,14 @@ void hdmi_in_init(void)
         delay_us(1);
     }
 
-    uart_puts(" [init.S2] color_convert + pixel_pack\n");
-    /* 2. Identity 3x3 colour matrix (input RGB pass-through). The working
-     *    cgra_pynq_base BD has color_convert at 0x43C5_0000 — these writes
-     *    were restored when we switched to the working bitstream's address
-     *    map. PYNQ Python overlay uses the same offsets. */
-    mmio_w(CCONV_IN_BASE + CC_C1_C1, CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C1_C2, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C1_C3, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C1, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C2, CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C2_C3, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C1, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C2, CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C3, CC_COEFF_ONE);
+    /* 2. (LEAN clean dual-HDMI BD) — NO color_convert / pixel_pack on the input
+     *    path.  dvi2rgb_0 -> v_vid_in_axi4s_0 (CE tied high in HW) -> axi_vdma_1
+     *    S2MM.  The recovered RGB streams straight to DDR as 24-bit packed;
+     *    writing to the old 0x43C5_0000/0x43C4_0000 IPs would hit unmapped
+     *    space and hang the AXI bus.  Skipped. */
+    uart_puts(" [init.S2] (lean BD: no color_convert/pixel_pack)\n");
 
-    /* Pixel-pack: V_24 mode (3 bytes per pixel). */
-    mmio_w(PIXPACK_IN_BASE + PIXPACK_MODE, PIXPACK_MODE_V24);
-
-    uart_puts(" [init.S3] VTC detector enable (gated until HDMI plugged)\n");
+    uart_puts(" [init.S3] VTC detector skipped (not needed for capture)\n");
     /* V_TC's AXI-Lite is clocked by dvi2rgb_0/PixelClk (the recovered HDMI
      * pixel clock). Without a TMDS signal that clock doesn't toggle, so a
      * blind write here stalls the AXI bus. Skip the write until SW knows
@@ -237,54 +226,13 @@ void hdmi_in_init(void)
     g_initialised = 1;
 }
 
-int hdmi_in_locked(void)
-{
-    if (!g_initialised) return 0;
-    /* v_tc detector lock bit. Reads from VTC also touch the PixelClk-gated
-     * AXI slave; same caveat as hdmi_in_init step 3 — only call this when
-     * the HDMI cable is known to be plugged in and dvi2rgb has locked. */
-    return (mmio_r(VTC_IN_BASE + VTC_STAT) & VTC_STAT_LOCK_BIT) ? 1 : 0;
-}
-
-void hdmi_in_enable_vtc(void)
-{
-    /* External enable hook — call AFTER the HDMI cable is plugged in.
-     * Writes the Detector Enable bit per XVtc_EnableDetector() in
-     * xvtc.c v8_7. Safe to call once dvi2rgb has a stable PixelClk. */
-    mmio_w(VTC_IN_BASE + VTC_CTL, VTC_CTL_DET_EN);
-}
-
-void hdmi_in_color_convert_ycbcr2rgb(void)
-{
-    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_YCBCR2RGB_C1_C1);
-    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_YCBCR2RGB_C1_C2);
-    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_YCBCR2RGB_C1_C3);
-    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_YCBCR2RGB_C2_C1);
-    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_YCBCR2RGB_C2_C2);
-    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_YCBCR2RGB_C2_C3);
-    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_YCBCR2RGB_C3_C1);
-    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_YCBCR2RGB_C3_C2);
-    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_YCBCR2RGB_C3_C3);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, CC_YCBCR2RGB_BIAS_C1);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, CC_YCBCR2RGB_BIAS_C2);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, CC_YCBCR2RGB_BIAS_C3);
-}
-
-void hdmi_in_color_convert_identity(void)
-{
-    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, 0);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, 0);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, 0);
-}
+/* LEAN clean dual-HDMI BD: no v_tc detector wired for capture, no color_convert.
+ * These remain as no-ops so existing callers (and the demo) link & run without
+ * touching unmapped / PixelClk-gated AXI slaves that would hang the bus. */
+int  hdmi_in_locked(void)                       { return g_initialised; }
+void hdmi_in_enable_vtc(void)                   { /* no v_tc detector on lean BD */ }
+void hdmi_in_color_convert_ycbcr2rgb(void)      { /* no color_convert on lean BD */ }
+void hdmi_in_color_convert_identity(void)       { /* no color_convert on lean BD */ }
 
 void hdmi_in_halt(void)
 {
@@ -297,36 +245,12 @@ void hdmi_in_halt(void)
 
 void hdmi_in_assert_hpd(void)
 {
-    /* Xilinx axi_gpio standard register map:
-     *   0x00  GPIO_DATA   (channel 1 data, R/W)
-     *   0x04  GPIO_TRI    (channel 1 tri-state, 0=output 1=input)
-     * HDMI-in HPD is on channel 1 bit 0. Drive output mode + level high. */
-    const uint32_t GPIO_DATA = 0x00u;
-    const uint32_t GPIO_TRI  = 0x04u;
-    mmio_w(GPIO_HDMIIN_BASE + GPIO_TRI,  0x00u);   /* bit 0 = output */
-    mmio_w(GPIO_HDMIIN_BASE + GPIO_DATA, 0x01u);   /* HPD = 1 (asserted) */
+    /* LEAN clean dual-HDMI BD: HDMI-in HPD is hard-tied HIGH in the PL via
+     * xlconst_rx_hpd_high (no axi_gpio_hdmiin), so the laptop always sees a
+     * connected sink.  Nothing to do in software. */
 }
 
-void hdmi_in_color_convert_ycbcr2rgb_bt709(void)
-{
-    /* Row 1 (R): same constant col 1 (Y→R coeff = 1.0) as BT.601,
-     *            col 2 (Cb→R) is 0,  col 3 (Cr→R) differs. */
-    mmio_w(CCONV_IN_BASE + CC_C1_C1,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C1_C2,   CC_COEFF_ZERO);
-    mmio_w(CCONV_IN_BASE + CC_C1_C3,   CC_YCBCR2RGB709_C1_C3);
-    /* Row 2 (G): Y→G = 1.0, Cb and Cr coeffs differ. */
-    mmio_w(CCONV_IN_BASE + CC_C2_C1,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C2_C2,   CC_YCBCR2RGB709_C2_C2);
-    mmio_w(CCONV_IN_BASE + CC_C2_C3,   CC_YCBCR2RGB709_C2_C3);
-    /* Row 3 (B): Y→B = 1.0, Cb→B differs, Cr→B = 0. */
-    mmio_w(CCONV_IN_BASE + CC_C3_C1,   CC_COEFF_ONE);
-    mmio_w(CCONV_IN_BASE + CC_C3_C2,   CC_YCBCR2RGB709_C3_C2);
-    mmio_w(CCONV_IN_BASE + CC_C3_C3,   CC_COEFF_ZERO);
-    /* Biases. */
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C1, CC_YCBCR2RGB709_BIAS_C1);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C2, CC_YCBCR2RGB709_BIAS_C2);
-    mmio_w(CCONV_IN_BASE + CC_BIAS_C3, CC_YCBCR2RGB709_BIAS_C3);
-}
+void hdmi_in_color_convert_ycbcr2rgb_bt709(void)       { /* no color_convert on lean BD */ }
 
 int hdmi_in_frame_ready(void)
 {
