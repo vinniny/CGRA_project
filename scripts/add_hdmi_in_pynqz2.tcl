@@ -147,12 +147,15 @@ set_property -dict [list \
     CONFIG.C_M_AXIS_VIDEO_FORMAT {2} \
 ] [get_bd_cells v_vid_in_axi4s_0]
 
-# Clock domains:
-#   vid_io_in_clk = dvi2rgb PixelClk  (pixel domain)
-#   aclk          = FCLK_CLK0         (memory/AXIS domain) — async crossing inside IP
+# Clock domains (CAPTURE-CLOCK FIX — silicon 2026-06-02, matches PYNQ base.tcl
+# which clocks v_vid_in/aclk at a fast video clock, NOT a slow PS clock):
+#   vid_io_in_clk = dvi2rgb PixelClk  (~148.5MHz @1080p, pixel domain)
+#   aclk          = FCLK_CLK2 = 200MHz (AXIS domain) — async FIFO PixelClk->200
+# 200MHz > the 1080p pixel rate so the FIFO drains without per-line overrun.
+# (FCLK0=50MHz here could not drain 1080p60 -> capture froze, vdma store stuck.)
 connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_vid_in_axi4s_0/vid_io_in_clk]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins v_vid_in_axi4s_0/aclk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins v_vid_in_axi4s_0/aclk]
+connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
 # vid_io_in_reset is ACTIVE_HIGH on this IP — use peripheral_reset (the
 # active-high sibling of peripheral_aresetn from the same proc_sys_reset).
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_reset]    [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
@@ -188,8 +191,9 @@ set_property -dict [list \
     CONFIG.S_HAS_TSTRB         {0} \
     CONFIG.M_HAS_TSTRB         {0} \
 ] [get_bd_cells axis_subset_converter_in]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]     [get_bd_pins axis_subset_converter_in/aclk]
-connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn]  [get_bd_pins axis_subset_converter_in/aresetn]
+# subset_converter on the same 200MHz AXIS domain as v_vid_in's output
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins axis_subset_converter_in/aclk]
+connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins axis_subset_converter_in/aresetn]
 connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_pins axis_subset_converter_in/S_AXIS]
 
 # ----- 8. axi_vdma_1 (S2MM only, 3-frame ring) ---------------------------
@@ -214,7 +218,9 @@ connect_bd_intf_net [get_bd_intf_pins axis_subset_converter_in/M_AXIS] [get_bd_i
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_1/M_AXI_S2MM] [get_bd_intf_pins smartconnect_1/S01_AXI]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axi_lite_aclk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/m_axi_s2mm_aclk]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axis_s2mm_aclk]
+# S2MM AXIS write side on the 200MHz capture domain (matches subset_converter
+# output); VDMA auto-detects async (s_axis 200MHz vs m_axi/lite 50MHz).
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]    [get_bd_pins axi_vdma_1/s_axis_s2mm_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_vdma_1/axi_resetn]
 
 # ----- 9. IRQ_F2P: extend xlconcat 3 → 4 ports (vdma_1 s2mm done) --------

@@ -38,7 +38,12 @@ catch {set_property board_part "" [current_project]}
 set ps7 [get_bd_cells -filter {VLNV =~ "*processing_system7:*"}]
 source $REPO/scripts/vivado_diagnostics/ref_ddr_uiparams.tcl
 catch {set_property -dict $ref_ddr $ps7}
-foreach p {PCW_UIPARAM_DDR_BOARD_DELAY0 PCW_UIPARAM_DDR_DQS_TO_CLK_DELAY_0 PCW_UIPARAM_DDR_PARTNO
+# CRYSTAL=50: board is 50MHz; build_clean defaults PS7 to 33.333 -> 1.5x
+# overclock (UART baud + DDR + pixel clocks all wrong).  Set 50 here so the
+# from-scratch build is correct (Vivado recomputes PLL FBDIVs to hold FCLK
+# targets 50/100/200).  See memory project_hdmi_crystal_root_cause.
+catch {set_property CONFIG.PCW_CRYSTAL_PERIPHERAL_FREQMHZ {50} $ps7}
+foreach p {PCW_CRYSTAL_PERIPHERAL_FREQMHZ PCW_UIPARAM_DDR_BOARD_DELAY0 PCW_UIPARAM_DDR_DQS_TO_CLK_DELAY_0 PCW_UIPARAM_DDR_PARTNO
            PCW_FPGA0_PERIPHERAL_FREQMHZ PCW_FPGA1_PERIPHERAL_FREQMHZ PCW_FPGA2_PERIPHERAL_FREQMHZ} {
     catch {puts "  $p = [get_property CONFIG.$p $ps7]"}
 }

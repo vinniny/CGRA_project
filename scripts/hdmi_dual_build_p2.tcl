@@ -12,15 +12,17 @@ catch {reset_run synth_1}
 foreach r [get_runs] {
     if {[string match "*_synth_1" $r] && $r ne "synth_1"} { catch {reset_run $r} }
 }
-# DRC override safety net (in case any HDMI port lacks a LOC/IOSTANDARD)
-set hook /tmp/drc_override_hdmi.tcl
+# DRC override safety net (in case any HDMI port lacks a LOC/IOSTANDARD).
+# Write the hook into the PROJECT dir (persistent) — /tmp clears mid-session on
+# this WSL and the hook would vanish before write_bitstream uses it.
+set hook [file join [file dirname $PROJ] drc_override_hdmi.tcl]
 set fp [open $hook w]
 puts $fp "set_property SEVERITY {Warning} \[get_drc_checks NSTD-1\]"
 puts $fp "set_property SEVERITY {Warning} \[get_drc_checks UCIO-1\]"
 close $fp
 set_property STEPS.WRITE_BITSTREAM.TCL.PRE $hook [get_runs impl_1]
 
-launch_runs impl_1 -to_step write_bitstream -jobs 1
+launch_runs impl_1 -to_step write_bitstream -jobs 4
 wait_on_run impl_1
 set st   [get_property STATUS   [get_runs impl_1]]
 set prog [get_property PROGRESS [get_runs impl_1]]
