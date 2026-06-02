@@ -49,3 +49,21 @@ quantization + SPM-auto-inc / result-FIFO per-neuron deltas).
 **Defense framing:** the CGRA trades accuracy for throughput — **4–8× faster FC
 at 86% accuracy vs the 99% float baseline**, end-to-end on silicon including
 DMA + readout overhead.
+
+## ⚠️ IMPORTANT caveat — ARM baseline optimization level
+
+These numbers come from the **Vitis Debug build (`-O0`)** of the live demo (the
+visual demo is built Debug). The ARM-INT/ARM-VFP FC loops are therefore
+**unoptimized**, which inflates the speedup. The CGRA-FC path is mostly hardware
+(clock-bound), so it barely changes with `-O0`; the ARM baselines do.
+
+- **Fair, matched-optimization comparison** (`-O2` ARM, earlier silicon run,
+  `demo_audit.md §6`): CGRA-FC ≈ **2.1× vs ARM-INT64**, ≈ **1.3× vs ARM-VFP**.
+  (ARM-INT ~3.71 M cyc at -O2 vs ~17.3 M at -O0 — a ~4.7× -O0 penalty.)
+- **Demo (`-O0`) figure**: 7.93× / 3.96× — honest for *that build*, but cite it as
+  "the live-demo Debug build" and lead with the matched-O2 ~2.1× for rigor.
+
+For the thesis, the defensible headline is **~2.1× at matched -O2** (plus the
+perf/W advantage ≥6× and offloading the ARM entirely); the -O0 demo figure is a
+secondary "as-demonstrated-live" data point.  To get a fair on-silicon number,
+rebuild the demo `-O2` (`app config -set build-config Release`) and re-measure.

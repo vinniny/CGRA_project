@@ -184,6 +184,28 @@ All three paths produce bit-identical predictions on the same live
 HDMI 1280×720 capture (laptop → splitter → board J10 → 28×28 ROI →
 threshold @ 128 → INT quantization → FC1+FC2 → argmax).
 
+> The ARM CCNT figures above are the **matched-optimization (`-O2`)** baseline —
+> use these as the fair speedup (**CGRA-FC ≈ 2.1× vs ARM-INT64, ≈ 1.3× vs ARM-VFP**).
+
+### 6a. PYNQ-Z2 dual-HDMI demo re-measurement (2026-06-02)
+
+Live HDMI-OUT demo (`demo_mnist_hdmi_bm`, canonical `bitstreams/cgra_hdmi_dual.xsa`,
+crystal=50, FCLK0=50 CGRA / APU 650 MHz), 40-frame + 100-image sweep over UART:
+
+| FC implementation | mean ARM CCNT | speedup (CGRA=1) | accuracy /100 |
+|---|---|---|---|
+| **CGRA-FC** (INT16 tiled, USE_FAST_CGRA_FC) | 2,180,561 | **1.0×** | 86 |
+| ARM-INT-FC (INT64) | 17,292,252 | CGRA **7.93×** | 94 |
+| ARM-VFP-FC (float) |  8,644,381 | CGRA **3.96×** | 99 |
+
+⚠️ **This demo ELF is the Vitis Debug (`-O0`) build** → the ARM FC baselines are
+unoptimized, so 7.93×/3.96× is the "as-demonstrated-live" figure, NOT the fair
+speedup.  Matched `-O2` (§6 above) is ~2.1× / 1.3×.  Accuracy gap (CGRA 86 vs float
+99) is real (INT16 tiling + SPM-auto-inc/result-FIFO per-neuron deltas) and
+independent of -O0.  Full detail: `hdmi_demo_silicon_speedup.md`,
+`dual_hdmi_demo_summary.md`.  (HDMI-OUT silicon-validated; HDMI-IN capture build-
+complete + timing-met, hardware test pending — `hdmi_in_board_test_checklist.md`.)
+
 ### Architecture decisions silicon-validated tonight
 
 - **Split-VDMA topology**: previously one shared `axi_vdma` (MM2S to
