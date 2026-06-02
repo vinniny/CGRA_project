@@ -6,6 +6,11 @@ set XSA  /home/vinniny/centos_vm/projects/CGRA_project/bitstreams/cgra_hdmi_dual
 
 open_project $PROJ
 set_property top design_1_wrapper [current_fileset]
+# Performance_ExploreWithRemap closes the 200MHz HDMI-IN capture domain (default
+# strategy leaves WNS=-0.058; ExploreWithRemap -> +0.112 setup / +0.052 hold,
+# silicon-grade 2026-06-02).  Required since the capture-clock reclock to FCLK2.
+set_property strategy Performance_ExploreWithRemap [get_runs impl_1]
+catch {set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]}
 catch {reset_run impl_1}
 catch {reset_run synth_1}
 # reset any failed OOC IP synth runs (the OOM run left v_tc/v_vid_in/etc failed)
