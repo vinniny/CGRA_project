@@ -839,7 +839,7 @@ int main(void)
         uart_puts(" vdmaSR="); uart_puthex(hdmi_out_dmasr());
         uart_putchar('\n');
 
-        delay_cycles(CPU_HZ / 5);  /* ~200 ms dwell */
+        delay_cycles(CPU_HZ / 10);  /* ~100 ms dwell (caches on) */
         frame++;
     }
     return 0;
