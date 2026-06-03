@@ -30,7 +30,10 @@ typedef struct {
  * centre (640,360): x=(1280−576)/2=352, y=(720−576)/2=72.  Draw a big digit in
  * the MIDDLE of the laptop screen.  576/28 ≈ 20.6 → ~20×20 box-filter per
  * output pixel.  (Old 768² @ (576,156) was centred for the 1080p no-EDID era.) */
-#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 352, .y = 72, .w = 576, .h = 576})
+/* Silicon 2026-06-03: the laptop letterboxes its desktop into the 720p frame —
+ * rows 0..~100 are black; content spans ~100..720.  Centre crop on that:
+ * y = 100 + (620-576)/2 = 122. */
+#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 352, .y = 122, .w = 576, .h = 576})
 
 /**
  * Downsample a region of the captured frame into a 28×28 UINT8 tensor.
