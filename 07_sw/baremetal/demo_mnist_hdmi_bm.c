@@ -208,11 +208,24 @@ static void mnist_normalize_wide(const uint8_t src[56*28], uint8_t out[28*28])
     for (int i = 0; i < 28*28; ++i) out[i] = 0;
     if ((uint8_t)(mx - mn) < 24) return;                    /* blank canvas */
     const int range = mx - mn;
+    /* 1) Locate the white canvas (laptop letterboxes its screen into the
+     *    720p frame; the surrounding black border inverts to bright "ink").
+     *    Canvas = pixels close to the minimum (white inverts to ~mn). */
+    int cx0 = 55, cx1 = 0, cy0 = 27, cy1 = 0;
+    for (int y = 0; y < 28; ++y)
+        for (int x = 0; x < 56; ++x)
+            if (src[y*56 + x] <= mn + 32) {
+                if (x < cx0) cx0 = x;  if (x > cx1) cx1 = x;
+                if (y < cy0) cy0 = y;  if (y > cy1) cy1 = y;
+            }
+    if (cx1 - cx0 < 4 || cy1 - cy0 < 4) return;  /* no white area visible */
+    /* 2) Ink = stretched-bright pixels INSIDE the canvas box only. */
     int x0 = 55, x1 = 0, y0 = 27, y1 = 0;
     static uint8_t st[56*28];
     for (int y = 0; y < 28; ++y)
         for (int x = 0; x < 56; ++x) {
-            int v = ((src[y*56 + x] - mn) * 255) / range;   /* stretch */
+            int inside = (x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1);
+            int v = inside ? ((src[y*56 + x] - mn) * 255) / range : 0;
             st[y*56 + x] = (uint8_t)v;
             if (v > 96) {
                 if (x < x0) x0 = x;  if (x > x1) x1 = x;
