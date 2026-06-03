@@ -33,7 +33,7 @@ bench_mac_micro contribs readout (a result-FIFO artifact).
 ## Windows GUI note
 The Windows recreation is the same flow via the Vitis IDE GUI
 (Platform Component from .xsa → Application Component → Build → Run on
-Hardware). See `06_doc/windows_gui_recreation_recipe.md`. Do NOT use the
+Hardware). See `06_doc/build/windows_gui_recreation_recipe.md`. Do NOT use the
 Vivado pynq-z2 board preset for DDR; use PARTNO=Custom + the REF delays.
 
 ---

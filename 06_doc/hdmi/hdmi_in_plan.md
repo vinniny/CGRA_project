@@ -230,7 +230,7 @@ scripts/hdmi_in_dump_to_bmp.py       NEW   raw frame → BMP host viewer (commit
 07_sw/baremetal/Makefile             MOD   wire new sources into mnist_hdmi target
 07_sw/app/test_frame_to_mnist.c      NEW   host-side downsample smoke test
 07_sw/Makefile                       MOD   test_frame_to_mnist target
-06_doc/hdmi_in_plan.md               NEW   this document
+06_doc/hdmi/hdmi_in_plan.md               NEW   this document
 ```
 
 No RTL source changes — pure block-design + bare-metal additions.

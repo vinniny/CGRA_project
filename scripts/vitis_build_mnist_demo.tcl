@@ -17,7 +17,7 @@
 #
 # Demo is caches-OFF + FCLK0=50 (deterministic): expect CGRA accuracy 87/100,
 # ARM-INT 94/100, CGRA-FC ~7.7x faster than ARM-INT-FC. See
-# 06_doc/silicon_pillars_2026-05-29.md for the canonical Vitis numbers.
+# 06_doc/silicon/silicon_pillars_2026-05-29.md for the canonical Vitis numbers.
 # =============================================================================
 proc _env_or {n d} { if {[info exists ::env($n)]} { return $::env($n) } ; return $d }
 

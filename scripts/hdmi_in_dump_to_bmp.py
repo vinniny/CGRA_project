@@ -20,7 +20,7 @@ Then on the host:
     python3 scripts/hdmi_in_dump_to_bmp.py frame_raw.bin -o frame.bmp
     xdg-open frame.bmp
 
-Bring-up checklist item 6 (06_doc/hdmi_in_plan.md): "host program saves one
+Bring-up checklist item 6 (06_doc/hdmi/hdmi_in_plan.md): "host program saves one
 HDMI-in frame to a BMP for visual sanity check."
 
 No external deps (pure stdlib). Avoids Pillow so it works on the bare WSL2

@@ -4,7 +4,7 @@ Backup plan for HDMI on PYNQ-Z2 in case the Vivado-2024.1 clean rebuild via
 `scripts/build_cgra_hdmi_pynqz2_clean.tcl` stalls. Builds on a known-working
 artifact: the Embedfire/Haoyue Zynq-7020 PetaLinux 2023.1 image whose XSA,
 device tree, and userspace `hdmi-demo` produced live HDMI + CGRA on the same
-PS7 (proven 2026-04). Companion to `06_doc/board_petalinux_guide.md`.
+PS7 (proven 2026-04). Companion to `06_doc/hdmi/board_petalinux_guide.md`.
 
 ## Why this path is plausible
 

@@ -9,7 +9,7 @@ artefacts checked into the repository for traceability.
 A central thesis claim is that *the working bitstream can be regenerated
 from a single source file by anyone with the right tool tree*. We
 demonstrate this with **three additive procedures**, each documented
-end-to-end in `06_doc/vivado_bitstream_build_procedure.md`:
+end-to-end in `06_doc/build/vivado_bitstream_build_procedure.md`:
 
 | Procedure | Source(s) | Output bitstream |
 |---|---|---|

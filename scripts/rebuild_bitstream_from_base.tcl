@@ -1,6 +1,6 @@
 # =============================================================================
 # rebuild_bitstream_from_base.tcl — Procedure A from
-# 06_doc/vivado_bitstream_build_procedure.md.
+# 06_doc/build/vivado_bitstream_build_procedure.md.
 #
 # Re-creates the silicon-validated cgra_pynq_base bitstream from base.tcl
 # in a fresh Vivado project. End-to-end: project create → IP repos → BD

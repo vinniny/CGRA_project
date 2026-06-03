@@ -70,7 +70,7 @@ write_hw_platform -fixed -include_bit -force \
 `write_hw_platform` automatically as their final step. You only need to
 do it manually if you're walking the procedure in the GUI. The `.xsa`
 is what Vitis "New Platform Project" consumes for the Windows
-defense-day flow (see `06_doc/windows_defense_day_workflow.md`).
+defense-day flow (see `06_doc/build/windows_defense_day_workflow.md`).
 
 This rebuild is **the thesis demonstration** — *anyone with Vivado 2024.1
 + the IP repos can reproduce the silicon-validated bitstream from one
@@ -193,7 +193,7 @@ dvi2rgb path activates once a real HDMI source is plugged into J10.
 | `scripts/add_v_tpg_test_pattern.tcl` | Additive BD patch (v_tpg + axis_switch + AXI-Lite + address map) |
 | `bitstreams/cgra_pynq_base_working.bit` | Staged copy of the silicon-validated bitstream |
 | `scripts/ps7_init.tcl` | Vitis-exported PS init from the working project |
-| `06_doc/vivado_bitstream_build_procedure.md` | This document |
+| `06_doc/build/vivado_bitstream_build_procedure.md` | This document |
 
 ## Build resource cost (Linux Vivado 2025.1 on WSL2 8 GiB)
 

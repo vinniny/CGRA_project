@@ -28,7 +28,7 @@ competitive accuracy.
 
 Silicon numbers verified on PYNQ-Z2 (XC7Z020) on 2026-05-18. RTL +
 post-route synthesis numbers re-validated on Linux Vivado 2025.1 on
-2026-05-24 (commit `367ff64`; see `06_doc/quirks_as_design_choices.md`
+2026-05-24 (commit `367ff64`; see `06_doc/defense/quirks_as_design_choices.md`
 for the timing-closure story).
 
 | Metric | Value |
@@ -105,7 +105,7 @@ for the timing-closure story).
 - **SG-DMA descriptor-read errors** now sticky-latch via `chain_error_o`
   with a 4-subcheck whitebox regression in `tb_suite_sg_dma.svh::SG11`
   (commit `11b3989`).
-- **Defense prep** — `06_doc/quirks_as_design_choices.md` recasts every
+- **Defense prep** — `06_doc/defense/quirks_as_design_choices.md` recasts every
   documented hardware quirk as a defensible design choice for Chapter 4.
 - **MAC throughput measured** (commit `f576528`) — Suite MTP measures
   81.2% / 98.1% / 99.7% slot efficiency at 1 / 10 / 64 passes. Closed-form
@@ -124,7 +124,7 @@ for the timing-closure story).
     plus a System ILA monitoring 3 AXIS links. WNS **+0.309 ns** under
     `Performance_ExploreWithRemap` strategy, 85.05% LUT. Used to silicon-
     validate the v_tpg AXIS chain end-to-end.
-  - Build doc: `06_doc/vivado_bitstream_build_procedure.md`.
+  - Build doc: `06_doc/build/vivado_bitstream_build_procedure.md`.
 - **Silicon AXIS chain validated** (commit `109adc7`) — full
   `v_tpg → axis_switch_in → color_convert → pixel_pack → axi_vdma`
   path proven on Zynq-7020. ILA shows TVALID/TREADY ≥ 97% on each link;
@@ -421,7 +421,7 @@ If the prior session left the DAP in an AP transaction-error state
 (symptom: ARM Cortex-A9 missing from `targets` list), `xsdb_program.tcl`
 now auto-recovers via `rst -dap` on every `connect`. The all-in-one
 script wraps each step in `run_xsdb_with_recovery` for extra resilience.
-Background and root-cause analysis: `06_doc/zynq_dap_recovery.md`.
+Background and root-cause analysis: `06_doc/build/zynq_dap_recovery.md`.
 
 ## APB Register Map
 
@@ -543,8 +543,8 @@ streamed over UART0; full pass on the current bitstream.
 - [`CLAUDE.md`](CLAUDE.md) — Project context for AI tools
 - [`06_doc/thesis_ch4/`](06_doc/thesis_ch4/) — Thesis Chapter 4 (software design)
 - [`06_doc/thesis_ch5/`](06_doc/thesis_ch5/) — Thesis Chapter 5 (results)
-- [`06_doc/demo_audit.md`](06_doc/demo_audit.md) — Feature × demo silicon-confirmation matrix
-- [`06_doc/petalinux_hdmi_backup.md`](06_doc/petalinux_hdmi_backup.md) — PetaLinux + HDMI fallback flow
+- [`06_doc/silicon/demo_audit.md`](06_doc/silicon/demo_audit.md) — Feature × demo silicon-confirmation matrix
+- [`06_doc/hdmi/petalinux_hdmi_backup.md`](06_doc/hdmi/petalinux_hdmi_backup.md) — PetaLinux + HDMI fallback flow
 - [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md) — Headline demo walkthrough
 
 ## License

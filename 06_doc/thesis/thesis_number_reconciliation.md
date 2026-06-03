@@ -36,7 +36,7 @@ make the edits in one pass.
 
 ## DOC-2 — Roofline subsection for Chapter 5
 
-Source content is ready in `06_doc/roofline_analysis.md` (the D1 deliverable: two
+Source content is ready in `06_doc/thesis/roofline_analysis.md` (the D1 deliverable: two
 ceilings + four workload points + CSV). **Insertion point:** `chapter5.tex` between
 `\subsection{Performance Comparison...}` (line 524) and `\subsection{Discussion}`
 (line 630) — i.e. a new `\subsection{Roofline Analysis}` right after the perf table.

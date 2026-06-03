@@ -37,7 +37,7 @@ without changing the ARM core itself.
 *offload value*. With ImageNet you'd be bottlenecked by Conv on the ARM
 side and the CGRA's role would be hidden by Amdahl's law.
 
-**Evidence.** `06_doc/demo_audit.md` shows per-stage cycle accounting:
+**Evidence.** `06_doc/silicon/demo_audit.md` shows per-stage cycle accounting:
 FC1 + FC2 = 80.6% of inference cycles on ARM-INT. The CGRA targets
 exactly that bottleneck.
 
@@ -235,7 +235,7 @@ Defensible — see Q8. Could go to 75 MHz with retiming if needed.
 Procedure-D bitstream (`cgra_vtpg_ila.bit`) needs
 `Performance_ExploreWithRemap` impl strategy to close at +0.309 ns vs
 default's -0.014 ns. Documented in
-`06_doc/chapter5_silicon_results.md` §5.1.2. Not a production
+`06_doc/thesis/chapter5_silicon_results.md` §5.1.2. Not a production
 concern — the silicon bitstream (`cgra_top.bit`) doesn't include the
 ILA and has +0.231 ns slack.
 
@@ -273,10 +273,10 @@ signal we don't have during defense; bitstream + driver are ready.
 
 Total runtime: ~30 s. Replaces ~10 min of manual XSDB + Vivado HW
 Manager + Python click-through. Full operational doc:
-`06_doc/silicon_validation_protocol.md`.
+`06_doc/silicon/silicon_validation_protocol.md`.
 
 For the Windows defense-day equivalent (Vivado GUI → Vitis IDE → Launch
-on Hardware), see `06_doc/windows_defense_day_workflow.md`. The two
+on Hardware), see `06_doc/build/windows_defense_day_workflow.md`. The two
 flows produce the same end result; the WSL flow uses bash + XSDB
 directly, the Windows flow uses Vitis's "Launch on Hardware" which
 wraps the same XSDB sequence behind a click.
@@ -287,7 +287,7 @@ wraps the same XSDB sequence behind a click.
 `configparams force-mem-accesses 1` on every `connect`. Recovers from
 the AHB/APB AP transaction-error state that previously required a
 physical SRST press. Full background:
-`06_doc/zynq_dap_recovery.md`.
+`06_doc/build/zynq_dap_recovery.md`.
 
 ---
 

@@ -129,7 +129,7 @@ per loop iteration that propagates to neuron-level MAC count.
 **Why it's accepted:** the per-neuron count difference is bounded
 (at most ±1 per pass) and the same in every inference. For MNIST CNN, the
 softmax argmax is robust to ±1 LSB on the per-class score; empirical
-validation in `tb_suite_cnn_kernel.svh` and `06_doc/demo_audit.md` confirms
+validation in `tb_suite_cnn_kernel.svh` and `06_doc/silicon/demo_audit.md` confirms
 top-1 accuracy is preserved.
 
 **Thesis claim:** "Per-neuron MAC counts deviate from the pure-analytic

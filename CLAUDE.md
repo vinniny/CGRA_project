@@ -54,7 +54,7 @@ make vtpg_test_quick                          # Same but skips Vivado HW-Mgr ILA
 If a prior session left the Cortex-A9 stuck (symptom: ARM cores missing
 from `targets` list, just DAP + xc7z020 + Legacy Debug Hub), the next
 `make program` / `make run_elf` heals it automatically. Background:
-`06_doc/zynq_dap_recovery.md`.
+`06_doc/build/zynq_dap_recovery.md`.
 
 Vivado-Centric Bitstream Build Procedure (silicon-validated 2026-05-24):
 ```bash
@@ -91,9 +91,9 @@ Procedure D needs ExploreWithRemap (without it the v_tpg HLS path
 violates at -0.014 ns).
 
 Docs:
-  `06_doc/vivado_bitstream_build_procedure.md`   — Tcl-level walkthrough
-  `06_doc/windows_defense_day_workflow.md`       — Windows GUI flow
-  `06_doc/zynq_dap_recovery.md`                  — when DAP locks up
+  `06_doc/build/vivado_bitstream_build_procedure.md`   — Tcl-level walkthrough
+  `06_doc/build/windows_defense_day_workflow.md`       — Windows GUI flow
+  `06_doc/build/zynq_dap_recovery.md`                  — when DAP locks up
 
 Vivado project path (Windows via WSL2): `/mnt/c/Users/thanh/Desktop/FPGA_CGRA/` (override with `VIVADO_PROJECT=`).
 
@@ -208,7 +208,7 @@ Each PE contains: Config RAM (16x64b multi-context BSG SRAM), Register File (16x
 - `src0_sel`/`src1_sel` is both a source-type selector AND the RF read address; effectively only `RF[0]` is readable (`SRC_RF=0` reads `RF[rf_raddr=0]`; values 1-6 select N/E/S/W/SPM/IMM, not RF[1..6]). `dst_sel` is a real 4-bit RF write address, but writes to `RF[1..15]` are functionally invisible.
 - The MAC accumulator is **NOT** at 1/3 efficiency (an earlier note claimed it was). Suite MTP (`tb_suite_mac_throughput.svh`, commit `f576528`) measures 81.2% single-pass, 98.1% at 10 passes, and 99.7% at 64 passes. Closed-form `contribs = 16·N − 3` with `SRC_IMM` (the 3-slot loss is fixed startup+drain; 4-slot with `SRC_SPM` due to one extra cycle of read latency). CK19 saturates with 12 MACs (single-pass mask `0x3FFC`), not the 512 a previous draft of this doc mentioned.
 - `IRQ_STATUS[2]` is W1C and clears immediately. The latched `DMA_ERROR` register is sticky until the next `DMA_CTRL[0]` start, not on IRQ W1C.
-- **SPM auto-inc slot boundary asymmetry**: In a multi-pass MAC loop (LOOP_COUNT>1), the SPM and tile address pairing at loop wrap boundaries is not symmetric. Empirically: single-pass reads SPM addrs {2..13} (12 slots out of 16); 2-pass pass-0 reads 15 SPM addrs vs 14 tile addrs; 2-pass pass-1 reads 11 SPM addrs vs 12 tile addrs. The SPM addr formula is `imm + spm_iter_cnt + context_pc`. This causes per-neuron MAC deltas between hardware and pure-analytic golden models — check `06_doc/demo_audit.md` and `tb_suite_cnn_kernel.svh` for the bitmask probe methodology. Use argmax correctness (not per-accumulator exact match) as the smoke pass criterion.
+- **SPM auto-inc slot boundary asymmetry**: In a multi-pass MAC loop (LOOP_COUNT>1), the SPM and tile address pairing at loop wrap boundaries is not symmetric. Empirically: single-pass reads SPM addrs {2..13} (12 slots out of 16); 2-pass pass-0 reads 15 SPM addrs vs 14 tile addrs; 2-pass pass-1 reads 11 SPM addrs vs 12 tile addrs. The SPM addr formula is `imm + spm_iter_cnt + context_pc`. This causes per-neuron MAC deltas between hardware and pure-analytic golden models — check `06_doc/silicon/demo_audit.md` and `tb_suite_cnn_kernel.svh` for the bitmask probe methodology. Use argmax correctness (not per-accumulator exact match) as the smoke pass criterion.
 
 ## APB Register Map (30 registers, 0x00-0x80)
 
@@ -271,7 +271,7 @@ python3 emit_sweep_fixture.py   # Generate mnist_sweep_fixture.h (full test swee
 python3 golden_sim.py           # Run Python golden inference for comparison
 ```
 
-Open demo tasks (from 06_doc/demo_audit.md):
+Open demo tasks (from 06_doc/silicon/demo_audit.md):
 - **D4**: `demo_mnist_sweep.elf` — full accuracy + FPS measurement, ARM baseline comparison
 - **D5**: Kyber-512 Barrett reduction kernel (`cgra_kernels_kyber.h`) + golden reference + demo ELF
 - **D6**: Update thesis title + abstract

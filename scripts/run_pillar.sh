@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_pillar.sh — execute one pillar of the four-pillar silicon
-# measurement plan (06_doc/roofline_analysis.md / thesis_defense_strategy.md).
+# measurement plan (06_doc/thesis/roofline_analysis.md / thesis_defense_strategy.md).
 #
 # Always runs B0 (bench_smoke) FIRST unless --skip-smoke is given.
 # This is the senior-protocol atomic-validation sequence: if smoke

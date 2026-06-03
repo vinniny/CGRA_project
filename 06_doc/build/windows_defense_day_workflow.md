@@ -335,9 +335,9 @@ For the headline thesis demo (3.81× speedup):
 
 | Doc | Purpose |
 |---|---|
-| `06_doc/vivado_bitstream_build_procedure.md` | Vivado-side details, Procedure A/B/C |
-| `06_doc/silicon_validation_protocol.md` | WSL-side bash equivalents of the steps above |
-| `06_doc/zynq_dap_recovery.md` | When the DAP locks up despite everything |
-| `06_doc/chapter5_silicon_results.md` | The measured numbers for the slides |
-| `06_doc/defense_qa.md` | Q&A for the examiners |
-| `06_doc/defense_slide_outline.md` | 14-slide deck outline |
+| `06_doc/build/vivado_bitstream_build_procedure.md` | Vivado-side details, Procedure A/B/C |
+| `06_doc/silicon/silicon_validation_protocol.md` | WSL-side bash equivalents of the steps above |
+| `06_doc/build/zynq_dap_recovery.md` | When the DAP locks up despite everything |
+| `06_doc/thesis/chapter5_silicon_results.md` | The measured numbers for the slides |
+| `06_doc/defense/defense_qa.md` | Q&A for the examiners |
+| `06_doc/defense/defense_slide_outline.md` | 14-slide deck outline |

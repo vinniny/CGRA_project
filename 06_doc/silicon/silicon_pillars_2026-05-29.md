@@ -3,7 +3,7 @@
 First full silicon pillar sweep on the **DDR-fixed** platform
 (v17 bitstream `eec56d1e` + board-aware REF ps7_init). DDR was dead for
 the entire prior bring-up due to an incomplete PS-7 DDR config; root-caused
-and fixed this session (see `06_doc/ddr_broken_post_crystal_fix.md` +
+and fixed this session (see `06_doc/silicon/ddr_broken_post_crystal_fix.md` +
 `memory/project_ddr_root_cause.md`). All ELFs run via
 `scripts/vitis_launch_with_clear.tcl` with `CGRA_BIT=/tmp/cgra_working/cgra_top.bit`
 and `CGRA_XSA_DIR` pointing at the working ps7_init.

@@ -348,7 +348,7 @@ output as silicon data lands. Until then:
 - Xilinx UG585: Zynq-7000 SoC Technical Reference Manual §3.4 (AXI HP ports).
 - Dukhan, M. "QNNPACK: Open Source Library for Optimized Mobile Deep
   Learning." 2018. — NEON INT8/INT16 GEMV efficiency reference.
-- `06_doc/senior_arch_review_2026-05-28.md` §16-§18 — methodology of this
+- `06_doc/reviews/senior_arch_review_2026-05-28.md` §16-§18 — methodology of this
   chapter.
-- `06_doc/thesis_defense_strategy.md` — slide order and anticipated
+- `06_doc/defense/thesis_defense_strategy.md` — slide order and anticipated
   examiner questions.
