@@ -136,11 +136,13 @@ create_bd_cell -type ip -vlnv $IP_DVI2 dvi2rgb_0
 # Baking a 720p EDID forces the laptop to a clean standard 1280x720@60 mode
 # (74.25 MHz, half the rate, generous blanking) that dvi2rgb locks reliably.
 #   kEmulateDDC   = true            -> serve the EDID over the DDC I2C slave
-#   kEdidFileName = 720p_edid.data  -> 1280x720@60 (Digilent dvi2rgb stock EDID)
+#   kEdidFileName = dgl_720p_cea.data -> 1280x720@60 (this dvi2rgb's stock 720p
+#                   EDID; valid set is dgl_1080p_cea / dgl_1280_1024_cea /
+#                   dgl_720p_cea — NOT the PYNQ '720p_edid.data' name)
 #   kClkRange     = 1               -> 25-80 MHz TMDS clock band (720p=74.25)
 set_property -dict [list \
     CONFIG.kEmulateDDC      {true} \
-    CONFIG.kEdidFileName    {720p_edid.data} \
+    CONFIG.kEdidFileName    {dgl_720p_cea.data} \
     CONFIG.kRstActiveHigh   {false} \
     CONFIG.kAddBUFG         {true} \
     CONFIG.kClkRange        {1} \

@@ -21,12 +21,11 @@ set PIXPACKIP /mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/ip/hls/pixel_pack/solu
 file delete -force $PROJDIR
 create_project $PROJ $PROJDIR -part $PART -force
 catch {set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]}
-# PYNQ repos FIRST so the duplicate dvi2rgb resolves to PYNQ's dvi2rgb_v1_7,
-# which ships the EDID .data files (720p_edid.data) — the vivado-library copy
-# has none, so kEdidFileName would fail to resolve.  PYNQ's ip dir only holds
-# dvi2rgb / color_swap / pixel_pack (NOT the HDMI-OUT IPs rgb2dvi / dynclk /
-# v_tc), so OUT-path IPs still come from vivado-library unchanged.
-set_property ip_repo_paths [list $PYNQIP $PIXPACKIP $VLIB $CGRAREPO] [current_project]
+# VLIB first (matches the known-good timing-met build).  The dvi2rgb that wins
+# already ships the stock Digilent EDIDs (dgl_720p_cea.data etc.), so EDID
+# emulation works without reordering.  color_swap (PYNQIP) and pixel_pack
+# (PIXPACKIP) are uniquely sourced, so repo order doesn't affect them.
+set_property ip_repo_paths [list $VLIB $CGRAREPO $PYNQIP $PIXPACKIP] [current_project]
 update_ip_catalog
 puts "board=[get_property board_part [current_project]] repos set"
 
