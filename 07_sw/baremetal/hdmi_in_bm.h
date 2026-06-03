@@ -39,11 +39,15 @@
  * Windows defaults to 720p signal mode, upscales the desktop into it).
  * Override at compile time:
  *   make CFLAGS_EXTRA='-DHDMI_IN_W=800 -DHDMI_IN_H=600' <target>           */
+/* dvi2rgb now serves a 720p EDID (kEmulateDDC=true), so the laptop is FORCED to
+ * 1280x720@60 (74.25 MHz pixel clock) — a clean standard mode dvi2rgb locks
+ * reliably on the XC7Z020-1 (1080p/148.5MHz failed to vertically lock, silicon
+ * 2026-06-03).  Geometry MUST match the EDID or the VDMA flags SOFEarly/EOLLate. */
 #ifndef HDMI_IN_W
-#define HDMI_IN_W            1920u   /* laptop sends 1920x1080 (no EDID -> 1080p default) */
+#define HDMI_IN_W            1280u   /* EDID-forced 1280x720@60 */
 #endif
 #ifndef HDMI_IN_H
-#define HDMI_IN_H            1080u
+#define HDMI_IN_H            720u
 #endif
 /* 4 bytes/pixel: the lean clean-BD capture path uses axis_subset_converter
  * (24-bit -> 32-bit zero-padded), so DDR pixels are 4 bytes (00,B,G,R), NOT the

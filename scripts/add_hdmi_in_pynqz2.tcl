@@ -129,20 +129,31 @@ set_property -dict [list CONFIG.NUM_SI {2} CONFIG.NUM_CLKS {2}] \
 # ----- 4. dvi2rgb_0 ------------------------------------------------------
 puts "\n=== 4. dvi2rgb_0 (J10 TMDS → 24b RGB, recovers PixelClk) ==="
 create_bd_cell -type ip -vlnv $IP_DVI2 dvi2rgb_0
-# Common config:
-#   kEmulateDDC = false (we are not emulating an EDID DDC slave here yet — board's
-#       passive pull-ups are sufficient for a laptop that already cached EDID)
-#   kRstActiveHigh = false  (we use active-low resets everywhere)
-#   kAddBUFG = true (so PixelClk drives a global buffer that downstream IPs can use)
+# EDID EMULATION = the final piece of the PROVEN PYNQ recipe.  Without a sink
+# EDID the laptop sends a no-EDID signal (often CVT reduced-blanking at 1080p
+# 148.5 MHz) that dvi2rgb on the XC7Z020-1 cannot VERTICALLY lock — silicon
+# 2026-06-03: v_tc detector saw h~1920 but vsize jittered 1..31, never locked.
+# Baking a 720p EDID forces the laptop to a clean standard 1280x720@60 mode
+# (74.25 MHz, half the rate, generous blanking) that dvi2rgb locks reliably.
+#   kEmulateDDC   = true            -> serve the EDID over the DDC I2C slave
+#   kEdidFileName = 720p_edid.data  -> 1280x720@60 (Digilent dvi2rgb stock EDID)
+#   kClkRange     = 1               -> 25-80 MHz TMDS clock band (720p=74.25)
 set_property -dict [list \
-    CONFIG.kEmulateDDC      {false} \
+    CONFIG.kEmulateDDC      {true} \
+    CONFIG.kEdidFileName    {720p_edid.data} \
     CONFIG.kRstActiveHigh   {false} \
     CONFIG.kAddBUFG         {true} \
-    CONFIG.kClkRange        {2} \
+    CONFIG.kClkRange        {1} \
 ] [get_bd_cells dvi2rgb_0]
 
 # Reference clock (200 MHz, drives the internal IDELAYCTRL)
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2] [get_bd_pins dvi2rgb_0/RefClk]
+# DDC (I2C slave that serves the EDID) -> external iic port -> board HDMI-RX DDC
+# pins (U14 scl / U15 sda, set in constrs_pynq_z2.xdc).  Creates inout ports
+# hdmi_rx_ddc_scl_io / hdmi_rx_ddc_sda_io.  Without this the laptop cannot READ
+# the emulated EDID and the forced-720p mechanism does nothing.
+set _ddcport [create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 hdmi_rx_ddc]
+connect_bd_intf_net [get_bd_intf_pins dvi2rgb_0/DDC] $_ddcport
 # Active-low reset shared with the 100 MHz fabric domain (release is gated by
 # the 200M reset internally for the IDELAYCTRL)
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins dvi2rgb_0/aRst_n]
@@ -289,27 +300,10 @@ create_bd_cell -type ip -vlnv $IP_CONST xlconst_rx_cec_low
 set_property -dict [list CONFIG.CONST_VAL {0} CONFIG.CONST_WIDTH {1}] [get_bd_cells xlconst_rx_cec_low]
 connect_bd_net [get_bd_pins xlconst_rx_cec_low/dout] [get_bd_ports hdmi_rx_cec]
 
-create_bd_port -dir IO hdmi_rx_scl
-create_bd_port -dir IO hdmi_rx_sda
-
-# Optionally wire dvi2rgb DDC pins (SDA_I/SDA_O/SDA_T, SCL_I/SCL_O/SCL_T) into a
-# tristate buffer here. For first bring-up we omit DDC (dvi2rgb's kEmulateDDC=false
-# disables internal DDC slave; the laptop sees no EDID and falls back to its
-# cached profile, which is fine for the demo).
-# Tie unused dvi2rgb DDC pins to safe defaults if they exist. With
-# kEmulateDDC=false (our config), these pins are NOT exposed — the IP's
-# internal DDC slave is disabled. Use -quiet so the absent-pin lookup
-# doesn't itself raise [BD 5-235]. The if guard then skips the tie-off.
-foreach pin {DDC_SDA_I DDC_SCL_I} {
-    set hits [get_bd_pins -quiet dvi2rgb_0/$pin]
-    if {[llength $hits] > 0} {
-        create_bd_cell -type ip -vlnv $IP_CONST [format "xlconst_%s" [string tolower $pin]]
-        set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] \
-            [get_bd_cells [format "xlconst_%s" [string tolower $pin]]]
-        connect_bd_net [get_bd_pins [format "xlconst_%s/dout" [string tolower $pin]]] \
-                       [get_bd_pins dvi2rgb_0/$pin]
-    }
-}
+# DDC SCL/SDA are NO LONGER plain IO ports — dvi2rgb_0/DDC is now an iic_rtl
+# interface (kEmulateDDC=true) brought out as the external port 'hdmi_rx_ddc'
+# in step 4, creating inout hdmi_rx_ddc_scl_io / hdmi_rx_ddc_sda_io.  The XDC
+# (constrs_pynq_z2.xdc) maps those to U14/U15.  No tie-off needed.
 
 # ----- 11. Address map (input chain new entries) ------------------------
 puts "\n=== 11. Address map: input VDMA, v_tc_1, pixel_pack_in, DDR map for S2MM ==="

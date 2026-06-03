@@ -39,8 +39,12 @@ set_property -dict { PACKAGE_PIN P20   IOSTANDARD TMDS_33 } [get_ports { hdmi_rx
 ## HDMI RX Control Signals
 set_property -dict { PACKAGE_PIN T19   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_hpd }];
 set_property -dict { PACKAGE_PIN H17   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_cec }];
-set_property -dict { PACKAGE_PIN U14   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_scl }];
-set_property -dict { PACKAGE_PIN U15   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_sda }];
+# DDC (I2C) — dvi2rgb serves the emulated 720p EDID here. iic_rtl interface
+# port 'hdmi_rx_ddc' -> inout hdmi_rx_ddc_scl_io / hdmi_rx_ddc_sda_io.
+set_property -dict { PACKAGE_PIN U14   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_ddc_scl_io }];
+set_property PULLUP true [get_ports { hdmi_rx_ddc_scl_io }];
+set_property -dict { PACKAGE_PIN U15   IOSTANDARD LVCMOS33 } [get_ports { hdmi_rx_ddc_sda_io }];
+set_property PULLUP true [get_ports { hdmi_rx_ddc_sda_io }];
 
 ## CGRA Clocks (if needed, but usually FCLK is used)
 ## PS_CLK is 50MHz on PYNQ-Z2
