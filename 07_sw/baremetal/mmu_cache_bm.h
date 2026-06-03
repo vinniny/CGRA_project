@@ -23,14 +23,17 @@ void uart_putchar(char c);
 #define SEC_DEV    0x00000C06u
 #define TTBR_FLAGS 0x0u   /* non-cacheable page walks — SCU/SMP disabled */
 
-static uint32_t __attribute__((aligned(16384))) mmu_l1_table[4096];
+/* L1 table at fixed DDR 3 MB (16 KB): static placement landed in OCM
+ * 0x1C000-0x20000 overlapping IRQ/SVC stacks -> clobbered entries -> hang.
+ * Section 3 stays non-cacheable. */
+#define mmu_l1_table ((volatile uint32_t *)0x00300000u)
 
 static inline void mmu_cache_enable(void)
 {
     for (uint32_t s = 0; s < 4096u; s++) {
         uint32_t base = s << 20, attr;
         if (s == 0)                   attr = SEC_WB;
-        else if (s <= 2)              attr = SEC_NC;
+        else if (s <= 3)              attr = SEC_NC;   /* DMA staging + MMU table */
         else if (s < 0x100u)          attr = SEC_WB;
         else if (s <= 0x12Fu)         attr = SEC_NC;
         else if (s < 0x400u)          attr = SEC_WB;
