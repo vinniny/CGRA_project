@@ -405,9 +405,13 @@ int main(void)
     for (volatile uint32_t i = 0; i < 2000000; i++) ;
     hdmi_in_init();
     hdmi_in_color_convert_identity();
-    /* NOTE: hdmi_in_diag() reads v_tc_1 detector regs which are pixel-clock
-     * gated and HANG the AXI bus on silicon — do NOT call it. Kept in the lib
-     * for reference only. */
+    /* One-time diagnostic: v_tc_1 detector (AXI-lite @ 0x43C90000 on FCLK0 —
+     * NOT pixel-clock gated, safe to read) reports the ACTUAL incoming
+     * resolution; plus the VDMA's programmed HSIZE/VSIZE/DMASR.  Tells us
+     * whether the SOFEarly/EOLLate geometry error is a resolution mismatch
+     * (detected H/V != programmed) or a framing issue.  (The prior "hang" was
+     * the stale wrong address 0x43C30000, now corrected.) */
+    hdmi_in_diag();
     uart_puts("HDMI-in initialised, waiting for laptop signal on J10...\n");
 #endif
 

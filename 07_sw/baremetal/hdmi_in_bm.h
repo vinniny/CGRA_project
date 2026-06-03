@@ -75,7 +75,7 @@
 #ifndef VDMA_IN_BASE
 #define VDMA_IN_BASE         0x43020000UL  /* dedicated HDMI-IN VDMA */
 #endif
-#define VTC_IN_BASE          0x43C30000UL  /* video/hdmi_in/frontend/vtc_in */
+#define VTC_IN_BASE          0x43C90000UL  /* v_tc_1 detector (clean dual-HDMI BD); AXI-lite on FCLK0 */
 #define PIXPACK_IN_BASE      0x43C40000UL  /* video/hdmi_in/pixel_pack    */
 #define CCONV_IN_BASE        0x43C50000UL  /* video/hdmi_in/color_convert */
 #define GPIO_HDMIIN_BASE     0x41220000UL  /* axi_gpio_hdmiin (HPD / CEC) */
