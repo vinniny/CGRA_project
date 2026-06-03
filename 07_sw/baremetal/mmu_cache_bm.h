@@ -43,9 +43,17 @@ static inline void mmu_cache_enable(void)
             asm volatile("mcr p15,0,%0,c7,c6,2" :: "r"(sw));
         }
     asm volatile("dsb sy");
+    /* Cortex-A9: set ACTLR.SMP before enabling D-cache (required even
+     * single-core), plus branch-predictor invalidate. */
+    uint32_t act;
+    asm volatile("mrc p15,0,%0,c1,c0,1" : "=r"(act));
+    act |= (1u << 6);
+    asm volatile("mcr p15,0,%0,c1,c0,1" :: "r"(act));
+    asm volatile("mcr p15,0,%0,c7,c5,6" :: "r"(z));   /* BPIALL */
+    asm volatile("dsb sy"); asm volatile("isb");
     uint32_t v;
     asm volatile("mrc p15,0,%0,c1,c0,0" : "=r"(v));
-    v |= (1u << 0) | (1u << 2) | (1u << 12);
+    v |= (1u << 0) | (1u << 2) | (1u << 12) | (1u << 11);
     asm volatile("mcr p15,0,%0,c1,c0,0" :: "r"(v));
     asm volatile("dsb sy"); asm volatile("isb");
 }
