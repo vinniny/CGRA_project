@@ -118,6 +118,17 @@ static int argmax_with_bias(const int32_t fc2_acc[10])
  * accuracy. With live HDMI input we NEED accurate FC1 outputs to feed
  * FC2, so v1 it is. Cycle speedup is smaller (~2× over ARM-INT) but
  * the predictions are correct. */
+
+/* Per-neuron FC1 accumulator correction (silicon-calibrated): the CGRA's
+ * SPM auto-inc loop-wrap asymmetry + 40-bit saturation yield SYSTEMATIC
+ * per-neuron deltas vs the ARM-INT golden. Calibrated offsets are subtracted
+ * before fc1_post_process. Generate via CGRA_CALIB=1 build: per-image UART
+ * deltas, average -> cgra_fc1_corr table. Zeros = uncalibrated. */
+static int32_t cgra_fc1_corr[64] = { 0 };
+#ifdef CALIB_DUMP
+static int32_t calib_fc1_cgra[64];
+#endif
+
 static int run_cgra_fc(const int32_t act400[400])
 {
     volatile int32_t *act400_ddr = (volatile int32_t *)ACT400_DDR;
@@ -153,6 +164,12 @@ static int run_cgra_fc(const int32_t act400[400])
     }
 # endif
 #endif
+    /* Apply silicon-calibrated per-neuron correction (see cgra_fc1_corr). */
+    for (int n = 0; n < 64; ++n) fc1_acc[n] -= cgra_fc1_corr[n];
+#ifdef CALIB_DUMP
+    for (int n = 0; n < 64; ++n) calib_fc1_cgra[n] = fc1_acc[n];
+#endif
+
     int32_t act64[64];
     fc1_post_process(fc1_acc, act64);
 
@@ -742,6 +759,25 @@ int main(void)
 
         t0 = arm_ccnt_read();
         pred_cgra = run_cgra_fc(act400);
+#ifdef CALIB_DUMP
+        /* Dump per-neuron FC1 delta (CGRA - ARM_INT64 golden) for offline
+         * averaging into cgra_fc1_corr[]. */
+        {
+            const uint32_t *fc1_w = (const uint32_t *)cnn_spm_start;
+            uart_puts("CAL "); uart_putdec((uint32_t)i);
+            for (int n = 0; n < 64; ++n) {
+                const uint32_t *w = fc1_w + (uint32_t)n * 400u;
+                int64_t acc = 0;
+                for (int k = 0; k < 400; ++k)
+                    acc += (int64_t)act400[k] * (int64_t)(int16_t)(w[k] & 0xFFFFu);
+                int32_t d = calib_fc1_cgra[n] - (int32_t)acc;
+                uart_putchar(' ');
+                if (d < 0) { uart_putchar('-'); d = -d; }
+                uart_putdec((uint32_t)d);
+            }
+            uart_putchar('\n');
+        }
+#endif
         t1 = arm_ccnt_read();
         cyc_cgra = t1 - t0;
 
