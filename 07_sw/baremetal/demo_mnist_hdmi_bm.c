@@ -188,6 +188,46 @@ static int run_cgra_fc(const int32_t act400[400])
 }
 
 /* ── Formatting helpers ──────────────────────────────────────────────── */
+/* MNIST-style normalization of the live 28x28 crop — fixes the live-vs-trained
+ * accuracy gap (silicon 2026-06-03): thin/off-centre/grayscale drawn digits are
+ * out-of-distribution for the INT16-calibrated quantizers.  MNIST digits are
+ * size-normalized to ~20px and CoM-centered in a 28x28 frame.
+ *  1) Contrast stretch: min->0, max->255 so the working range matches MNIST.
+ *  2) Threshold @96; bounding-box the bright digit; nearest-neighbor rescale
+ *     longest side to 20px and centre.  No-op on near-empty/full frames. */
+static void mnist_normalize28(uint8_t img[28*28])
+{
+    uint8_t mn = 255, mx = 0;
+    for (int i = 0; i < 28*28; ++i) {
+        if (img[i] < mn) mn = img[i];
+        if (img[i] > mx) mx = img[i];
+    }
+    if ((uint8_t)(mx - mn) < 24) return;                    /* blank frame */
+    const int range = mx - mn;
+    int x0 = 27, x1 = 0, y0 = 27, y1 = 0;
+    for (int y = 0; y < 28; ++y)
+        for (int x = 0; x < 28; ++x) {
+            int v = ((img[y*28 + x] - mn) * 255) / range;   /* stretch */
+            img[y*28 + x] = (uint8_t)v;
+            if (v > 96) {
+                if (x < x0) x0 = x;  if (x > x1) x1 = x;
+                if (y < y0) y0 = y;  if (y > y1) y1 = y;
+            }
+        }
+    if (x1 < x0 || y1 < y0) return;
+    const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+    if (w > 24 && h > 24) return;                /* fills frame: keep as-is */
+    const int side = (w > h ? w : h);            /* fit longest side to 20px */
+    uint8_t out[28*28];
+    for (int i = 0; i < 28*28; ++i) out[i] = 0;
+    for (int y = 0; y < 20; ++y)
+        for (int x = 0; x < 20; ++x) {
+            int sx = x0 + (x * side) / 20, sy = y0 + (y * side) / 20;
+            out[(y + 4)*28 + x + 4] = (sx <= 27 && sy <= 27) ? img[sy*28 + sx] : 0;
+        }
+    for (int i = 0; i < 28*28; ++i) img[i] = out[i];
+}
+
 static void delay_cycles(uint32_t n)
 {
     uint32_t start = arm_ccnt_read();
@@ -460,6 +500,7 @@ int main(void)
         uint8_t live28[28*28];
         const uint8_t *fb = hdmi_in_current_frame();
         downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
+        mnist_normalize28(live28);   /* contrast-stretch + 20px box + center */
         /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
          * sum, every 4 frames.  Tells us if vdma_1 advances stores & whether
          * the captured pixels actually change as the user draws.  (Computed
