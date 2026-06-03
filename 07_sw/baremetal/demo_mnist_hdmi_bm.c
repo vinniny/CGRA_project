@@ -501,20 +501,23 @@ int main(void)
          * When live capture works, store advances every loop iter -> live. */
         int using_fixture = 0;
         {
-            static uint32_t prev_store = 0xFFFFFFFFu;
+            /* Liveness = frame CONTENT changes (ds28sum). The VDMA parks on
+             * store 0 (DMASR[28:24] stays 0) even with capture fully running,
+             * so the store index is NOT a liveness signal — silicon 2026-06-03:
+             * 720p EDID live capture shows inSR=0x11000 (no errors), pixels
+             * update every frame, store stuck 0. Use ds28sum delta + error
+             * bits; latch ever_live on first content change. */
+            static uint32_t prev_dsum = 0xFFFFFFFFu;
             static int      stuck      = 0;
-            static int      ever_live  = 0;   /* latched once store advances */
+            static int      ever_live  = 0;
             const uint32_t sr  = hdmi_in_dmasr();
-            const uint32_t st  = (sr >> 24) & 0x1Fu;        /* current frame store */
             const int      err = (sr & 0x000007F0u) != 0;   /* any S2MM error bit  */
-            /* A live S2MM ring advances its store slot; once we observe even a
-             * single advance we KNOW capture is working and permanently trust
-             * it (avoids a healthy 3-slot ring that happens to repeat a slot
-             * modulo-3 being mistaken for a stall — codex P1, 2026-06-03). */
-            if (prev_store != 0xFFFFFFFFu && st != prev_store) ever_live = 1;
-            if (st == prev_store || err) { if (stuck < 99) stuck++; }
-            else                          { stuck = 0; }
-            prev_store = st;
+            uint32_t dsum = 0;
+            for (int k = 0; k < 28*28; k++) dsum += live28[k];
+            if (prev_dsum != 0xFFFFFFFFu && dsum != prev_dsum) ever_live = 1;
+            if (dsum == prev_dsum || err) { if (stuck < 99) stuck++; }
+            else                           { stuck = 0; }
+            prev_dsum = dsum;
             /* Fall back when: capture never came alive (store never advanced),
              * OR it went live then sustained an error/halt (live-then-died).
              * Either way `stuck` must persist >=8 polls so a transient blip
