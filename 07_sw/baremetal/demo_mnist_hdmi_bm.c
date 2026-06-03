@@ -195,20 +195,25 @@ static int run_cgra_fc(const int32_t act400[400])
  *  1) Contrast stretch: min->0, max->255 so the working range matches MNIST.
  *  2) Threshold @96; bounding-box the bright digit; nearest-neighbor rescale
  *     longest side to 20px and centre.  No-op on near-empty/full frames. */
-static void mnist_normalize28(uint8_t img[28*28])
+/* Wide variant: source is the WHOLE Paint canvas as a 56x28 grid, so the user
+ * may draw anywhere.  Contrast-stretch, locate ink bbox, nearest-neighbor the
+ * longest side to 20 px, centre in 28x28 (MNIST framing). */
+static void mnist_normalize_wide(const uint8_t src[56*28], uint8_t out[28*28])
 {
     uint8_t mn = 255, mx = 0;
-    for (int i = 0; i < 28*28; ++i) {
-        if (img[i] < mn) mn = img[i];
-        if (img[i] > mx) mx = img[i];
+    for (int i = 0; i < 56*28; ++i) {
+        if (src[i] < mn) mn = src[i];
+        if (src[i] > mx) mx = src[i];
     }
-    if ((uint8_t)(mx - mn) < 24) return;                    /* blank frame */
+    for (int i = 0; i < 28*28; ++i) out[i] = 0;
+    if ((uint8_t)(mx - mn) < 24) return;                    /* blank canvas */
     const int range = mx - mn;
-    int x0 = 27, x1 = 0, y0 = 27, y1 = 0;
+    int x0 = 55, x1 = 0, y0 = 27, y1 = 0;
+    static uint8_t st[56*28];
     for (int y = 0; y < 28; ++y)
-        for (int x = 0; x < 28; ++x) {
-            int v = ((img[y*28 + x] - mn) * 255) / range;   /* stretch */
-            img[y*28 + x] = (uint8_t)v;
+        for (int x = 0; x < 56; ++x) {
+            int v = ((src[y*56 + x] - mn) * 255) / range;   /* stretch */
+            st[y*56 + x] = (uint8_t)v;
             if (v > 96) {
                 if (x < x0) x0 = x;  if (x > x1) x1 = x;
                 if (y < y0) y0 = y;  if (y > y1) y1 = y;
@@ -216,16 +221,13 @@ static void mnist_normalize28(uint8_t img[28*28])
         }
     if (x1 < x0 || y1 < y0) return;
     const int w = x1 - x0 + 1, h = y1 - y0 + 1;
-    if (w > 24 && h > 24) return;                /* fills frame: keep as-is */
     const int side = (w > h ? w : h);            /* fit longest side to 20px */
-    uint8_t out[28*28];
-    for (int i = 0; i < 28*28; ++i) out[i] = 0;
     for (int y = 0; y < 20; ++y)
         for (int x = 0; x < 20; ++x) {
             int sx = x0 + (x * side) / 20, sy = y0 + (y * side) / 20;
-            out[(y + 4)*28 + x + 4] = (sx <= 27 && sy <= 27) ? img[sy*28 + sx] : 0;
+            out[(y + 4)*28 + x + 4] =
+                (sx <= 55 && sy <= 27) ? st[sy*56 + sx] : 0;
         }
-    for (int i = 0; i < 28*28; ++i) img[i] = out[i];
 }
 
 static void delay_cycles(uint32_t n)
@@ -498,9 +500,12 @@ int main(void)
          * frame where only the top ~1% of lines were captured). */
         hdmi_in_recover_if_halted();   /* no-op unless errored */
         uint8_t live28[28*28];
+        uint8_t live56[56*28];
         const uint8_t *fb = hdmi_in_current_frame();
-        downsample_roi_to_mnist(fb, HDMI_ROI_DEFAULT, live28);
-        mnist_normalize28(live28);   /* contrast-stretch + 20px box + center */
+        /* Whole-canvas capture: draw ANYWHERE on the Paint canvas; the digit
+         * bounding box is auto re-centred into the 28x28 (MNIST framing). */
+        downsample_roi_to_grid(fb, HDMI_ROI_CANVAS, live56, 56, 28);
+        mnist_normalize_wide(live56, live28);
         /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
          * sum, every 4 frames.  Tells us if vdma_1 advances stores & whether
          * the captured pixels actually change as the user draws.  (Computed
@@ -556,8 +561,11 @@ int main(void)
              * Live capture has sensor noise: ds28sum jitters every frame even
              * on a static screen -> ever_live latches in seconds; a frozen
              * pipeline yields bit-identical frames -> fallback at 8. */
+            /* Liveness must use the RAW canvas grid (live56): the normalized
+             * 28x28 is all-zero while blank -> false 'stuck'. The raw grid
+             * carries capture noise -> jitters every frame when live. */
             uint32_t dsum = 0;
-            for (int k = 0; k < 28*28; k++) dsum += live28[k];
+            for (int k = 0; k < 56*28; k++) dsum += live56[k];
             if (prev_dsum != 0xFFFFFFFFu && dsum != prev_dsum) ever_live = 1;
             if (dsum == prev_dsum) { if (stuck < 99) stuck++; }
             else                    { stuck = 0; }

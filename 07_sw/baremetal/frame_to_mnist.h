@@ -38,6 +38,15 @@ typedef struct {
  * cols ~60-1230.  Crop the canvas: 520x520 centred at (645,460). */
 #define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 385, .y = 195, .w = 520, .h = 520})
 
+/* Whole Paint canvas (DDR probe 2026-06-03): draw ANYWHERE — firmware
+ * downsamples 1040x520 to a 56x28 grid, finds the ink bounding box and
+ * re-centres into the 28x28 (mnist_normalize_wide in the demo). */
+#define HDMI_ROI_CANVAS  ((hdmi_roi_t){.x = 95, .y = 195, .w = 1040, .h = 520})
+
+/** Generic block-average + luma + invert into an ow x oh grid. */
+void downsample_roi_to_grid(const uint8_t *fb, hdmi_roi_t roi,
+                            uint8_t *out, uint32_t ow, uint32_t oh);
+
 /**
  * Downsample a region of the captured frame into a 28×28 UINT8 tensor.
  * The output format matches `sweep_input28[]` in mnist_sweep_fixture.h —
