@@ -506,6 +506,24 @@ int main(void)
          * bounding box is auto re-centred into the 28x28 (MNIST framing). */
         downsample_roi_to_grid(fb, HDMI_ROI_CANVAS, live56, 56, 28);
         mnist_normalize_wide(live56, live28);
+        /* DIAG: ASCII-art dump of the normalized 28x28 every 16 frames so the
+         * crop/scale/centering can be inspected over UART. */
+        {
+            static uint32_t af = 0;
+            if ((af++ & 0xF) == 0) {
+                uart_puts("=== live28 ===\n");
+                for (int y = 0; y < 28; y++) {
+                    char line[30];
+                    for (int x = 0; x < 28; x++) {
+                        uint8_t v = live28[y*28 + x];
+                        line[x] = (v > 192) ? '#' : (v > 96) ? '+' :
+                                  (v > 32)  ? '.' : ' ';
+                    }
+                    line[28] = '\n'; line[29] = 0;
+                    uart_puts(line);
+                }
+            }
+        }
         /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
          * sum, every 4 frames.  Tells us if vdma_1 advances stores & whether
          * the captured pixels actually change as the user draws.  (Computed
