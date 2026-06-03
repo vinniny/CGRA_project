@@ -405,6 +405,9 @@ int main(void)
     for (volatile uint32_t i = 0; i < 2000000; i++) ;
     hdmi_in_init();
     hdmi_in_color_convert_identity();
+    /* NOTE: hdmi_in_diag() reads v_tc_1 detector regs which are pixel-clock
+     * gated and HANG the AXI bus on silicon — do NOT call it. Kept in the lib
+     * for reference only. */
     uart_puts("HDMI-in initialised, waiting for laptop signal on J10...\n");
 #endif
 
@@ -461,7 +464,7 @@ int main(void)
             static uint32_t df = 0;
             if ((df++ & 0x3) == 0) {
                 uint32_t roi_off = (uint32_t)540 * HDMI_IN_ROW_STRIDE
-                                 + (uint32_t)960 * 3u;  /* 1080p frame centre */
+                                 + (uint32_t)960 * HDMI_IN_BPP;  /* 1080p frame centre */
                 uint32_t dsum = 0; for (int k = 0; k < 28*28; k++) dsum += live28[k];
                 uart_puts("IN inSR="); uart_puthex(hdmi_in_dmasr());
                 uart_puts(" store="); uart_puthex(hdmi_in_cur_store());

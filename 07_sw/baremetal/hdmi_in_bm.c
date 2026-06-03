@@ -234,6 +234,31 @@ void hdmi_in_enable_vtc(void)                   { /* no v_tc detector on lean BD
 void hdmi_in_color_convert_ycbcr2rgb(void)      { /* no color_convert on lean BD */ }
 void hdmi_in_color_convert_identity(void)       { /* no color_convert on lean BD */ }
 
+/* One-shot diagnostic: dump the VDMA's ACTUALLY-programmed geometry + status,
+ * and enable the v_tc_1 detector (AXI-lite @ FCLK0, safe) to report the HW-
+ * detected incoming resolution.  Tells us if v_vid_in produces valid timing and
+ * what frame size the VDMA sees vs what we programmed. */
+void hdmi_in_diag(void)
+{
+    uart_puts("== VDMA-IN: HSIZE="); uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_HSIZE));
+    uart_puts(" VSIZE=");  uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_VSIZE));
+    uart_puts(" STRIDE="); uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_FRMDLY_STRIDE)); uart_putchar('\n');
+    uart_puts("   FRMSTORE="); uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_FRMSTORE));
+    uart_puts(" DMACR=");  uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_DMACR));
+    uart_puts(" DMASR=");  uart_puthex(mmio_r(VDMA_IN_BASE + S2MM_DMASR)); uart_putchar('\n');
+    /* v_tc_1 @ 0x43C90000 (clean BD).  CTL DET_EN=bit3; STAT bit0=LOCKED;
+     * DASIZE @ 0x20 = {Vactive[28:16], Hactive[12:0]}. */
+    const uint32_t VTC1 = 0x43C90000u;
+    mmio_w(VTC1 + 0x00u, 0x00000008u);            /* enable detector */
+    for (volatile int d = 0; d < 4000000; d++) ;  /* settle (~detector lock) */
+    uint32_t st = mmio_r(VTC1 + 0x04u);
+    uint32_t da = mmio_r(VTC1 + 0x20u);
+    uart_puts("   vtc1 STAT="); uart_puthex(st);
+    uart_puts(" DASIZE="); uart_puthex(da);
+    uart_puts("  detected H="); uart_puthex(da & 0x1FFFu);
+    uart_puts(" V="); uart_puthex((da >> 16) & 0x1FFFu); uart_putchar('\n');
+}
+
 /* Diagnostics: raw S2MM status reg + which frame-store the VDMA last wrote. */
 uint32_t hdmi_in_dmasr(void) { return mmio_r(VDMA_IN_BASE + S2MM_DMASR); }
 uint32_t hdmi_in_cur_store(void)

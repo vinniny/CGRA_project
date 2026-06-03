@@ -45,7 +45,11 @@
 #ifndef HDMI_IN_H
 #define HDMI_IN_H            1080u
 #endif
-#define HDMI_IN_BPP          3u
+/* 4 bytes/pixel: the lean clean-BD capture path uses axis_subset_converter
+ * (24-bit -> 32-bit zero-padded), so DDR pixels are 4 bytes (00,B,G,R), NOT the
+ * 3-byte V_24 of the old pixel_pack BD.  HSIZE = W*4 must match the AXIS line or
+ * the VDMA flags DMAIntErr and never completes a frame (silicon 2026-06-03). */
+#define HDMI_IN_BPP          4u
 #define HDMI_IN_ROW_STRIDE   (HDMI_IN_W * HDMI_IN_BPP)             /* 5760 @1080p */
 #define HDMI_IN_FRAME_BYTES  (HDMI_IN_ROW_STRIDE * HDMI_IN_H)      /* 6 220 800 @1080p */
 
@@ -184,6 +188,7 @@ void hdmi_in_assert_hpd(void);
  * cleanliness while keeping live capture functional at ~one
  * frame-per-inference rate.
  */
+void hdmi_in_diag(void);
 uint32_t hdmi_in_dmasr(void);
 uint32_t hdmi_in_cur_store(void);
 void hdmi_in_halt(void);
