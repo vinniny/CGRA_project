@@ -465,3 +465,9 @@ vivado_*.backup.log
 .Xil/
 NA/
 backups/
+
+# Vivado batch droppings in repo root
+*.jou
+vivado_*.backup.*
+webtalk*.jou
+webtalk*.log
