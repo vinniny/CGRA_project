@@ -62,10 +62,14 @@ static inline void mmu_cache_enable(void)
     MMU_MARK('4');
     uint32_t v;
     asm volatile("mrc p15,0,%0,c1,c0,0" : "=r"(v));
-    v |= (1u << 0) | (1u << 2) | (1u << 12) | (1u << 11);
+    v |= (1u << 0);                       /* stage 1: MMU only */
     asm volatile("mcr p15,0,%0,c1,c0,0" :: "r"(v));
     asm volatile("dsb sy"); asm volatile("isb");
     MMU_MARK('5');
+    v |= (1u << 2) | (1u << 12) | (1u << 11);   /* stage 2: D+I caches */
+    asm volatile("mcr p15,0,%0,c1,c0,0" :: "r"(v));
+    asm volatile("dsb sy"); asm volatile("isb");
+    MMU_MARK('6');
 }
 
 /* Clean entire L1 D-cache (set/way) — after CPU-initialized DDR (weights,
