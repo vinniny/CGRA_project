@@ -510,19 +510,22 @@ int main(void)
             static uint32_t prev_dsum = 0xFFFFFFFFu;
             static int      stuck      = 0;
             static int      ever_live  = 0;
-            const uint32_t sr  = hdmi_in_dmasr();
-            const int      err = (sr & 0x000007F0u) != 0;   /* any S2MM error bit  */
+            /* NOTE: do NOT use DMASR error bits — DMAIntErr/SOFEarly are sticky
+             * from pre-EDID negotiation; capture runs fine with them set.
+             * Live capture has sensor noise: ds28sum jitters every frame even
+             * on a static screen -> ever_live latches in seconds; a frozen
+             * pipeline yields bit-identical frames -> fallback at 8. */
             uint32_t dsum = 0;
             for (int k = 0; k < 28*28; k++) dsum += live28[k];
             if (prev_dsum != 0xFFFFFFFFu && dsum != prev_dsum) ever_live = 1;
-            if (dsum == prev_dsum || err) { if (stuck < 99) stuck++; }
-            else                           { stuck = 0; }
+            if (dsum == prev_dsum) { if (stuck < 99) stuck++; }
+            else                    { stuck = 0; }
             prev_dsum = dsum;
             /* Fall back when: capture never came alive (store never advanced),
              * OR it went live then sustained an error/halt (live-then-died).
              * Either way `stuck` must persist >=8 polls so a transient blip
              * doesn't flip a healthy stream into fixture mode. */
-            if (stuck >= 8 && (!ever_live || err)) {
+            if (stuck >= 8 && !ever_live) {
                 using_fixture = 1;
                 for (int k = 0; k < 28*28; k++) live28[k] = sweep_input28[i][k];
                 static uint32_t fbnote = 0;
