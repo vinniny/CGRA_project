@@ -71,6 +71,11 @@ if {[_env_or CGRA_CALIB 0] ne "0"} {
     app config -name $APP -add define-compiler-symbols CALIB_DUMP
     puts "  CALIB_DUMP enabled"
 }
+# CGRA_DCACHE=1: enable MMU + I/D-cache (mmu_cache_bm.h) — ~20-30x ARM speedup.
+if {[_env_or CGRA_DCACHE 0] ne "0"} {
+    app config -name $APP -add define-compiler-symbols ENABLE_DCACHE
+    puts "  ENABLE_DCACHE enabled"
+}
 app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
 app config -name $APP -add assembler-flags "-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -I$SRC"
 app config -name $APP -set build-config Debug

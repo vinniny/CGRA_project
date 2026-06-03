@@ -44,6 +44,7 @@
 #include "../cnn_eval/mnist_weights_scale.h"
 #ifdef LIVE_INPUT
 #include "hdmi_in_bm.h"
+#include "mmu_cache_bm.h"
 #include "frame_to_mnist.h"
 #endif
 
@@ -536,6 +537,12 @@ int main(void)
 {
     uart_init();
     uart_puts("\n=== B6 MNIST HDMI demo (Option A: CGRA-FC head-to-head) ===\n");
+#ifdef ENABLE_DCACHE
+    /* MMU + I/D-cache: ~20-30x faster ARM. DMA windows (CGRA staging 1-3 MB,
+     * framebuffers 0x100-0x12F MB) are non-cacheable -> coherent. */
+    mmu_cache_enable();
+    uart_puts("  MMU + I/D-cache ENABLED\n");
+#endif
 
     arm_pmu_enable();
     arm_ccnt_reset();
@@ -576,6 +583,11 @@ int main(void)
     if (cnn_fc1_v2_build_chains(fc1_w_ddr) || cnn_fc2_v2_build_chains(fc2_w_ddr)) {
         uart_puts("FAIL: v2 FC chain build\n"); for(;;);
     }
+#ifdef ENABLE_DCACHE
+    /* Weights + SG chains were CPU-written to cacheable DDR — clean before
+     * first CGRA DMA read. */
+    cache_clean_all();
+#endif
 #else
     /* v1 chains: silicon-validated 97 % accuracy on MNIST sweep. */
     if (cnn_fc1_build_chains(fc1_w_ddr) || cnn_fc2_build_chains(fc2_w_ddr)) {
