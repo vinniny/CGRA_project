@@ -266,9 +266,17 @@ connect_bd_intf_net [get_bd_intf_pins pixel_pack_in/stream_out_32] [get_bd_intf_
 # S2MM MM goes to HP1 via smartconnect_1 S01_AXI (S00 already used by CGRA)
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_1/M_AXI_S2MM] [get_bd_intf_pins smartconnect_1/S01_AXI]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axi_lite_aclk]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/m_axi_s2mm_aclk]
+# BANDWIDTH FIX (Gemini sweep + matches PYNQ): the S2MM memory-write side must
+# NOT run at FCLK0=50 MHz.  At 32-bit that's only 200 MB/s — BELOW the ~221 MB/s
+# a 720p60 frame needs -> linebuffer overflow -> capture freeze (the same freeze
+# we chased).  Move m_axi to FCLK1=100 MHz (-> 400 MB/s, 1.8x margin).
+# smartconnect_1/aclk1 is ALREADY FCLK1=100, so S01 auto-associates with no
+# smartconnect change; HP1 port stays 50 MHz x 64-bit = 400 MB/s (also > 221).
+# (PYNQ runs this whole path at 142.857; 100 MHz is sufficient for 720p.)
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK1]    [get_bd_pins axi_vdma_1/m_axi_s2mm_aclk]
 # S2MM AXIS write side on the 142.857MHz capture domain (matches pixel_pack
-# output); VDMA auto-detects async (s_axis 142.857MHz vs m_axi/lite 50MHz).
+# output).  VDMA auto-detects async (s_axis 142.857 vs m_axi 100 vs lite 50;
+# log confirms "configuring AXI-VDMA in ASYNC mode").
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3]    [get_bd_pins axi_vdma_1/s_axis_s2mm_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_vdma_1/axi_resetn]
 
