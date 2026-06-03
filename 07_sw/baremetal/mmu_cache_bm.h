@@ -12,8 +12,13 @@
 #define MMU_CACHE_BM_H
 #include <stdint.h>
 
-#define SEC_WB     0x00015C0Eu
-#define SEC_NC     0x00014C02u
+void uart_putchar(char c);
+#define MMU_MARK(c) uart_putchar(c)
+
+/* 1MB section attrs (AP=RW PL1: AP[1:0]=01, AP2=0):
+ * WB cache (TEX=001, C=1, B=1), NC (TEX=001), Device (B=1). */
+#define SEC_WB     0x00001C0Eu
+#define SEC_NC     0x00001C02u
 #define SEC_DEV    0x00000C06u
 
 static uint32_t __attribute__((aligned(16384))) mmu_l1_table[4096];
@@ -30,12 +35,14 @@ static inline void mmu_cache_enable(void)
         else                          attr = SEC_DEV;
         mmu_l1_table[s] = base | attr;
     }
+    MMU_MARK('1');
     uint32_t ttbr = (uint32_t)mmu_l1_table | 0x59u;
     asm volatile("mcr p15,0,%0,c2,c0,0" :: "r"(ttbr));
     asm volatile("mcr p15,0,%0,c3,c0,0" :: "r"(1));
     uint32_t z = 0;
     asm volatile("mcr p15,0,%0,c8,c7,0" :: "r"(z));
     asm volatile("mcr p15,0,%0,c7,c5,0" :: "r"(z));
+    MMU_MARK('2');
     uint32_t s = 0, l = 0;
     for (s = 0; s < 256u; s++)
         for (l = 0; l < 4u; l++) {
@@ -43,6 +50,7 @@ static inline void mmu_cache_enable(void)
             asm volatile("mcr p15,0,%0,c7,c6,2" :: "r"(sw));
         }
     asm volatile("dsb sy");
+    MMU_MARK('3');
     /* Cortex-A9: set ACTLR.SMP before enabling D-cache (required even
      * single-core), plus branch-predictor invalidate. */
     uint32_t act;
@@ -51,11 +59,13 @@ static inline void mmu_cache_enable(void)
     asm volatile("mcr p15,0,%0,c1,c0,1" :: "r"(act));
     asm volatile("mcr p15,0,%0,c7,c5,6" :: "r"(z));   /* BPIALL */
     asm volatile("dsb sy"); asm volatile("isb");
+    MMU_MARK('4');
     uint32_t v;
     asm volatile("mrc p15,0,%0,c1,c0,0" : "=r"(v));
     v |= (1u << 0) | (1u << 2) | (1u << 12) | (1u << 11);
     asm volatile("mcr p15,0,%0,c1,c0,0" :: "r"(v));
     asm volatile("dsb sy"); asm volatile("isb");
+    MMU_MARK('5');
 }
 
 /* Clean entire L1 D-cache (set/way) — after CPU-initialized DDR (weights,
