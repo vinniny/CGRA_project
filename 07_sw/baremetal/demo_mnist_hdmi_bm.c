@@ -499,13 +499,23 @@ int main(void)
         {
             static uint32_t prev_store = 0xFFFFFFFFu;
             static int      stuck      = 0;
+            static int      ever_live  = 0;   /* latched once store advances */
             const uint32_t sr  = hdmi_in_dmasr();
             const uint32_t st  = (sr >> 24) & 0x1Fu;        /* current frame store */
             const int      err = (sr & 0x000007F0u) != 0;   /* any S2MM error bit  */
+            /* A live S2MM ring advances its store slot; once we observe even a
+             * single advance we KNOW capture is working and permanently trust
+             * it (avoids a healthy 3-slot ring that happens to repeat a slot
+             * modulo-3 being mistaken for a stall — codex P1, 2026-06-03). */
+            if (prev_store != 0xFFFFFFFFu && st != prev_store) ever_live = 1;
             if (st == prev_store || err) { if (stuck < 99) stuck++; }
             else                          { stuck = 0; }
             prev_store = st;
-            if (stuck >= 8) {                                /* capture not live */
+            /* Fall back when: capture never came alive (store never advanced),
+             * OR it went live then sustained an error/halt (live-then-died).
+             * Either way `stuck` must persist >=8 polls so a transient blip
+             * doesn't flip a healthy stream into fixture mode. */
+            if (stuck >= 8 && (!ever_live || err)) {
                 using_fixture = 1;
                 for (int k = 0; k < 28*28; k++) live28[k] = sweep_input28[i][k];
                 static uint32_t fbnote = 0;
