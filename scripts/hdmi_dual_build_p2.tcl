@@ -5,6 +5,10 @@ set PROJ /mnt/c/Users/thanh/Desktop/CGRA_HDMI_DUAL/cgra_hdmi_dual.xpr
 set XSA  /home/vinniny/centos_vm/projects/CGRA_project/bitstreams/cgra_hdmi_dual.xsa
 
 open_project $PROJ
+# 24-core host with plenty of free RAM — let Vivado use it. maxThreads caps
+# per-step parallelism (synth/place/route); -jobs (below) parallelizes the
+# independent OOC IP synth runs (v_tc, v_vid_in, pixel_pack, color_swap, dvi2rgb).
+catch {set_param general.maxThreads 16}
 set_property top design_1_wrapper [current_fileset]
 # Performance_ExploreWithRemap closes the 200MHz HDMI-IN capture domain (default
 # strategy leaves WNS=-0.058; ExploreWithRemap -> +0.112 setup / +0.052 hold,
@@ -27,7 +31,7 @@ puts $fp "set_property SEVERITY {Warning} \[get_drc_checks UCIO-1\]"
 close $fp
 set_property STEPS.WRITE_BITSTREAM.TCL.PRE $hook [get_runs impl_1]
 
-launch_runs impl_1 -to_step write_bitstream -jobs 4
+launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 set st   [get_property STATUS   [get_runs impl_1]]
 set prog [get_property PROGRESS [get_runs impl_1]]

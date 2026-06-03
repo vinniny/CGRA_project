@@ -61,12 +61,20 @@ set IP_RST    [_pick_ip xilinx.com   ip   proc_sys_reset]
 set IP_DVI2   [_pick_ip digilentinc.com ip dvi2rgb]
 set IP_VTC    [_pick_ip xilinx.com   ip   v_tc]
 set IP_VIDIN  [_pick_ip xilinx.com   ip   v_vid_in_axi4s]
-set IP_SUBCV  [_pick_ip xilinx.com   ip   axis_subset_converter]
 set IP_VDMA   [_pick_ip xilinx.com   ip   axi_vdma]
 set IP_CONST  [_pick_ip xilinx.com   ip   xlconstant]
+# PROVEN PYNQ framing IPs (from base.tcl capture chain):
+#   color_swap  — RGB byte-order fixer; bridges dvi2rgb/RGB -> v_vid_in/vid_io_in
+#                 via the vid_io INTERFACE (not error-prone direct pins).
+#   pixel_pack  — HLS 24b->32b repacker that PRESERVES the AXIS SOF(tuser)/
+#                 EOL(tlast) sidebands the VDMA needs to delimit frames
+#                 (axis_subset_converter dropped them -> DMAIntErr, frozen
+#                 capture, silicon 2026-06-03).
+set IP_CSWAP  [_pick_ip xilinx.com   user color_swap]
+set IP_PIXPK  [_pick_ip xilinx.com   hls  pixel_pack]
 
 puts "  IPs:"
-foreach v {IP_DVI2 IP_VTC IP_VIDIN IP_SUBCV IP_VDMA} {
+foreach v {IP_DVI2 IP_VTC IP_VIDIN IP_CSWAP IP_PIXPK IP_VDMA} {
     puts [format "    %-10s = %s" $v [set $v]]
 }
 
@@ -85,9 +93,16 @@ create_bd_cell -type ip -vlnv $IP_RST rst_ps7_0_200M
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins rst_ps7_0_200M/slowest_sync_clk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_200M/ext_reset_in]
 
-# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 4 → 6 ----------
-puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 4 → 6 ==="
-set_property CONFIG.NUM_MI {6} [get_bd_cells ps7_0_axi_periph]
+# ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 4 → 7 ----------
+# M04 axi_vdma_1, M05 v_tc_1, M06 pixel_pack/s_axi_control.
+# ps7_0_axi_periph is a SMARTCONNECT (not axi_interconnect) → no per-MI ACLK
+# pins.  pixel_pack's s_axi_control runs on its single ap_clk = FCLK2 (200 MHz),
+# so add a 2nd clock domain: NUM_CLKS 1→2, wire aclk1=200.  SmartConnect
+# auto-associates each MI to whichever provided aclk matches the connected
+# IP's clock (M06→200 via aclk1; M00-M05 stay on aclk=50).
+puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 4 → 7, NUM_CLKS 1 → 2 ==="
+set_property -dict [list CONFIG.NUM_MI {7} CONFIG.NUM_CLKS {2}] [get_bd_cells ps7_0_axi_periph]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2] [get_bd_pins ps7_0_axi_periph/aclk1]
 
 # ----- 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 also serves vdma_1) ----
 puts "\n=== 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 carries CGRA + vdma_1) ==="
@@ -141,7 +156,9 @@ connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_t
 # ----- 6. v_vid_in_axi4s_0 (parallel → AXIS) -----------------------------
 puts "\n=== 6. v_vid_in_axi4s_0 (parallel RGB → AXIS, aligned to v_tc_1 timing) ==="
 create_bd_cell -type ip -vlnv $IP_VIDIN v_vid_in_axi4s_0
+# Match the proven PYNQ base.tcl config exactly: C_ADDR_WIDTH=12 + async clk.
 set_property -dict [list \
+    CONFIG.C_ADDR_WIDTH {12} \
     CONFIG.C_HAS_ASYNC_CLK {1} \
     CONFIG.C_PIXELS_PER_CLOCK {1} \
     CONFIG.C_M_AXIS_VIDEO_FORMAT {2} \
@@ -160,13 +177,18 @@ connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins v_v
 # active-high sibling of peripheral_aresetn from the same proc_sys_reset).
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_reset]    [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
 
-# Parallel input from dvi2rgb (24-bit RGB + hsync/vsync/VDE).
-# Direct pin connections (Vivado warns about overriding the vid_io_in interface
-# bundle — non-fatal; the bundle is reconstructed by the connection).
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pData]  [get_bd_pins v_vid_in_axi4s_0/vid_data]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pHSync] [get_bd_pins v_vid_in_axi4s_0/vid_hsync]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVSync] [get_bd_pins v_vid_in_axi4s_0/vid_vsync]
-connect_bd_net [get_bd_pins dvi2rgb_0/vid_pVDE]   [get_bd_pins v_vid_in_axi4s_0/vid_active_video]
+# Parallel input from dvi2rgb via color_swap + the vid_io INTERFACE — EXACTLY
+# as the proven PYNQ base.tcl does it (NOT direct pins, which risk active_video/
+# sync mis-mapping or polarity inversion -> no valid framing -> frozen capture).
+#   dvi2rgb/RGB  -> color_swap/pixel_input   (rbg)
+#   color_swap/pixel_output (rgb) -> v_vid_in/vid_io_in
+create_bd_cell -type ip -vlnv $IP_CSWAP color_swap_in
+set_property -dict [list \
+    CONFIG.input_format  {rbg} \
+    CONFIG.output_format {rgb} \
+] [get_bd_cells color_swap_in]
+connect_bd_intf_net [get_bd_intf_pins dvi2rgb_0/RGB]            [get_bd_intf_pins color_swap_in/pixel_input]
+connect_bd_intf_net [get_bd_intf_pins color_swap_in/pixel_output] [get_bd_intf_pins v_vid_in_axi4s_0/vid_io_in]
 # Detected timing flows FROM v_vid_in_axi4s_0 TO v_tc_1 (which reports
 # htotal/vtotal/active to PS via AXI-Lite ctrl regs at 0x43C9_0000).
 connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/vtiming_out] [get_bd_intf_pins v_tc_1/vtiming_in]
@@ -176,32 +198,28 @@ set_property -dict [list CONFIG.CONST_VAL {1} CONFIG.CONST_WIDTH {1}] [get_bd_ce
 connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_vid_in_axi4s_0/vid_io_in_ce]
 connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_vid_in_axi4s_0/axis_enable]
 
-# ----- 7. axis_subset_converter_in (AXIS 24b → 32b, byte-padded) --------
-puts "\n=== 7. axis_subset_converter_in (AXIS 24b → 32b zero-pad) ==="
-create_bd_cell -type ip -vlnv $IP_SUBCV axis_subset_converter_in
-# 3-byte (24-bit) in, 4-byte (32-bit) out, with the high byte forced to 0.
-# Remap string syntax: <tdata-out-msb..lsb> = <expr in source bits>
-# axis_subset_converter_v1_1 doesn't expose HAS_TKEEP/TLAST/TUSER (those are
-# driven by S_HAS_*/M_HAS_* derived from the remap). Setting them triggered
-# [BD 41-1276] parameter-does-not-exist. Set only the widths and remap.
-set_property -dict [list \
-    CONFIG.S_TDATA_NUM_BYTES   {3} \
-    CONFIG.M_TDATA_NUM_BYTES   {4} \
-    CONFIG.TDATA_REMAP         {8'b00000000,tdata[23:0]} \
-    CONFIG.S_HAS_TSTRB         {0} \
-    CONFIG.M_HAS_TSTRB         {0} \
-] [get_bd_cells axis_subset_converter_in]
-# subset_converter on the same 200MHz AXIS domain as v_vid_in's output
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins axis_subset_converter_in/aclk]
-connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins axis_subset_converter_in/aresetn]
-connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_pins axis_subset_converter_in/S_AXIS]
+# ----- 7. pixel_pack (HLS 24b → 32b, PRESERVES tuser/tlast) --------------
+puts "\n=== 7. pixel_pack (AXIS 24b → 32b, preserves SOF/EOL sidebands) ==="
+# The PROVEN PYNQ repacker. Interfaces: stream_in_24 (S), stream_out_32 (M),
+# s_axi_control (AXI-Lite: ap_start/auto_restart + 'mode' pixel-format reg).
+# It has ONE ap_clk for both stream and control, so it lives in the 200 MHz
+# capture domain (matching v_vid_in/video_out); its AXI-Lite control crosses
+# 50->200 on the ps7_0_axi_periph M06 port (set M06_ACLK below).
+create_bd_cell -type ip -vlnv $IP_PIXPK pixel_pack_in
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins pixel_pack_in/ap_clk]
+connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins pixel_pack_in/ap_rst_n]
+connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_pins pixel_pack_in/stream_in_24]
+# AXI-Lite control on ps7_0_axi_periph M06.  SmartConnect crosses 50->200
+# internally; M06 is auto-associated to aclk1=200 (wired in step 2) because
+# pixel_pack's s_axi_control clock is FCLK2.
+connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M06_AXI] [get_bd_intf_pins pixel_pack_in/s_axi_control]
 
 # ----- 8. axi_vdma_1 (S2MM only, 3-frame ring) ---------------------------
 puts "\n=== 8. axi_vdma_1 (S2MM-only, 3-frame ring on HP1) ==="
 create_bd_cell -type ip -vlnv $IP_VDMA axi_vdma_1
 # c_s_axis_s2mm_tdata_width is derived from c_s_axi_s2mm_data_width — setting
 # it explicitly raised [BD 41-737] read-only. Default 32-bit matches the
-# subset_converter output, so we let it default.
+# pixel_pack stream_out_32 output, so we let it default.
 set_property -dict [list \
     CONFIG.c_include_mm2s          {0} \
     CONFIG.c_include_s2mm          {1} \
@@ -212,8 +230,8 @@ set_property -dict [list \
 ] [get_bd_cells axi_vdma_1]
 
 connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M04_AXI] [get_bd_intf_pins axi_vdma_1/S_AXI_LITE]
-# S2MM AXIS from subset_converter (24→32 padded)
-connect_bd_intf_net [get_bd_intf_pins axis_subset_converter_in/M_AXIS] [get_bd_intf_pins axi_vdma_1/S_AXIS_S2MM]
+# S2MM AXIS from pixel_pack (24→32, sidebands preserved)
+connect_bd_intf_net [get_bd_intf_pins pixel_pack_in/stream_out_32] [get_bd_intf_pins axi_vdma_1/S_AXIS_S2MM]
 # S2MM MM goes to HP1 via smartconnect_1 S01_AXI (S00 already used by CGRA)
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_1/M_AXI_S2MM] [get_bd_intf_pins smartconnect_1/S01_AXI]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axi_lite_aclk]
@@ -284,7 +302,14 @@ set_property range  64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_
 assign_bd_address [get_bd_addr_segs {v_tc_1/ctrl/Reg}]
 set_property offset 0x43C90000 [get_bd_addr_segs {processing_system7_0/Data/SEG_v_tc_1_Reg}]
 
-# subset_converter is config-time only — no AXI-Lite address needed.
+# pixel_pack control (HLS s_axi_control: ap_start/auto_restart + mode reg).
+# HLS auto-names the PS-side segment unpredictably (SEG_pixel_pack_in_Reg vs
+# ..._s_axi_control_Reg), so locate it by glob after assignment.
+assign_bd_address [get_bd_addr_segs {pixel_pack_in/s_axi_control/Reg}]
+set _ppseg [get_bd_addr_segs -filter {NAME =~ "SEG_pixel_pack_in*"} \
+                processing_system7_0/Data/*]
+set_property offset 0x43C40000 $_ppseg
+set_property range  64K        $_ppseg
 
 # vdma_1 S2MM access into DDR via HP1.
 # Use -target_address_space form: the master-side SEG_X name only exists

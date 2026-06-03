@@ -11,11 +11,17 @@ set PROJ cgra_hdmi_dual
 set PART xc7z020clg400-1
 set VLIB /mnt/c/Users/thanh/Desktop/vivado-library
 set CGRAREPO /mnt/c/Users/thanh/Desktop/FPGA_CGRA
+# PYNQ-Z2 base IP repos — supply the PROVEN HDMI-in framing IPs (color_swap,
+# pixel_pack) from the silicon-validated base.tcl capture chain. pixel_pack is
+# the HLS repacker that (unlike axis_subset_converter) preserves the AXIS
+# SOF(tuser)/EOL(tlast) sidebands the VDMA needs to delimit a frame.
+set PYNQIP    /mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/ip
+set PIXPACKIP /mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/ip/hls/pixel_pack/solution1/impl/ip
 
 file delete -force $PROJDIR
 create_project $PROJ $PROJDIR -part $PART -force
 catch {set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]}
-set_property ip_repo_paths [list $VLIB $CGRAREPO] [current_project]
+set_property ip_repo_paths [list $VLIB $CGRAREPO $PYNQIP $PIXPACKIP] [current_project]
 update_ip_catalog
 puts "board=[get_property board_part [current_project]] repos set"
 

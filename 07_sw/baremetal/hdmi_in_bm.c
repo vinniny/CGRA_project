@@ -143,9 +143,15 @@ static void delay_us(uint32_t us)
 #define CC_YCBCR2RGB709_BIAS_C2 0x054u  /* +0.3275 (round  +84 → 0x054) */
 #define CC_YCBCR2RGB709_BIAS_C3 0x308u  /* -0.928   (round -238 → 0x308) */
 
-/* ── Pixel-pack: mode register ───────────────────────────────────────── */
+/* ── Pixel-pack: mode + alpha registers (xpixel_pack_hw.h) ───────────────
+ * pixel_pack is HLS ap_ctrl_none (free-running) — no ap_start needed; it
+ * runs whenever AXIS data arrives.  Its s_axi_control lives in the FCLK2=200
+ * MHz domain (interconnect crosses 50->200), NOT the pixel clock, so these
+ * writes are SAFE anytime (unlike the pixel-clock-gated v_tc detector). */
 #define PIXPACK_MODE            0x10u
-#define PIXPACK_MODE_V24        0u  /* 3-byte BGR */
+#define PIXPACK_ALPHA           0x18u
+#define PIXPACK_MODE_V24        0u  /* 4 src px -> 3 words (24b dense)        */
+#define PIXPACK_MODE_V32        1u  /* 1 px -> 1 word: data[23:0]=RGB,[31:24]=alpha */
 
 /* ── Driver state ────────────────────────────────────────────────────── */
 static volatile uint8_t *g_fb[3];
@@ -171,12 +177,17 @@ void hdmi_in_init(void)
         delay_us(1);
     }
 
-    /* 2. (LEAN clean dual-HDMI BD) — NO color_convert / pixel_pack on the input
-     *    path.  dvi2rgb_0 -> v_vid_in_axi4s_0 (CE tied high in HW) -> axi_vdma_1
-     *    S2MM.  The recovered RGB streams straight to DDR as 24-bit packed;
-     *    writing to the old 0x43C5_0000/0x43C4_0000 IPs would hit unmapped
-     *    space and hang the AXI bus.  Skipped. */
-    uart_puts(" [init.S2] (lean BD: no color_convert/pixel_pack)\n");
+    /* 2. (PYNQ-FAITHFUL dual-HDMI BD) — capture path now matches the proven
+     *    base.tcl: dvi2rgb -> color_swap -> v_vid_in/vid_io_in (interface) ->
+     *    pixel_pack(24->32) -> axi_vdma_1 S2MM.  pixel_pack PRESERVES the AXIS
+     *    SOF(tuser)/EOL(tlast) framing the VDMA needs (axis_subset_converter
+     *    dropped them -> DMAIntErr/frozen, silicon 2026-06-03).  Set mode=V_32
+     *    so each pixel is one 32-bit word (RGB in [23:0], alpha in [31:24]) ->
+     *    HSIZE = W*4 matches the AXIS line exactly.  Free-running (ap_ctrl_none),
+     *    on FCLK2 -> safe to write anytime. */
+    mmio_w(PIXPACK_IN_BASE + PIXPACK_MODE,  PIXPACK_MODE_V32);
+    mmio_w(PIXPACK_IN_BASE + PIXPACK_ALPHA, 0xFFu);
+    uart_puts(" [init.S2] pixel_pack mode=V_32 (1px=4B, sidebands preserved)\n");
 
     uart_puts(" [init.S3] VTC detector skipped (not needed for capture)\n");
     /* V_TC's AXI-Lite is clocked by dvi2rgb_0/PixelClk (the recovered HDMI
