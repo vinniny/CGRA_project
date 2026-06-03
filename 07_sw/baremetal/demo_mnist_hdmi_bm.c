@@ -218,6 +218,7 @@ static int run_cgra_fc(const int32_t act400[400])
  *  3. area-average (box-filter) the bbox to a 20x20 patch — preserves
  *     antialiased 2-3px strokes like MNIST,
  *  4. place patch in 28x28 with centre-of-mass at (14,14). */
+#ifdef LIVE_INPUT
 static inline uint32_t pix_luma(const uint8_t *fb, uint32_t x, uint32_t y)
 {
     const uint8_t *p = fb + (uint32_t)y * HDMI_IN_ROW_STRIDE + (uint32_t)x * HDMI_IN_BPP;
@@ -339,6 +340,8 @@ static void mnist_normalize_wide(const uint8_t src[56*28], uint8_t out[28*28])
                 (sx <= 55 && sy <= 27) ? st[sy*56 + sx] : 0;
         }
 }
+
+#endif /* LIVE_INPUT — capture/normalize helpers */
 
 static void delay_cycles(uint32_t n)
 {
