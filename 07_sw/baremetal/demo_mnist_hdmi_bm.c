@@ -487,6 +487,32 @@ int main(void)
         for (int dbg = 0; dbg < 28*28; ++dbg)
             live28[dbg] = sweep_input28[0][dbg];
 #endif
+        /* === ROBUST FALLBACK (presentation safety) =======================
+         * If the live HDMI-in capture is NOT producing frames — VDMA frame-
+         * store not advancing, or any S2MM error bit (DMAIntErr/Slv/Dec/SOF)
+         * set — fall back to the built-in MNIST sweep so the demo ALWAYS
+         * shows working CGRA inference + the speedup, never a frozen screen.
+         * Detection uses only the SAFE VDMA DMASR read (FCLK0 AXI-lite); it
+         * does NOT touch the pixel-clock-gated v_tc regs (those hang the bus).
+         * When live capture works, store advances every loop iter -> live. */
+        int using_fixture = 0;
+        {
+            static uint32_t prev_store = 0xFFFFFFFFu;
+            static int      stuck      = 0;
+            const uint32_t sr  = hdmi_in_dmasr();
+            const uint32_t st  = (sr >> 24) & 0x1Fu;        /* current frame store */
+            const int      err = (sr & 0x000007F0u) != 0;   /* any S2MM error bit  */
+            if (st == prev_store || err) { if (stuck < 99) stuck++; }
+            else                          { stuck = 0; }
+            prev_store = st;
+            if (stuck >= 8) {                                /* capture not live */
+                using_fixture = 1;
+                for (int k = 0; k < 28*28; k++) live28[k] = sweep_input28[i][k];
+                static uint32_t fbnote = 0;
+                if ((fbnote++ & 0x1F) == 0)
+                    uart_puts("[fallback] HDMI-in not live -> using built-in MNIST sweep\n");
+            }
+        }
         arm_cnn_vfp_run(live28, act400);
 
         /* Defensive: re-pack each act400 entry as a clean sign-extended
@@ -510,7 +536,10 @@ int main(void)
         }
         diag_frame++;
 
-        label = -1;                     /* no ground truth in live mode */
+        /* live capture: no ground truth (label=-1).  Fallback (fixture):
+         * keep the sweep label so the panels show correct/miss as usual. */
+        if (!using_fixture) label = -1;
+        else                label = (int)sweep_labels[i];
 
 #ifdef FORCE_FIXTURE_ACT400
         /* DIAGNOSTIC: override the live-derived act400 with sweep_act400[0].
