@@ -33,7 +33,10 @@ typedef struct {
 /* Silicon 2026-06-03: the laptop letterboxes its desktop into the 720p frame —
  * rows 0..~100 are black; content spans ~100..720.  Centre crop on that:
  * y = 100 + (620-576)/2 = 122. */
-#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 352, .y = 122, .w = 576, .h = 576})
+/* DDR frame probe 2026-06-03: letterbox to ~row 60; Paint title/toolbar
+ * (white) rows ~100-160; canvas (drawing area) rows ~200-720 and
+ * cols ~60-1230.  Crop the canvas: 520x520 centred at (645,460). */
+#define HDMI_ROI_DEFAULT  ((hdmi_roi_t){.x = 385, .y = 195, .w = 520, .h = 520})
 
 /**
  * Downsample a region of the captured frame into a 28×28 UINT8 tensor.
