@@ -17,9 +17,11 @@ void uart_putchar(char c);
 
 /* 1MB section attrs (AP=RW PL1: AP[1:0]=01, AP2=0):
  * WB cache (TEX=001, C=1, B=1), NC (TEX=001), Device (B=1). */
+/* Non-shareable (no SCU in this bare-metal): WB cache TEX=001+CB, AP=11. */
 #define SEC_WB     0x00001C0Eu
 #define SEC_NC     0x00001C02u
 #define SEC_DEV    0x00000C06u
+#define TTBR_FLAGS 0x0u   /* non-cacheable page walks — SCU/SMP disabled */
 
 static uint32_t __attribute__((aligned(16384))) mmu_l1_table[4096];
 
@@ -36,7 +38,7 @@ static inline void mmu_cache_enable(void)
         mmu_l1_table[s] = base | attr;
     }
     MMU_MARK('1');
-    uint32_t ttbr = (uint32_t)mmu_l1_table | 0x59u;
+    uint32_t ttbr = (uint32_t)mmu_l1_table | TTBR_FLAGS;
     asm volatile("mcr p15,0,%0,c2,c0,0" :: "r"(ttbr));
     asm volatile("mcr p15,0,%0,c3,c0,0" :: "r"(1));
     uint32_t z = 0;
@@ -53,10 +55,6 @@ static inline void mmu_cache_enable(void)
     MMU_MARK('3');
     /* Cortex-A9: set ACTLR.SMP before enabling D-cache (required even
      * single-core), plus branch-predictor invalidate. */
-    uint32_t act;
-    asm volatile("mrc p15,0,%0,c1,c0,1" : "=r"(act));
-    act |= (1u << 6);
-    asm volatile("mcr p15,0,%0,c1,c0,1" :: "r"(act));
     asm volatile("mcr p15,0,%0,c7,c5,6" :: "r"(z));   /* BPIALL */
     asm volatile("dsb sy"); asm volatile("isb");
     MMU_MARK('4');
