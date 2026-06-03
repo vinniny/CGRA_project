@@ -50,7 +50,23 @@ for the timing-closure story).
 | Bare-metal regression | 96 checks PASS across 25 groups |
 | ISA opcodes | 21 implemented |
 
-### Recent milestones (2026-05-26 → 2026-05-27)
+### Recent milestones (2026-06-02 → 2026-06-03)
+
+- **Dual-HDMI bitstream (HDMI-out + HDMI-in + CGRA) timing-met.** From-scratch
+  BD build: HDMI-OUT (`axi_vdma` MM2S → `rgb2dvi`, genlocked `v_tc`) plus
+  HDMI-IN (`dvi2rgb` → `color_swap` → `v_vid_in_axi4s` → `pixel_pack` → VDMA
+  S2MM) — the PYNQ-faithful capture path that preserves the AXIS SOF/EOL
+  sidebands. Capture domain at 142.857 MHz; all clocks positive.
+- **720p EDID emulation baked into dvi2rgb** (`dgl_720p_cea.data` served over
+  DDC) — forces the source to a clean 1280×720@60 the XC7Z020-1 locks reliably.
+- **VDMA bandwidth fix:** S2MM memory clock 50 → 100 MHz (200 MB/s was below
+  720p's 221 MB/s and overflowed the linebuffer; now 400 MB/s).
+- **Presentation-robust demo:** live HDMI-in with automatic fallback to the
+  built-in MNIST sweep (safe DMASR-only liveness check) — never freezes.
+- **Builds fully native on WSL** (`~/cgra_builds/`): Vivado project, Vitis
+  workspace, IP repos. Pure Vivado → `.xsa` → Vitis flow throughout.
+
+### Earlier milestones (2026-05-26 → 2026-05-27)
 
 - **Live HDMI MNIST demo silicon-validated.** `demo_mnist_hdmi_bm.elf`
   captures 1280×720 from a laptop via J10 → 28×28 binarised ROI →
@@ -90,7 +106,7 @@ for the timing-closure story).
   still propagates). `make mnist_sweep_v2` and `make mnist_hdmi_v2`
   build the validation ELFs alongside the Tier-1 defaults.
 
-### Recent milestones (2026-05-23 → 2026-05-24)
+### Earlier milestones (2026-05-23 → 2026-05-24)
 
 - **v2 RTL merge** (commit `0b707ae`) — dual-port SPM in `cgra_pe`, broadcast
   DMA prefix (0x5), 16-PE FC enablement. Sim went from 9,148 → 9,152 (+4
@@ -374,21 +390,34 @@ because Xcelium is not present on the WSL2 host that holds the working
 copy. The project is SSHFS-mounted from WSL2 into the VM so edits on
 either side propagate live.
 
-## Running on the FPGA
+## Running on the FPGA — official Vivado → Vitis flow
+
+All silicon work follows the official flow: **Vivado** builds the bitstream
+and exports a platform (`.xsa`); **Vitis** builds the bare-metal ELF against
+it and launches on hardware. Each Tcl step maps 1:1 to a Windows GUI action,
+so the build is manually reproducible per
+[`06_doc/build/windows_gui_recreation_recipe.md`](06_doc/build/windows_gui_recreation_recipe.md).
 
 ```bash
-# Build the bare-metal MNIST HDMI demo
-cd 07_sw/baremetal
-make BOARD=PYNQ_BASE mnist_hdmi
-cd ../..
+# 1) Vivado: assemble dual-HDMI BD + DDR fix, validate, wrapper   (~15 min)
+vivado -mode batch -source scripts/hdmi_dual_build_p1.tcl
 
-# Program FPGA + load ELF + start execution via XSDB
-make run_elf ELF=07_sw/baremetal/demo_mnist_hdmi_bm.elf \
-             BIT=bitstreams/cgra_pynq_base/base.bit
+# 2) Vivado: synth + impl + bitstream + export platform (.xsa)    (~45 min)
+#    Ends with write_hw_platform -fixed -include_bit -> bitstreams/cgra_hdmi_dual.xsa
+vivado -mode batch -source scripts/hdmi_dual_build_p2.tcl
 
-# Watch UART telemetry (CH340 USB-UART, 115200 baud)
+# 3) Vitis: platform + app + build (MNIST HDMI demo ELF; CGRA_LIVE=1 = live capture)
+CGRA_LIVE=1 xsct scripts/vitis_build_hdmi_demo.tcl
+
+# 4) Vitis: program FPGA + ps7_init + load & run ELF
+xsct scripts/vitis_launch_autohw.tcl
+
+# 5) UART telemetry (CH340 USB-UART, 115200 baud)
 python3 scripts/uart_monitor.py /dev/ttyUSB1 115200 30
 ```
+
+Builds run on native WSL ext4 (`~/cgra_builds/` — Vivado project, Vitis
+workspace, and the IP repos); only the `.xsa` lands in `bitstreams/`.
 
 An HDMI monitor on the PYNQ-Z2 J11 connector shows the three-panel
 demo: CGRA-FC, ARM-INT-FC, ARM-VFP-FC running the same MNIST FC stage
@@ -540,11 +569,17 @@ streamed over UART0; full pass on the current bitstream.
 
 ## Documentation
 
+Docs are organized by purpose under `06_doc/` — see the
+[index](06_doc/README.md): `defense/` (Q&A, slides, strategy), `thesis/`
+(results, roofline), `silicon/` (validation, demo audit), `build/`
+(Vivado→Vitis procedures, Windows GUI recipe, DAP recovery), `hdmi/`
+(capture pipeline), `reviews/` (senior consults).
+
 - [`CLAUDE.md`](CLAUDE.md) — Project context for AI tools
 - [`06_doc/thesis_ch4/`](06_doc/thesis_ch4/) — Thesis Chapter 4 (software design)
 - [`06_doc/thesis_ch5/`](06_doc/thesis_ch5/) — Thesis Chapter 5 (results)
 - [`06_doc/silicon/demo_audit.md`](06_doc/silicon/demo_audit.md) — Feature × demo silicon-confirmation matrix
-- [`06_doc/hdmi/petalinux_hdmi_backup.md`](06_doc/hdmi/petalinux_hdmi_backup.md) — PetaLinux + HDMI fallback flow
+- [`06_doc/build/windows_gui_recreation_recipe.md`](06_doc/build/windows_gui_recreation_recipe.md) — Windows GUI recreation
 - [`07_sw/baremetal/MNIST_HDMI_DEMO.md`](07_sw/baremetal/MNIST_HDMI_DEMO.md) — Headline demo walkthrough
 
 ## License
