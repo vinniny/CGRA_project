@@ -9,14 +9,19 @@ set REPO /home/vinniny/centos_vm/projects/CGRA_project
 set PROJDIR /home/vinniny/cgra_builds/CGRA_HDMI_DUAL
 set PROJ cgra_hdmi_dual
 set PART xc7z020clg400-1
-set VLIB /mnt/c/Users/thanh/Desktop/vivado-library
-set CGRAREPO /mnt/c/Users/thanh/Desktop/FPGA_CGRA
+# IP repos — NATIVE WSL copies (verified component.xml-complete 2026-06-03;
+# originals on /mnt/c left intact).  Builds are fully native; no /mnt/c reads.
+# Only the needed subset of FPGA_CGRA was copied (cgra_block + digilent-vivado-
+# library; the 1.5G of .runs/.cache junk was NOT).
+set IPROOT /home/vinniny/cgra_builds/ip
+set VLIB     $IPROOT/vivado-library
+set CGRAREPO $IPROOT/FPGA_CGRA
 # PYNQ-Z2 base IP repos — supply the PROVEN HDMI-in framing IPs (color_swap,
 # pixel_pack) from the silicon-validated base.tcl capture chain. pixel_pack is
 # the HLS repacker that (unlike axis_subset_converter) preserves the AXIS
 # SOF(tuser)/EOL(tlast) sidebands the VDMA needs to delimit a frame.
-set PYNQIP    /mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/ip
-set PIXPACKIP /mnt/c/Users/thanh/Desktop/PYNQ_repo/boards/ip/hls/pixel_pack/solution1/impl/ip
+set PYNQIP    $IPROOT/PYNQ_repo/boards/ip
+set PIXPACKIP $IPROOT/PYNQ_repo/boards/ip/hls/pixel_pack/solution1/impl/ip
 
 file delete -force $PROJDIR
 create_project $PROJ $PROJDIR -part $PART -force

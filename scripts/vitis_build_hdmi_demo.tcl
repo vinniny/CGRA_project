@@ -8,7 +8,9 @@
 proc _env_or {n d} { if {[info exists ::env($n)]} { return $::env($n) } ; return $d }
 set REPO [file normalize [file join [file dirname [info script]] ..]]
 set XSA  [_env_or CGRA_XSA [file join $REPO bitstreams cgra_hdmi_dual.xsa]]
-set WS   [_env_or CGRA_WS [file join [_env_or TMP /tmp] cgra_vitis_hdmi]]
+# Default Vitis workspace on NATIVE WSL ext4 (NOT /tmp — that clears mid-session
+# on this WSL).  Override with CGRA_WS=... if needed.
+set WS   [_env_or CGRA_WS /home/vinniny/cgra_builds/vitis_ws]
 set PLAT cgra_hdmi_dual
 set APP  hdmi_demo
 set BM   [file join $REPO 07_sw baremetal]
