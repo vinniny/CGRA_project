@@ -1,7 +1,7 @@
 # hdmi_dual_build_p2.tcl — synth + impl + bitstream + .xsa for the dual-HDMI
 # project assembled in phase-1. HDMI ports are constrained by
 # 01_bench/constrs_pynq_z2.xdc (added in phase-1), so no DRC override needed.
-set PROJ /mnt/c/Users/thanh/Desktop/CGRA_HDMI_DUAL/cgra_hdmi_dual.xpr
+set PROJ /home/vinniny/cgra_builds/CGRA_HDMI_DUAL/cgra_hdmi_dual.xpr
 set XSA  /home/vinniny/centos_vm/projects/CGRA_project/bitstreams/cgra_hdmi_dual.xsa
 
 open_project $PROJ

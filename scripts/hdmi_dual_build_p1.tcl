@@ -6,7 +6,7 @@
 #       -> add_hdmi_in_pynqz2.tcl (HDMI-in) -> REF DDR UIPARAMs -> constraints
 #       -> wrapper -> validate.
 set REPO /home/vinniny/centos_vm/projects/CGRA_project
-set PROJDIR /mnt/c/Users/thanh/Desktop/CGRA_HDMI_DUAL
+set PROJDIR /home/vinniny/cgra_builds/CGRA_HDMI_DUAL
 set PROJ cgra_hdmi_dual
 set PART xc7z020clg400-1
 set VLIB /mnt/c/Users/thanh/Desktop/vivado-library
