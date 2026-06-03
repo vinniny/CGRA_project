@@ -78,31 +78,48 @@ foreach v {IP_DVI2 IP_VTC IP_VIDIN IP_CSWAP IP_PIXPK IP_VDMA} {
     puts [format "    %-10s = %s" $v [set $v]]
 }
 
-# ----- 1. Enable FCLK_CLK2 at 200 MHz (dvi2rgb RefClk requirement) -------
-puts "\n=== 1. PS7: enable FCLK_CLK2 = 200 MHz for dvi2rgb RefClk ==="
+# ----- 1. Enable FCLK_CLK2=200 (dvi2rgb RefClk) + FCLK_CLK3=142.857 (capture) --
+# TWO clocks needed:
+#   FCLK2 = 200 MHz  -> dvi2rgb RefClk ONLY (IDELAYCTRL needs ~200 MHz).
+#   FCLK3 = 142.857  -> capture AXIS domain (v_vid_in aclk + pixel_pack ap_clk
+#                       + vdma_1 s_axis + smartconnect aclk1).  This is the
+#                       PROVEN PYNQ base.tcl capture frequency (1000/7, a clean
+#                       IO-PLL divisor).  Running the capture domain at 200 MHz
+#                       VIOLATED timing (clk_fpga_2 WNS=-0.281, 86 endpoints, the
+#                       pixel_pack + 50->200 smartconnect crossing); 142.857 MHz
+#                       (7 ns vs 5 ns) closes it with ~2 ns margin and still
+#                       exceeds the 124 Mpix/s active 1080p rate (v_vid_in async
+#                       FIFO absorbs the instantaneous 148.5 MHz, as PYNQ proves).
+puts "\n=== 1. PS7: FCLK_CLK2=200 (dvi2rgb RefClk) + FCLK_CLK3=142.857 (capture) ==="
 set_property -dict [list \
     CONFIG.PCW_EN_CLK2_PORT             {1} \
     CONFIG.PCW_FPGA2_PERIPHERAL_FREQMHZ {200} \
     CONFIG.PCW_FCLK_CLK2_BUF            {TRUE} \
+    CONFIG.PCW_EN_CLK3_PORT             {1} \
+    CONFIG.PCW_FPGA3_PERIPHERAL_FREQMHZ {142.857143} \
+    CONFIG.PCW_FCLK_CLK3_BUF            {TRUE} \
 ] [get_bd_cells processing_system7_0]
 
-# A dedicated reset for the 200 MHz domain is not strictly required (dvi2rgb's
-# RefClk only feeds IDELAYCTRL which is async to RefClk's reset edge), but
-# add one for clean CDC bookkeeping in implementation.
+# Reset for the 200 MHz dvi2rgb RefClk domain (CDC bookkeeping).
 create_bd_cell -type ip -vlnv $IP_RST rst_ps7_0_200M
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins rst_ps7_0_200M/slowest_sync_clk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_200M/ext_reset_in]
 
+# Reset for the 142.857 MHz capture AXIS domain (drives v_vid_in/pixel_pack aresetns).
+create_bd_cell -type ip -vlnv $IP_RST rst_ps7_0_143M
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3]     [get_bd_pins rst_ps7_0_143M/slowest_sync_clk]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_ps7_0_143M/ext_reset_in]
+
 # ----- 2. Expand control fabric (ps7_0_axi_periph) NUM_MI 4 → 7 ----------
 # M04 axi_vdma_1, M05 v_tc_1, M06 pixel_pack/s_axi_control.
 # ps7_0_axi_periph is a SMARTCONNECT (not axi_interconnect) → no per-MI ACLK
-# pins.  pixel_pack's s_axi_control runs on its single ap_clk = FCLK2 (200 MHz),
-# so add a 2nd clock domain: NUM_CLKS 1→2, wire aclk1=200.  SmartConnect
+# pins.  pixel_pack's s_axi_control runs on its single ap_clk = FCLK3 (142.857
+# MHz), so add a 2nd clock domain: NUM_CLKS 1→2, wire aclk1=FCLK3.  SmartConnect
 # auto-associates each MI to whichever provided aclk matches the connected
-# IP's clock (M06→200 via aclk1; M00-M05 stay on aclk=50).
+# IP's clock (M06→142.857 via aclk1; M00-M05 stay on aclk=50).
 puts "\n=== 2. Expand ps7_0_axi_periph NUM_MI 4 → 7, NUM_CLKS 1 → 2 ==="
 set_property -dict [list CONFIG.NUM_MI {7} CONFIG.NUM_CLKS {2}] [get_bd_cells ps7_0_axi_periph]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2] [get_bd_pins ps7_0_axi_periph/aclk1]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3] [get_bd_pins ps7_0_axi_periph/aclk1]
 
 # ----- 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 also serves vdma_1) ----
 puts "\n=== 3. Expand smartconnect_1 NUM_SI 1 → 2 (HP1 carries CGRA + vdma_1) ==="
@@ -164,15 +181,16 @@ set_property -dict [list \
     CONFIG.C_M_AXIS_VIDEO_FORMAT {2} \
 ] [get_bd_cells v_vid_in_axi4s_0]
 
-# Clock domains (CAPTURE-CLOCK FIX — silicon 2026-06-02, matches PYNQ base.tcl
-# which clocks v_vid_in/aclk at a fast video clock, NOT a slow PS clock):
+# Clock domains (matches PYNQ base.tcl: v_vid_in/aclk on the 142.857 MHz video
+# clock, NOT a slow PS clock):
 #   vid_io_in_clk = dvi2rgb PixelClk  (~148.5MHz @1080p, pixel domain)
-#   aclk          = FCLK_CLK2 = 200MHz (AXIS domain) — async FIFO PixelClk->200
-# 200MHz > the 1080p pixel rate so the FIFO drains without per-line overrun.
-# (FCLK0=50MHz here could not drain 1080p60 -> capture froze, vdma store stuck.)
+#   aclk          = FCLK_CLK3 = 142.857MHz (AXIS domain) — async FIFO PixelClk->143
+# 142.857MHz is PYNQ's proven capture rate; > the 124 Mpix/s active 1080p rate,
+# and the async FIFO absorbs the instantaneous 148.5MHz over blanking.  (200MHz
+# violated timing on this domain; 50MHz could not drain at all -> capture froze.)
 connect_bd_net [get_bd_pins dvi2rgb_0/PixelClk]                 [get_bd_pins v_vid_in_axi4s_0/vid_io_in_clk]
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins v_vid_in_axi4s_0/aclk]
-connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3]     [get_bd_pins v_vid_in_axi4s_0/aclk]
+connect_bd_net [get_bd_pins rst_ps7_0_143M/peripheral_aresetn]  [get_bd_pins v_vid_in_axi4s_0/aresetn]
 # vid_io_in_reset is ACTIVE_HIGH on this IP — use peripheral_reset (the
 # active-high sibling of peripheral_aresetn from the same proc_sys_reset).
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_reset]    [get_bd_pins v_vid_in_axi4s_0/vid_io_in_reset]
@@ -202,16 +220,16 @@ connect_bd_net [get_bd_pins xlconst_vidin_ce/dout] [get_bd_pins v_vid_in_axi4s_0
 puts "\n=== 7. pixel_pack (AXIS 24b → 32b, preserves SOF/EOL sidebands) ==="
 # The PROVEN PYNQ repacker. Interfaces: stream_in_24 (S), stream_out_32 (M),
 # s_axi_control (AXI-Lite: ap_start/auto_restart + 'mode' pixel-format reg).
-# It has ONE ap_clk for both stream and control, so it lives in the 200 MHz
+# It has ONE ap_clk for both stream and control, so it lives in the 142.857 MHz
 # capture domain (matching v_vid_in/video_out); its AXI-Lite control crosses
-# 50->200 on the ps7_0_axi_periph M06 port (set M06_ACLK below).
+# 50->142.857 internally on the ps7_0_axi_periph smartconnect (aclk1).
 create_bd_cell -type ip -vlnv $IP_PIXPK pixel_pack_in
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]     [get_bd_pins pixel_pack_in/ap_clk]
-connect_bd_net [get_bd_pins rst_ps7_0_200M/peripheral_aresetn]  [get_bd_pins pixel_pack_in/ap_rst_n]
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3]     [get_bd_pins pixel_pack_in/ap_clk]
+connect_bd_net [get_bd_pins rst_ps7_0_143M/peripheral_aresetn]  [get_bd_pins pixel_pack_in/ap_rst_n]
 connect_bd_intf_net [get_bd_intf_pins v_vid_in_axi4s_0/video_out] [get_bd_intf_pins pixel_pack_in/stream_in_24]
-# AXI-Lite control on ps7_0_axi_periph M06.  SmartConnect crosses 50->200
-# internally; M06 is auto-associated to aclk1=200 (wired in step 2) because
-# pixel_pack's s_axi_control clock is FCLK2.
+# AXI-Lite control on ps7_0_axi_periph M06.  SmartConnect crosses 50->142.857
+# internally; M06 is auto-associated to aclk1=FCLK3 (wired in step 2) because
+# pixel_pack's s_axi_control clock is FCLK3.
 connect_bd_intf_net [get_bd_intf_pins ps7_0_axi_periph/M06_AXI] [get_bd_intf_pins pixel_pack_in/s_axi_control]
 
 # ----- 8. axi_vdma_1 (S2MM only, 3-frame ring) ---------------------------
@@ -236,9 +254,9 @@ connect_bd_intf_net [get_bd_intf_pins pixel_pack_in/stream_out_32] [get_bd_intf_
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_1/M_AXI_S2MM] [get_bd_intf_pins smartconnect_1/S01_AXI]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/s_axi_lite_aclk]
 connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0]    [get_bd_pins axi_vdma_1/m_axi_s2mm_aclk]
-# S2MM AXIS write side on the 200MHz capture domain (matches subset_converter
-# output); VDMA auto-detects async (s_axis 200MHz vs m_axi/lite 50MHz).
-connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK2]    [get_bd_pins axi_vdma_1/s_axis_s2mm_aclk]
+# S2MM AXIS write side on the 142.857MHz capture domain (matches pixel_pack
+# output); VDMA auto-detects async (s_axis 142.857MHz vs m_axi/lite 50MHz).
+connect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK3]    [get_bd_pins axi_vdma_1/s_axis_s2mm_aclk]
 connect_bd_net [get_bd_pins rst_ps7_0_100M/peripheral_aresetn] [get_bd_pins axi_vdma_1/axi_resetn]
 
 # ----- 9. IRQ_F2P: extend xlconcat 3 → 4 ports (vdma_1 s2mm done) --------
