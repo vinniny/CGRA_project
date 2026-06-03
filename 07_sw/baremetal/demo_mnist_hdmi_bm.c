@@ -195,6 +195,84 @@ static int run_cgra_fc(const int32_t act400[400])
  *  1) Contrast stretch: min->0, max->255 so the working range matches MNIST.
  *  2) Threshold @96; bounding-box the bright digit; nearest-neighbor rescale
  *     longest side to 20px and centre.  No-op on near-empty/full frames. */
+/* MNIST-faithful capture (Gemini-reviewed pipeline, 2026-06-03):
+ *  1. find the white canvas box at coarse resolution,
+ *  2. find the ink bounding box at FULL HDMI resolution,
+ *  3. area-average (box-filter) the bbox to a 20x20 patch — preserves
+ *     antialiased 2-3px strokes like MNIST,
+ *  4. place patch in 28x28 with centre-of-mass at (14,14). */
+static inline uint32_t pix_luma(const uint8_t *fb, uint32_t x, uint32_t y)
+{
+    const uint8_t *p = fb + (size_t)y * HDMI_IN_ROW_STRIDE + (size_t)x * HDMI_IN_BPP;
+    return (77u * p[2] + 150u * p[1] + 29u * p[0] + 128u) >> 8;
+}
+
+static void mnist_capture_digit(const uint8_t *fb, uint8_t out[28*28])
+{
+    for (int i = 0; i < 28*28; ++i) out[i] = 0;
+    /* 1) Canvas = brightest region. Scan ROI at step 8. */
+    const uint32_t RX0 = 95, RX1 = 1135, RY0 = 195, RY1 = 715;
+    uint32_t maxl = 0;
+    for (uint32_t y = RY0; y < RY1; y += 8)
+        for (uint32_t x = RX0; x < RX1; x += 8) {
+            uint32_t l = pix_luma(fb, x, y);
+            if (l > maxl) maxl = l;
+        }
+    if (maxl < 96) return;                          /* no white canvas */
+    const uint32_t th_canvas = (maxl * 3u) / 4u;
+    uint32_t cx0 = RX1, cx1 = RX0, cy0 = RY1, cy1 = RY0;
+    for (uint32_t y = RY0; y < RY1; y += 8)
+        for (uint32_t x = RX0; x < RX1; x += 8)
+            if (pix_luma(fb, x, y) >= th_canvas) {
+                if (x < cx0) cx0 = x;  if (x > cx1) cx1 = x;
+                if (y < cy0) cy0 = y;  if (y > cy1) cy1 = y;
+            }
+    if (cx1 - cx0 < 64 || cy1 - cy0 < 64) return;
+    cx0 += 16; cx1 -= 16; cy0 += 16; cy1 -= 16;     /* trim window borders */
+    /* 2) Ink bbox at FULL resolution (step 2). */
+    const uint32_t th_ink = maxl / 2u;
+    uint32_t ix0 = cx1, ix1 = cx0, iy0 = cy1, iy1 = cy0;
+    for (uint32_t y = cy0; y < cy1; y += 2)
+        for (uint32_t x = cx0; x < cx1; x += 2)
+            if (pix_luma(fb, x, y) < th_ink) {
+                if (x < ix0) ix0 = x;  if (x > ix1) ix1 = x;
+                if (y < iy0) iy0 = y;  if (y > iy1) iy1 = y;
+            }
+    if (ix1 <= ix0 || iy1 <= iy0) return;           /* blank canvas */
+    const uint32_t w = ix1 - ix0 + 1, h = iy1 - iy0 + 1;
+    const uint32_t side = (w > h ? w : h);
+    /* 3) Area-average into 20x20 patch (block side/20, subsample step 2). */
+    uint8_t patch[20*20];
+    const uint32_t blk = side / 20u + 1u;
+    for (uint32_t py = 0; py < 20; ++py)
+        for (uint32_t px = 0; px < 20; ++px) {
+            uint64_t sum = 0; uint32_t cnt = 0;
+            for (uint32_t dy = 0; dy < blk; dy += 2)
+                for (uint32_t dx = 0; dx < blk; dx += 2) {
+                    uint32_t sx = ix0 + px*blk + dx, sy = iy0 + py*blk + dy;
+                    if (sx > cx1 || sy > cy1) continue;
+                    sum += pix_luma(fb, sx, sy); cnt++;
+                }
+            uint32_t l = cnt ? (uint32_t)(sum / cnt) : maxl;
+            uint32_t v = (l >= maxl) ? 0u : (255u * (maxl - l)) / maxl;
+            patch[py*20 + px] = (uint8_t)(v > 255u ? 255u : v);
+        }
+    /* 4) Centre-of-mass placement at (14,14). */
+    uint32_t m = 0, mx = 0, my = 0;
+    for (int y = 0; y < 20; ++y)
+        for (int x = 0; x < 20; ++x) {
+            m += patch[y*20 + x]; mx += patch[y*20 + x] * x; my += patch[y*20 + x] * y;
+        }
+    if (m == 0) return;
+    const int ox = 14 - (int)(mx / m), oy = 14 - (int)(my / m);
+    for (int y = 0; y < 20; ++y)
+        for (int x = 0; x < 20; ++x) {
+            int tx = x + ox, ty = y + oy;
+            if (tx >= 0 && tx < 28 && ty >= 0 && ty < 28)
+                out[ty*28 + tx] = patch[y*20 + x];
+        }
+}
+
 /* Wide variant: source is the WHOLE Paint canvas as a 56x28 grid, so the user
  * may draw anywhere.  Contrast-stretch, locate ink bbox, nearest-neighbor the
  * longest side to 20 px, centre in 28x28 (MNIST framing). */
@@ -234,11 +312,13 @@ static void mnist_normalize_wide(const uint8_t src[56*28], uint8_t out[28*28])
         }
     if (x1 < x0 || y1 < y0) return;
     const int w = x1 - x0 + 1, h = y1 - y0 + 1;
-    const int side = (w > h ? w : h);            /* fit longest side to 20px */
-    for (int y = 0; y < 20; ++y)
-        for (int x = 0; x < 20; ++x) {
-            int sx = x0 + (x * side) / 20, sy = y0 + (y * side) / 20;
-            out[(y + 4)*28 + x + 4] =
+    /* Fit the longest side to 16 px with 6-px margins — the tight 20-px fit
+     * cropped digits too close (silicon feedback 2026-06-03). */
+    const int side = (w > h ? w : h);
+    for (int y = 0; y < 16; ++y)
+        for (int x = 0; x < 16; ++x) {
+            int sx = x0 + (x * side) / 16, sy = y0 + (y * side) / 16;
+            out[(y + 6)*28 + x + 6] =
                 (sx <= 55 && sy <= 27) ? st[sy*56 + sx] : 0;
         }
 }
@@ -517,8 +597,8 @@ int main(void)
         const uint8_t *fb = hdmi_in_current_frame();
         /* Whole-canvas capture: draw ANYWHERE on the Paint canvas; the digit
          * bounding box is auto re-centred into the 28x28 (MNIST framing). */
-        downsample_roi_to_grid(fb, HDMI_ROI_CANVAS, live56, 56, 28);
-        mnist_normalize_wide(live56, live28);
+        downsample_roi_to_grid(fb, HDMI_ROI_CANVAS, live56, 56, 28); /* liveness */
+        mnist_capture_digit(fb, live28);   /* high-res bbox + box-filter + CoM */
         /* DIAG: ASCII-art dump of the normalized 28x28 every 16 frames so the
          * crop/scale/centering can be inspected over UART. */
         {
