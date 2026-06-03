@@ -35,7 +35,7 @@ foreach f {start.s demo_mnist_hdmi_bm.c arm_fc_int_bm.c arm_fc_vfp_bm.c \
            demo_mnist_weights.S demo_mnist_conv_weights.S gic.c \
            uart.h cgra.h cgra_kernels_cnn.h cgra_kernels_cnn_opt.h \
            cgra_kernels_cnn_v2.h arm_cnn_bm.h arm_fc_bm.h frame_to_mnist.h \
-           hdmi_bm.h hdmi_in_bm.h fb_lib_bm.h mnist_sweep_fixture.h gic.h \
+           hdmi_bm.h hdmi_in_bm.h mmu_cache_bm.h fb_lib_bm.h mnist_sweep_fixture.h gic.h \
            linker_cnn.ld} {
     if {[file exists [file join $BM $f]]} { file copy -force [file join $BM $f] $SRC/ } else { puts "  MISSING(bm): $f" }
 }
