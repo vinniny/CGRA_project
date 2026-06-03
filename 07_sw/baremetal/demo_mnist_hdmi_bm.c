@@ -203,7 +203,7 @@ static int run_cgra_fc(const int32_t act400[400])
  *  4. place patch in 28x28 with centre-of-mass at (14,14). */
 static inline uint32_t pix_luma(const uint8_t *fb, uint32_t x, uint32_t y)
 {
-    const uint8_t *p = fb + (size_t)y * HDMI_IN_ROW_STRIDE + (size_t)x * HDMI_IN_BPP;
+    const uint8_t *p = fb + (uint32_t)y * HDMI_IN_ROW_STRIDE + (uint32_t)x * HDMI_IN_BPP;
     return (77u * p[2] + 150u * p[1] + 29u * p[0] + 128u) >> 8;
 }
 
