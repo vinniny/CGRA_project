@@ -440,14 +440,14 @@ static void render_static_chrome(void)
     hdmi_rect(PANEL_VFP_X,  PANEL_Y, PANEL_W, PANEL_H, COLOR_PANEL);
 
     fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 6,  "CGRA-FC",   COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 28, "*ACCEL.",   FBM_GRAY,     1);
+    fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 28, "*16-PE 50MHz", FBM_GRAY,  1);
     fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 6,  "ARM-INT-FC", COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 28, "*INT64 MAC", FBM_GRAY,    1);
+    fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 28, "*A9 NEON -O3", FBM_GRAY,  1);
     fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 6,  "ARM-VFP-FC", COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 28, "*HW FLOAT",  FBM_GRAY,    1);
+    fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 28, "*A9 NEON -O3 f32", FBM_GRAY, 1);
 
     fbm_draw_text(IMG_X - 4, IMG_Y + IMG_H + 4,
-                  "MNIST  CONV+POOL ON ARM-VFP  FC HEAD-TO-HEAD",
+                  "LIVE MNIST  -  16-PE CGRA vs OPTIMIZED CORTEX-A9  (FC layers)",
                   FBM_WHITE, 1);
 }
 
@@ -504,50 +504,44 @@ static void append_acc(char *dst, int *idx_io, const char *label,
     *idx_io = idx;
 }
 
-static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
+static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
+                          uint32_t cyc_int, uint32_t cyc_vfp,
                           int correct_cgra, int correct_int, int correct_vfp,
                           int total, uint32_t frame_cyc)
 {
     hdmi_rect(0, FOOTER_Y, HDMI_FB_W, HDMI_FB_H - FOOTER_Y, COLOR_BG);
+    (void)correct_cgra; (void)correct_int; (void)correct_vfp;
 
-    char sp_int[16], sp_vfp[16];
-    fmt_speedup(cyc_int, cyc_cgra, sp_int);
+    /* LINE 1 — the defense HEADLINE (Gemini-reviewed framing): absolute
+     * compute speedup vs the FAIR optimized baseline, plus the per-clock
+     * efficiency that pre-empts "why only 3.5x?". INT-vs-INT is the
+     * apples-to-apples claim; VFP kept secondary. */
+    char sp_int[16], sp_vfp[16], sp_clk[16];
+    fmt_speedup(cyc_int, cyc_cgra, sp_int);          /* compute, APU-equiv */
     fmt_speedup(cyc_vfp, cyc_cgra, sp_vfp);
-
-    char line[128];
-    int idx = 0;
-    const char *p;
-    p = "CGRA-FC COMPUTE @50MHz  vs ARM-INT(-O3): ";  while (*p) line[idx++] = *p++;
-    p = sp_int;                                while (*p) line[idx++] = *p++;
-    p = "   vs ARM-VFP-FC: ";                  while (*p) line[idx++] = *p++;
-    p = sp_vfp;                                while (*p) line[idx++] = *p++;
+    fmt_speedup(cyc_int, g_cgra_cu_cyc, sp_clk);     /* per-clock: 666MHz cyc / 50MHz cyc */
+    char line[160]; int idx = 0; const char *p;
+    p = "CGRA-FC vs ARM-INT(-O3): ";  while (*p) line[idx++] = *p++;
+    p = sp_int;                       while (*p) line[idx++] = *p++;
+    p = "   (50 vs 666 MHz = ";       while (*p) line[idx++] = *p++;
+    p = sp_clk;                       while (*p) line[idx++] = *p++;
+    p = "/clk)   vs ARM-VFP: ";       while (*p) line[idx++] = *p++;
+    p = sp_vfp;                       while (*p) line[idx++] = *p++;
     line[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y, line, COLOR_ACCENT, 1);
 
-    char acc[128];
-    idx = 0;
-#ifdef LIVE_INPUT
-    /* Live mode has no ground truth -- skip ACC counters; just show the
-     * frame count. */
-    (void)correct_cgra; (void)correct_int; (void)correct_vfp;
-    p = "FRAME: ";  while (*p) acc[idx++] = *p++;
-    char numbuf[16];
-    int k = u32_to_decimal((uint32_t)total, numbuf, 0);
-    for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
-#else
-    append_acc(acc, &idx, "ACC  CGRA: ", (uint32_t)correct_cgra, (uint32_t)total);
-    append_acc(acc, &idx, "   INT: ",    (uint32_t)correct_int,  (uint32_t)total);
-    append_acc(acc, &idx, "   VFP: ",    (uint32_t)correct_vfp,  (uint32_t)total);
-    p = "   FRAME: ";  while (*p) acc[idx++] = *p++;
-    char numbuf[16];
-    int k = u32_to_decimal((uint32_t)total, numbuf, 0);
-    for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
-#endif
-    /* Real end-to-end demo FPS = APU clock / measured per-frame wall cycles
-     * (capture + 3 engines + render + dwell). This is the number that matches
-     * what the screen actually does — distinct from per-engine FC latency. */
+    /* LINE 2 — TRANSPARENCY (do NOT hide the wall/overhead): compute vs full
+     * system wall, the roofline story, and the real demo FPS. */
+    char acc[160]; idx = 0;
+    char us_c[16]; fmt_us_1dec(cyc_cgra, us_c);       /* compute (APU-equiv) */
+    char us_w[16]; fmt_us_1dec(cyc_cgra_wall, us_w);  /* full wall incl DMA/IO */
+    p = "compute "; while (*p) acc[idx++] = *p++;
+    { int j=0; while (us_c[j]) acc[idx++]=us_c[j++]; }
+    p = "us  wall "; while (*p) acc[idx++] = *p++;
+    { int j=0; while (us_w[j]) acc[idx++]=us_w[j++]; }
+    p = "us (DMA/IO-bound, roofline)"; while (*p) acc[idx++] = *p++;
     if (frame_cyc) {
-        p = "   DEMO: ";  while (*p) acc[idx++] = *p++;
+        p = "   DEMO ";  while (*p) acc[idx++] = *p++;
         char fbuf[16]; fmt_kfps(frame_cyc, fbuf);
         int j = 0; while (fbuf[j]) acc[idx++] = fbuf[j++];
         p = " FPS";  while (*p) acc[idx++] = *p++;
@@ -860,7 +854,7 @@ int main(void)
         render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra_cmp);
         render_panel(PANEL_INT_X,  pred_int,  label, cyc_int);
         render_panel(PANEL_VFP_X,  pred_vfp,  label, cyc_vfp);
-        render_footer(cyc_cgra_cmp, cyc_int, cyc_vfp,
+        render_footer(cyc_cgra_cmp, cyc_cgra, cyc_int, cyc_vfp,
                       correct_cgra, correct_int, correct_vfp, frame + 1, frame_cyc);
         hdmi_flush_fb();
 
