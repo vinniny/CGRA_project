@@ -627,6 +627,69 @@ sliding-window Conv kernel that lifts the full-pipeline speedup
 further is identified as future work in the discussion that
 follows.
 
+\subsection{Roofline Analysis}
+\label{ssec:roofline}
+
+To explain \emph{why} the FC speedup is bounded --- and where the
+remaining headroom lies --- we place the four MNIST layers on a
+Roofline diagram for the CGRA at 50~MHz. Two ceilings frame the plot.
+The \textbf{compute roof} is the architectural peak: 16 PEs
+$\times$ 1~MAC/cycle $\times$ 2~ops/MAC $\times$ 50~MHz $=$
+\textbf{1.6~GOPS} (with $1~\text{MAC}=2$ operations, per ML-systems
+convention). The \textbf{memory roof} is the Zynq-7000 HP-port
+bandwidth: four 64-bit ports at 150~MHz give a theoretical
+4.8~GB/s (UG585~\S3.4); the per-port figure relevant to a single
+DMA channel is $\approx$1.2~GB/s. Arithmetic intensity (AI) is
+computed as MACs divided by DDR bytes moved.
+
+\begin{table}[h]
+\centering
+\caption{MNIST layers on the CGRA Roofline. Conv layers are
+compute-bound (high AI); FC layers are memory/overhead-bound (low AI),
+which is why a tuned CPU is competitive on them.}
+\label{tab:roofline}
+\begin{tabular}{lrrl}
+\hline
+\textbf{Layer} & \textbf{AI (MAC/B)} & \textbf{MACs} & \textbf{Binding roof} \\
+\hline
+Conv1 & 5.3  & 35\,k  & compute \\
+Conv2 & 14.0 & 139\,k & \textbf{compute} \\
+FC1   & 0.49 & 26\,k  & \textbf{memory / readout} \\
+FC2   & 0.12 & 0.64\,k& \textbf{memory / readout} \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent The two convolution layers sit at high arithmetic intensity
+(AI $=5.3$ and $14.0$~MAC/B) and are bound by the compute roof --- they
+reuse each loaded weight across many output positions, so they are the
+layers the CGRA's 16-MAC array is built to accelerate. The two FC
+layers sit far to the left (AI $=0.49$ and $0.12$~MAC/B): each weight is
+used exactly once, so they are bound by the memory roof, not compute.
+FC1's achievable rate is therefore capped at roughly
+$0.49 \times \text{BW} \approx 0.4$~GOPS --- about a quarter of the
+compute peak --- \emph{before} any implementation overhead.
+
+This is the architectural explanation for the matched-baseline
+measurement: on silicon the CGRA computes the FC layer in 131.5~$\mu$s
+of CU time, yet its full-system wall time is 2.40~ms. The compute
+engine reaches the FC point on the Roofline, but the per-invocation
+SG-DMA descriptor turnaround and the 12-slot result-FIFO warm-up leave
+the array $\approx$95\% idle --- the vertical gap between the FC point
+and the memory roof. Against an optimised ($-$O3$+$NEON) Cortex-A9 the
+CGRA still wins the FC compute by $3.5\times$ (and $47\times$ per clock
+at $1/13$ the frequency), but the \emph{system}-level gain is gated by
+data movement, not arithmetic. The Roofline thus makes the central
+design lesson concrete: the heterogeneous split is correct (dense
+layers belong on the array), and the next optimisation is not a faster
+PE but amortising the I/O overhead --- batching, or mapping convolution
+as an \texttt{im2col} GEMM so one DMA descriptor feeds a large
+compute-bound tile.
+
+% \begin{figure} ... plot Table~\ref{tab:roofline} with 06_doc/roofline_data.csv
+% in TikZ/pgfplots: log-log axes, compute roof at 1.6 GOPS, memory roof slope,
+% Conv1/Conv2 near the roof, FC1/FC2 deep below. \end{figure}
+
 \subsection{Discussion}
 \label{ssec:discussion}
 

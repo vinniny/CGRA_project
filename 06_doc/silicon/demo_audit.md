@@ -99,6 +99,31 @@ checks passing.
 | ARM speedup | Measured / estimated | **~15–20×** |
 | perf/W (CGRA PL 0.217 W) | Vivado power report | **≥ 6×** |
 
+### SILICON-MEASURED (2026-06-03, dual-HDMI demo, cache+`-O3`+NEON)
+
+Matched-compiler measurement — the fair, defensible numbers (supersedes the
+estimates above for the FC stage; basis is **compute** via CU_CYCLES @50 MHz vs
+ARM FC via CP15 @666 MHz, both on local-resident data):
+
+| Metric | Value | Basis |
+|---|---|---|
+| CGRA-FC compute | **131.5 µs** (6573 cyc @50 MHz) | CU_CYCLES, FC1 16 grp + FC2 — `silicon-measured` |
+| ARM-INT FC (`-O3`+NEON) | **459 µs** | CP15 @666 MHz — `silicon-measured` |
+| ARM-VFP FC (`-O3`+NEON) | **1986 µs** | CP15 @666 MHz — `silicon-measured` |
+| **CGRA-FC vs ARM-INT(-O3)** | **3.5×** (compute) | `silicon-measured` (headline, INT-vs-INT) |
+| CGRA-FC vs ARM-VFP(-O3) | 15× | `silicon-measured` (secondary, float ref) |
+| Per-clock efficiency | **47×** (50 vs 666 MHz) | `silicon-measured` |
+| CGRA-FC full-system wall | 2398 µs | incl. SG-DMA/APB/readout — `silicon-measured`, roofline-bound |
+| End-to-end demo | **7.1 FPS** | whole pipeline (ARM conv+pool + FB render @-O0) — `silicon-measured` |
+
+Notes: the old "~15–20× speedup" was vs an **`-O0`** ARM baseline and is NOT
+defensible — superseded by the matched-`-O3` 3.5× (INT) / 47×-per-clock. The
+2398 µs wall is overhead-bound (per-call SG-DMA + 12-slot FIFO warm-up, ~95%
+idle); im2col-GEMM / batching is the path to system-level speedup. Conv stays on
+ARM (CGRA per-pixel Conv2 saturated the INT32 result FIFO; INT8+im2col is future
+work). Power/energy: Vivado *estimate* only (~0.42 W fabric vs ~1.5 W PS) — label
+as estimated, not measured.
+
 ---
 
 ## 3. Demo B — Kyber-512 polynomial multiplication
