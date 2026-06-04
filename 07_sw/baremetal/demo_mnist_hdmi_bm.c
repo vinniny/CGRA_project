@@ -130,6 +130,17 @@ static int32_t cgra_fc1_corr[64] = { 0 };
 static int32_t calib_fc1_cgra[64];
 #endif
 
+/* Total CGRA CU compute cycles (@50MHz) for the last FC1+FC2 — summed from the
+ * per-run CU_CYCLES register across all group invocations. This is the
+ * accelerator's COMPUTE time on SPM-resident data, the fair iso-condition
+ * counterpart to the ARM -O3 FC (which computes on cache-resident data).
+ * Excludes the per-call SG-DMA/APB/readout overhead (roofline-documented). */
+static uint32_t g_cgra_cu_cyc = 0;
+#define CGRA_HZ 50000000u
+/* Scale 50MHz CU cycles -> 666MHz APU-equivalent so the shared fmt_*/speedup
+ * helpers (which divide by CPU_HZ) yield correct wall-time/us/FPS. */
+#define CGRA_CU_TO_APUEQ(c)  ((uint32_t)(((uint64_t)(c) * CPU_HZ + CGRA_HZ/2) / CGRA_HZ))
+
 static int run_cgra_fc(const int32_t act400[400])
 {
     volatile int32_t *act400_ddr = (volatile int32_t *)ACT400_DDR;
@@ -138,6 +149,7 @@ static int run_cgra_fc(const int32_t act400[400])
      * fresh ARM-side writes via DDR (no-op if D-cache is disabled). */
     cgra_dcache_flush_range((const void *)ACT400_DDR, 400u * sizeof(int32_t));
 
+    g_cgra_cu_cyc = 0;                 /* accumulate CU compute cycles below */
     int32_t fc1_acc[64];
 #if USE_V2_PARALLEL
     /* v2: broadcast acts to all 16 PE SPMs, 4 groups × 16 PEs in parallel */
@@ -145,6 +157,7 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int g = 0; g < (int)CNN_FC1_V2_N_GROUPS; ++g) {
         int32_t grp[16];
         if (cnn_fc1_v2_run_group(g, grp)) return -1;
+        g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
         for (int i = 0; i < 16 && g*16+i < (int)CNN_FC1_V2_N_OUTPUTS; ++i)
             fc1_acc[g*16+i] = grp[i];
     }
@@ -155,12 +168,14 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc1_opt_run_group(g, grp)) return -1;
+        g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
         for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
     }
 # else
     for (int g = 0; g < (int)CNN_FC1_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc1_run_group(g, grp)) return -1;
+        g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
         for (int r = 0; r < 4; ++r) fc1_acc[g*4 + r] = grp[r];
     }
 # endif
@@ -184,6 +199,7 @@ static int run_cgra_fc(const int32_t act400[400])
     if (cnn_fc2_v2_act_preload(ACT64_DDR)) return -1;
     int32_t grp16[16];
     if (cnn_fc2_v2_run_group(0, grp16)) return -1;
+    g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
     for (int i = 0; i < 10; ++i) fc2_acc[i] = grp16[i];
 #else
     if (cnn_fc2_tile_preload(ACT64_DDR)) return -1;
@@ -192,12 +208,14 @@ static int run_cgra_fc(const int32_t act400[400])
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc2_opt_run_group(g, grp)) return -1;
+        g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
         for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
     }
 # else
     for (int g = 0; g < (int)CNN_FC2_N_GROUPS; ++g) {
         int32_t grp[4];
         if (cnn_fc2_run_group(g, grp)) return -1;
+        g_cgra_cu_cyc += cgra_rd(CGRA_CU_CYCLES);
         for (int r = 0; r < 4 && g*4+r < 10; ++r) fc2_acc[g*4+r] = grp[r];
     }
 # endif
@@ -503,7 +521,7 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
     char line[128];
     int idx = 0;
     const char *p;
-    p = "CGRA-FC SPEEDUP  vs ARM-INT-FC: ";  while (*p) line[idx++] = *p++;
+    p = "CGRA-FC COMPUTE @50MHz  vs ARM-INT(-O3): ";  while (*p) line[idx++] = *p++;
     p = sp_int;                                while (*p) line[idx++] = *p++;
     p = "   vs ARM-VFP-FC: ";                  while (*p) line[idx++] = *p++;
     p = sp_vfp;                                while (*p) line[idx++] = *p++;
@@ -796,7 +814,12 @@ int main(void)
         }
 #endif
         t1 = arm_ccnt_read();
-        cyc_cgra = t1 - t0;
+        cyc_cgra = t1 - t0;                 /* full wall (incl. SG-DMA overhead) */
+        /* Panel/footer use the CGRA COMPUTE time (CU_CYCLES @50MHz, scaled to
+         * APU-equivalent) — the fair iso-condition number vs the ARM -O3 FC
+         * (both compute on local-resident data). Wall time, dominated by the
+         * roofline-documented SG-DMA/readout overhead, still goes to UART. */
+        uint32_t cyc_cgra_cmp = CGRA_CU_TO_APUEQ(g_cgra_cu_cyc);
 
         t0 = arm_ccnt_read();
         pred_int = arm_fc_int_run(act400, cnn_spm_start);
@@ -823,10 +846,10 @@ int main(void)
 #else
         fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
 #endif
-        render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra);
+        render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra_cmp);
         render_panel(PANEL_INT_X,  pred_int,  label, cyc_int);
         render_panel(PANEL_VFP_X,  pred_vfp,  label, cyc_vfp);
-        render_footer(cyc_cgra, cyc_int, cyc_vfp,
+        render_footer(cyc_cgra_cmp, cyc_int, cyc_vfp,
                       correct_cgra, correct_int, correct_vfp, frame + 1);
         hdmi_flush_fb();
 
@@ -835,7 +858,9 @@ int main(void)
         uart_puts(" cgra=");  uart_putdec((uint32_t)pred_cgra);
         uart_puts(" int=");   uart_putdec((uint32_t)pred_int);
         uart_puts(" vfp=");   uart_putdec((uint32_t)pred_vfp);
-        uart_puts("  cycCGRA="); uart_puthex(cyc_cgra);
+        uart_puts("  cgraCU="); uart_puthex(g_cgra_cu_cyc);
+        uart_puts(" cgraWall="); uart_puthex(cyc_cgra);
+        uart_puts(" cycCGRA="); uart_puthex(cyc_cgra_cmp);
         uart_puts(" cycINT="); uart_puthex(cyc_int);
         uart_puts(" cycVFP="); uart_puthex(cyc_vfp);
         uart_puts(" vdmaSR="); uart_puthex(hdmi_out_dmasr());
