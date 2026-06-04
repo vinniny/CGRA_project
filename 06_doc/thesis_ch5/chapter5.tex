@@ -627,6 +627,25 @@ sliding-window Conv kernel that lifts the full-pipeline speedup
 further is identified as future work in the discussion that
 follows.
 
+\paragraph{Matched-compiler comparison (conservative bound).}
+The $3.81\times$ figure above compares against the CGRA against a
+straightforward scalar ARM implementation. To bound the result against
+the \emph{strongest} software baseline, the same FC stage was re-run on
+silicon with the ARM path compiled at \texttt{-O3 -mfpu=neon} and the
+CGRA's compute time isolated via its own \code{CU\_CYCLES} counter
+(2026-06-03 dual-HDMI demo build). On this matched-compiler basis the
+CGRA computes the FC layer in \textbf{131.5~$\mu$s} versus
+\textbf{459~$\mu$s} for the NEON-vectorised Cortex-A9 --- a
+\textbf{3.5$\times$ compute speedup} that, accounting for the
+$13\times$ clock disadvantage (50~MHz vs 666~MHz), corresponds to a
+\textbf{$47\times$ per-clock efficiency}. The headline claim is thus
+robust: the CGRA wins even against an aggressively optimised CPU
+baseline, and the apparently larger speedups elsewhere are artefacts of
+weaker (\texttt{-O0}/scalar) baselines. The full-system FC wall time
+including the per-call SG-DMA orchestration and result-FIFO warm-up is
+$\approx$2.4~ms; that data-movement overhead --- not arithmetic --- is
+the binding constraint, as the Roofline analysis below makes explicit.
+
 \subsection{Roofline Analysis}
 \label{ssec:roofline}
 

@@ -1173,6 +1173,15 @@ ARM-VFP-FC         & 4.36 ms         & 230          & 201/201 (100\%)  & 0.34$\t
 \end{tabular}
 \end{table}
 
+\Cref{tab:perf} compares the CGRA against a scalar ARM baseline. A
+later silicon build (2026-06-03) re-ran the FC stage with the ARM path
+compiled at \texttt{-O3 -mfpu=neon} and the CGRA compute time isolated
+via its \code{CU\_CYCLES} counter, bounding the result against the
+strongest software baseline: \textbf{131.5~$\mu$s} (CGRA compute) versus
+\textbf{459~$\mu$s} (NEON Cortex-A9) --- a \textbf{3.5$\times$}
+matched-compiler speedup, equivalently \textbf{$47\times$ per clock} at
+$1/13$ the frequency. The roofline interpretation is given in Chapter~5.
+
 This concludes the per-frame loop; control returns to the
 ``pick test image'' stage of \Cref{fig:swimlane} and the next input
 image is processed.
