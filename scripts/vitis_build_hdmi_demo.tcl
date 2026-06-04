@@ -76,7 +76,14 @@ if {[_env_or CGRA_DCACHE 0] ne "0"} {
     app config -name $APP -add define-compiler-symbols ENABLE_DCACHE
     puts "  ENABLE_DCACHE enabled"
 }
-app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
+# CGRA_O3=1: -O3 + NEON auto-vectorization (NEON shares the VFP CP10/11 enable
+# start.s already sets). Drops the -O0 ARM-VFP conv ~150ms -> ~15-30ms.
+if {[_env_or CGRA_O3 0] ne "0"} {
+    app config -name $APP -add compiler-misc {-O3 -mfpu=neon-vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
+    puts "  -O3 + NEON enabled"
+} else {
+    app config -name $APP -add compiler-misc {-mfpu=vfpv3 -mfloat-abi=hard -ffunction-sections -fdata-sections}
+}
 app config -name $APP -add assembler-flags "-mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -I$SRC"
 app config -name $APP -set build-config Debug
 app build -name $APP
