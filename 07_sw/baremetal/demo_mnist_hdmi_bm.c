@@ -535,16 +535,16 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
     char acc[160]; idx = 0;
     char us_c[16]; fmt_us_1dec(cyc_cgra, us_c);       /* compute (APU-equiv) */
     char us_w[16]; fmt_us_1dec(cyc_cgra_wall, us_w);  /* full wall incl DMA/IO */
-    p = "COMPUTE "; while (*p) acc[idx++] = *p++;
+    p = "CGRA-FC COMPUTE "; while (*p) acc[idx++] = *p++;
     { int j=0; while (us_c[j]) acc[idx++]=us_c[j++]; }
     p = "US  WALL "; while (*p) acc[idx++] = *p++;
     { int j=0; while (us_w[j]) acc[idx++]=us_w[j++]; }
-    p = "US (DMA/IO-BOUND ROOFLINE)"; while (*p) acc[idx++] = *p++;
+    p = "US (IO-BOUND ROOFLINE)"; while (*p) acc[idx++] = *p++;
     if (frame_cyc) {
-        p = "   DEMO ";  while (*p) acc[idx++] = *p++;
+        p = "   PIPE ";  while (*p) acc[idx++] = *p++;
         char fbuf[16]; fmt_kfps(frame_cyc, fbuf);
         int j = 0; while (fbuf[j]) acc[idx++] = fbuf[j++];
-        p = " FPS";  while (*p) acc[idx++] = *p++;
+        p = " FPS (ARM CONV+RENDER)";  while (*p) acc[idx++] = *p++;
     }
     acc[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y + 14, acc, COLOR_TXT, 1);
