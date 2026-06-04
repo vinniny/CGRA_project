@@ -482,15 +482,11 @@ static void render_panel(int px, int pred, int label, uint32_t cycles)
     us_disp[idx] = '\0';
     fbm_draw_text(px + 8, PANEL_Y + 86, us_disp, COLOR_TXT, 2);
 
-    char fps[16];
-    fmt_kfps(cycles, fps);
-    n = 0; while (fps[n]) n++;
-    char fps_disp[24];
-    idx = 0;
-    for (int i = 0; i < n; ++i) fps_disp[idx++] = fps[i];
-    fps_disp[idx++] = ' '; fps_disp[idx++] = 'F'; fps_disp[idx++] = 'P'; fps_disp[idx++] = 'S';
-    fps_disp[idx] = '\0';
-    fbm_draw_text(px + 8, PANEL_Y + 114, fps_disp, COLOR_TXT, 2);
+    /* Per-engine FPS line removed: it was 1/(FC latency) — a theoretical
+     * FC-only throughput that (a) contradicts the visible end-to-end demo FPS
+     * and (b) is constant (FC compute is data-independent), so it looked
+     * frozen. Panels now show PRED + per-engine FC latency (us) only; the
+     * real measured demo FPS is in the footer. */
 }
 
 /* Append a "label: n/total" segment to dst starting at *idx_io. */
@@ -510,7 +506,7 @@ static void append_acc(char *dst, int *idx_io, const char *label,
 
 static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
                           int correct_cgra, int correct_int, int correct_vfp,
-                          int total)
+                          int total, uint32_t frame_cyc)
 {
     hdmi_rect(0, FOOTER_Y, HDMI_FB_W, HDMI_FB_H - FOOTER_Y, COLOR_BG);
 
@@ -547,6 +543,15 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_int, uint32_t cyc_vfp,
     int k = u32_to_decimal((uint32_t)total, numbuf, 0);
     for (int i = 0; i < k; ++i) acc[idx++] = numbuf[i];
 #endif
+    /* Real end-to-end demo FPS = APU clock / measured per-frame wall cycles
+     * (capture + 3 engines + render + dwell). This is the number that matches
+     * what the screen actually does — distinct from per-engine FC latency. */
+    if (frame_cyc) {
+        p = "   DEMO: ";  while (*p) acc[idx++] = *p++;
+        char fbuf[16]; fmt_kfps(frame_cyc, fbuf);
+        int j = 0; while (fbuf[j]) acc[idx++] = fbuf[j++];
+        p = " FPS";  while (*p) acc[idx++] = *p++;
+    }
     acc[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y + 14, acc, COLOR_TXT, 1);
 }
@@ -846,11 +851,17 @@ int main(void)
 #else
         fbm_draw_image28(IMG_X, IMG_Y, sweep_input28[i], IMG_SCALE);
 #endif
+        /* Measured end-to-end per-frame wall (prev frame's full loop). */
+        static uint32_t prev_frame_ccnt = 0;
+        uint32_t now_ccnt = arm_ccnt_read();
+        uint32_t frame_cyc = prev_frame_ccnt ? (now_ccnt - prev_frame_ccnt) : 0;
+        prev_frame_ccnt = now_ccnt;
+
         render_panel(PANEL_CGRA_X, pred_cgra, label, cyc_cgra_cmp);
         render_panel(PANEL_INT_X,  pred_int,  label, cyc_int);
         render_panel(PANEL_VFP_X,  pred_vfp,  label, cyc_vfp);
         render_footer(cyc_cgra_cmp, cyc_int, cyc_vfp,
-                      correct_cgra, correct_int, correct_vfp, frame + 1);
+                      correct_cgra, correct_int, correct_vfp, frame + 1, frame_cyc);
         hdmi_flush_fb();
 
         uart_puts("img "); uart_putdec((uint32_t)i);
