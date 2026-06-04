@@ -438,3 +438,58 @@ A measured optimisation path would be: pre-issue the next group's
 SG-DMA right after the current readout SG-DMA so the ARM only polls
 once per group instead of 2-3 times. That's future work.
 
+
+## I. Live-demo numbers — examiner Q&A (silicon 2026-06-03, cache+O3+NEON)
+
+On-screen: CGRA-FC compute **131.5 us** | ARM-INT-FC (-O3+NEON) **459 us** |
+ARM-VFP-FC (-O3+NEON) **1986 us**. Footer: **3.5x vs ARM-INT, 15x vs ARM-VFP,
+47x/clk** (50 vs 666 MHz); CGRA-FC wall **2398 us** (IO-bound, roofline); end-to-end
+**7.1 FPS** (ARM conv + framebuffer render dominate). Gemini cold-read the screen
+with no context and reached the intended conclusion + the honest caveats.
+
+**Q: Compute 131 us but wall 2398 us — 95% stall. What's the point of the accelerator?**
+A: That IS the roofline result made visible. The array is compute-efficient; the
+system is I/O-bound — per-call SG-DMA setup + the 12-slot result-FIFO warm-up
+dominate. The fix isn't a faster core, it's amortizing overhead: batch the layer /
+im2col-GEMM so one descriptor feeds a large tile. The demo deliberately exposes the
+unoptimized integration to keep the bottleneck honest.
+
+**Q: Why only 3.5x over ARM-INT? Accelerators usually claim 10-100x.**
+A: Because the baseline is FAIR — ARM-INT at -O3 + NEON, not -O0. Clock-normalized
+it's 47x (50 MHz beating 666 MHz). The absolute 3.5x is modest only because this FC
+layer is small and overhead-bound; a large GEMM (conv via im2col) would expose the
+full compute advantage.
+
+**Q: Why is the demo only 7 FPS?**
+A: End-to-end includes ARM conv+pool + a software framebuffer render at -O0 for the
+live UI — those dominate, not the FC. It is a presentation rate, not accelerator
+throughput. (Footer labels it PIPE (ARM CONV+RENDER) to make this explicit.)
+
+**Q: Why only the FC layers on the CGRA? Where's the conv?**
+A: Conv runs on ARM-VFP (97% accuracy lives there). Conv-on-CGRA needs INT8 + im2col
+to avoid result-FIFO INT saturation — identified future work. FC maps cleanly today.
+
+**Q: Comparing your INT hardware to ARM float (15x) — fair?**
+A: No — that's why the HEADLINE is INT-vs-INT 3.5x. The 15x vs float is shown only
+as the unoptimized reference.
+
+**Q: Why does live accuracy drop vs the 97% MNIST sweep?**
+A: Live input is out-of-distribution (stroke width / centering), and the CGRA INT
+path has a fixed per-neuron error from the SPM auto-inc loop-wrap asymmetry + 40-bit
+saturation. On big-margin MNIST it never flips argmax; on marginal live digits it
+does. Measured: the deltas are INPUT-DEPENDENT (std ~2e8, 0/64 stable), so they
+cannot be calibrated out with a fixed bias — documented as a v3 RTL fix.
+
+**Q: How is the 131 us measured? How do you know the result is correct?**
+A: Summed CU_CYCLES (the CGRA's own compute counter @50 MHz) across all FC group
+runs; ARM via CP15 cycle counter @666 MHz. Correctness: argmax matches ARM-INT on
+97% of the 2745-frame sweep, and all three engines agree live on the panel.
+
+**Q: Power/energy speedup?**
+A: Do NOT claim measured energy — only a Vivado *estimate* (~0.42 W fabric vs ~1.5 W
+PS). Present as estimated, not measured, unless a rail-split measurement is taken.
+
+**Opening framing:** "At 1/13th the clock, the array computes the FC layer 3.5x
+faster than an optimized Cortex-A9 — the compute core is efficient; the demo
+deliberately shows that the remaining bottleneck is data movement, which is the
+roofline-guided direction for future work."
