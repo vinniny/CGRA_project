@@ -247,8 +247,11 @@ static inline uint32_t pix_luma(const uint8_t *fb, uint32_t x, uint32_t y)
 static void mnist_capture_digit(const uint8_t *fb, uint8_t out[28*28])
 {
     for (int i = 0; i < 28*28; ++i) out[i] = 0;
-    /* 1) Canvas = brightest region. Scan ROI at step 8. */
-    const uint32_t RX0 = 95, RX1 = 1135, RY0 = 195, RY1 = 715;
+    /* 1) Canvas = brightest region. Scan ROI = near-full 1280x720 frame so the
+     * white-canvas auto-detect (threshold 0.75*max below) bounds the REAL
+     * canvas — the old narrow band (RY0=195) clipped tall digits top/bottom.
+     * The brightness threshold excludes the (darker-gray) Paint toolbar. */
+    const uint32_t RX0 = 24, RX1 = 1256, RY0 = 24, RY1 = 712;
     uint32_t maxl = 0;
     for (uint32_t y = RY0; y < RY1; y += 8)
         for (uint32_t x = RX0; x < RX1; x += 8) {
