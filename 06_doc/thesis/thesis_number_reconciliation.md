@@ -60,3 +60,36 @@ the dominant bottleneck the heterogeneous ARM-VFP-Conv + CGRA-FC split addresses
 
 Tell me the authoritative FC anchor and I'll edit ch4/ch5 + drop in the Roofline
 subsection in one pass.
+
+## CRITICAL — matched-compiler FC measurement (silicon 2026-06-03)
+
+The HDMI demo ELF, rebuilt with **MMU+I/D-cache + `-O3 -mfpu=neon`**, measured
+the three FC engines on the SAME act400 on silicon (per-image CCNT, FCLK0=50,
+APU 666 MHz):
+
+| FC engine | `-O0` (old baseline) | `-O3`+NEON+cache | speedup vs -O0 |
+|---|---|---|---|
+| ARM-INT FC | ~17.6 M cyc | **0.31 M cyc** | ~57x |
+| ARM-VFP FC | ~8.6 M cyc  | **0.60 M cyc** | ~14x |
+| CGRA FC (HW, fixed) | ~1.60 M cyc | **1.60 M cyc** | 1x (hardware) |
+
+**Implication — the headline number must be honest about the baseline:**
+- vs `-O0` ARM, CGRA-FC looks ~8x faster. This is the "as-demonstrated" number
+  and is NOT a fair comparison (the ARM baseline was unoptimized debug code).
+- vs a **fair `-O3`+NEON ARM**, ARM-INT FC (0.31 M) is **~5x FASTER than the
+  CGRA-FC (1.60 M)** on these small layers. The CGRA is OVERHEAD-bound here
+  (12-slot result-FIFO warm-up + SG-DMA turnaround dominate, ~87% array idle —
+  exactly the roofline finding). A vectorized CPU beats it on small FC.
+
+**Defensible thesis framing (recommended):** do NOT headline an FC speedup vs
+`-O0`. State the roofline truth: on small overhead-bound FC layers a tuned CPU
+wins; the CGRA advantage is real only for **large compute-bound GEMMs** (Conv as
+im2col, ~280k MACs/layer), where the per-launch overhead amortizes. This makes
+the architecture story bulletproof under examiner challenge — it is measured both
+ways. The CGRA's value proposition is throughput/Watt on dense GEMM at scale, not
+beating an optimized CPU on a 400->64 vector.
+
+This supersedes any "Nx FC speedup" claim taken against the -O0 build. Pick the
+ch5 anchor accordingly: report CGRA-FC compute (1.60 M cyc = 2.40 ms @ 666 MHz...
+note: CGRA runs at 50 MHz, so 1.60 M / 50 MHz = 32 ms wall) AND the matched-O3
+ARM number side by side, framed by the roofline.

@@ -631,8 +631,9 @@ int main(void)
          * bounding box is auto re-centred into the 28x28 (MNIST framing). */
         downsample_roi_to_grid(fb, HDMI_ROI_CANVAS, live56, 56, 28); /* liveness */
         mnist_capture_digit(fb, live28);   /* high-res bbox + box-filter + CoM */
-        /* DIAG: ASCII-art dump of the normalized 28x28 every 16 frames so the
-         * crop/scale/centering can be inspected over UART. */
+#ifdef CAPTURE_ASCII_DIAG
+        /* ASCII-art dump of the normalized 28x28 (UART ~70ms/dump — debug only,
+         * off by default so it doesn't cap demo FPS). */
         {
             static uint32_t af = 0;
             if ((af++ & 0xF) == 0) {
@@ -649,6 +650,7 @@ int main(void)
                 }
             }
         }
+#endif
         /* DIAG: HDMI-IN capture state + raw bytes at ROI centre + downsampled
          * sum, every 4 frames.  Tells us if vdma_1 advances stores & whether
          * the captured pixels actually change as the user draws.  (Computed
@@ -839,7 +841,7 @@ int main(void)
         uart_puts(" vdmaSR="); uart_puthex(hdmi_out_dmasr());
         uart_putchar('\n');
 
-        delay_cycles(CPU_HZ / 10);  /* ~100 ms dwell (caches on) */
+        delay_cycles(CPU_HZ / 30);  /* ~33 ms dwell — caches+O3 make compute negligible */
         frame++;
     }
     return 0;
