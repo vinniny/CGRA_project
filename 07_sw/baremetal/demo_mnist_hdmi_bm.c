@@ -137,7 +137,7 @@ static int32_t calib_fc1_cgra[64];
  * Excludes the per-call SG-DMA/APB/readout overhead (roofline-documented). */
 static uint32_t g_cgra_cu_cyc = 0;
 #define CGRA_HZ 50000000u
-/* Scale 50MHz CU cycles -> 666MHz APU-equivalent so the shared fmt_*/speedup
+/* Scale 50MHz CU cycles -> 666MHz APU-equivalent so the shared fmt and speedup
  * helpers (which divide by CPU_HZ) yield correct wall-time/us/FPS. */
 #define CGRA_CU_TO_APUEQ(c)  ((uint32_t)(((uint64_t)(c) * CPU_HZ + CGRA_HZ/2) / CGRA_HZ))
 
