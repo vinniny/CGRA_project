@@ -42,9 +42,9 @@
 #include "fb_lib_bm.h"
 #include "mnist_sweep_fixture.h"
 #include "../cnn_eval/mnist_weights_scale.h"
+#include "mmu_cache_bm.h"   /* MMU/cache helpers — used under ENABLE_DCACHE (any build) */
 #ifdef LIVE_INPUT
 #include "hdmi_in_bm.h"
-#include "mmu_cache_bm.h"
 #include "frame_to_mnist.h"
 #endif
 
@@ -510,7 +510,9 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
                           int total, uint32_t frame_cyc)
 {
     hdmi_rect(0, FOOTER_Y, HDMI_FB_W, HDMI_FB_H - FOOTER_Y, COLOR_BG);
-    (void)correct_cgra; (void)correct_int; (void)correct_vfp;
+#ifdef LIVE_INPUT
+    (void)correct_cgra; (void)correct_int; (void)correct_vfp;  /* no ground truth live */
+#endif
 
     /* LINE 1 — the defense HEADLINE (Gemini-reviewed framing): absolute
      * compute speedup vs the FAIR optimized baseline, plus the per-clock
@@ -548,6 +550,17 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
     }
     acc[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y + 14, acc, COLOR_TXT, 1);
+
+#ifndef LIVE_INPUT
+    /* LINE 3 (fixture/sweep build only) — accuracy on labelled data, the point
+     * of the sweep demo. Uppercase + '/' only (font-safe). */
+    char acl[128]; int aidx = 0;
+    append_acc(acl, &aidx, "ACC  CGRA ", (uint32_t)correct_cgra, (uint32_t)total);
+    append_acc(acl, &aidx, "   INT ",    (uint32_t)correct_int,  (uint32_t)total);
+    append_acc(acl, &aidx, "   VFP ",    (uint32_t)correct_vfp,  (uint32_t)total);
+    acl[aidx] = '\0';
+    fbm_draw_text(8, FOOTER_Y + 28, acl, COLOR_OK, 1);
+#endif
 }
 
 int main(void)
