@@ -425,7 +425,7 @@ static void fmt_speedup(uint32_t baseline, uint32_t test, char *buf)
     for (int i = 0; i < len; ++i) buf[idx++] = tmp[i];
     buf[idx++] = '.';
     buf[idx++] = (char)('0' + frac);
-    buf[idx++] = 'x';
+    buf[idx++] = 'X';
     buf[idx]   = '\0';
 }
 
@@ -440,14 +440,14 @@ static void render_static_chrome(void)
     hdmi_rect(PANEL_VFP_X,  PANEL_Y, PANEL_W, PANEL_H, COLOR_PANEL);
 
     fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 6,  "CGRA-FC",   COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 28, "*16-PE 50MHz", FBM_GRAY,  1);
+    fbm_draw_text(PANEL_CGRA_X + 8, PANEL_Y + 28, "16-PE 50MHZ", FBM_GRAY,  1);
     fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 6,  "ARM-INT-FC", COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 28, "*A9 NEON -O3", FBM_GRAY,  1);
+    fbm_draw_text(PANEL_INT_X  + 8, PANEL_Y + 28, "A9 NEON -O3", FBM_GRAY,  1);
     fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 6,  "ARM-VFP-FC", COLOR_ACCENT, 2);
-    fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 28, "*A9 NEON -O3 f32", FBM_GRAY, 1);
+    fbm_draw_text(PANEL_VFP_X  + 8, PANEL_Y + 28, "A9 NEON -O3 F32", FBM_GRAY, 1);
 
     fbm_draw_text(IMG_X - 4, IMG_Y + IMG_H + 4,
-                  "LIVE MNIST  -  16-PE CGRA vs OPTIMIZED CORTEX-A9  (FC layers)",
+                  "LIVE MNIST - 16-PE CGRA VS OPTIMIZED CORTEX-A9 (FC LAYERS)",
                   FBM_WHITE, 1);
 }
 
@@ -521,11 +521,11 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
     fmt_speedup(cyc_vfp, cyc_cgra, sp_vfp);
     fmt_speedup(cyc_int, g_cgra_cu_cyc, sp_clk);     /* per-clock: 666MHz cyc / 50MHz cyc */
     char line[160]; int idx = 0; const char *p;
-    p = "CGRA-FC vs ARM-INT(-O3): ";  while (*p) line[idx++] = *p++;
+    p = "CGRA-FC VS ARM-INT(-O3): ";  while (*p) line[idx++] = *p++;
     p = sp_int;                       while (*p) line[idx++] = *p++;
-    p = "   (50 vs 666 MHz = ";       while (*p) line[idx++] = *p++;
+    p = " (50 VS 666MHZ = ";          while (*p) line[idx++] = *p++;
     p = sp_clk;                       while (*p) line[idx++] = *p++;
-    p = "/clk)   vs ARM-VFP: ";       while (*p) line[idx++] = *p++;
+    p = "/CLK) VS ARM-VFP: ";         while (*p) line[idx++] = *p++;
     p = sp_vfp;                       while (*p) line[idx++] = *p++;
     line[idx] = '\0';
     fbm_draw_text(8, FOOTER_Y, line, COLOR_ACCENT, 1);
@@ -535,11 +535,11 @@ static void render_footer(uint32_t cyc_cgra, uint32_t cyc_cgra_wall,
     char acc[160]; idx = 0;
     char us_c[16]; fmt_us_1dec(cyc_cgra, us_c);       /* compute (APU-equiv) */
     char us_w[16]; fmt_us_1dec(cyc_cgra_wall, us_w);  /* full wall incl DMA/IO */
-    p = "compute "; while (*p) acc[idx++] = *p++;
+    p = "COMPUTE "; while (*p) acc[idx++] = *p++;
     { int j=0; while (us_c[j]) acc[idx++]=us_c[j++]; }
-    p = "us  wall "; while (*p) acc[idx++] = *p++;
+    p = "US  WALL "; while (*p) acc[idx++] = *p++;
     { int j=0; while (us_w[j]) acc[idx++]=us_w[j++]; }
-    p = "us (DMA/IO-bound, roofline)"; while (*p) acc[idx++] = *p++;
+    p = "US (DMA/IO-BOUND ROOFLINE)"; while (*p) acc[idx++] = *p++;
     if (frame_cyc) {
         p = "   DEMO ";  while (*p) acc[idx++] = *p++;
         char fbuf[16]; fmt_kfps(frame_cyc, fbuf);
