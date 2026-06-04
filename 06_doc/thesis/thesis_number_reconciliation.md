@@ -93,3 +93,26 @@ This supersedes any "Nx FC speedup" claim taken against the -O0 build. Pick the
 ch5 anchor accordingly: report CGRA-FC compute (1.60 M cyc = 2.40 ms @ 666 MHz...
 note: CGRA runs at 50 MHz, so 1.60 M / 50 MHz = 32 ms wall) AND the matched-O3
 ARM number side by side, framed by the roofline.
+
+## MEASURED (silicon 2026-06-03, cache+O3+NEON, CGRA compute via CU_CYCLES)
+
+Demo panel now reports CGRA **compute** (summed CU_CYCLES @50MHz), the fair
+iso-condition number vs the matched -O3+NEON ARM FC (both on local-resident
+data). Per-image, live:
+
+| FC engine | time | basis |
+|---|---|---|
+| CGRA-FC compute | **131.5 us** (6573 cyc @50MHz) | CU_CYCLES, FC1 16 grp + FC2 |
+| ARM-INT FC (-O3+NEON) | 459 us | APU CCNT @666MHz |
+| ARM-VFP FC (-O3+NEON) | 1986 us | APU CCNT @666MHz |
+| CGRA-FC full-system wall | 2403 us | incl. SG-DMA/APB/readout (roofline overhead) |
+
+**Headline speedups (compute basis, fair -O3 baseline):**
+- **CGRA-FC vs ARM-INT(-O3): 3.5x**
+- **CGRA-FC vs ARM-VFP(-O3): 15.1x**
+
+This is the number to defend: a 50 MHz 16-PE array beats a 666 MHz -O3+NEON
+Cortex-A9 by 3.5x on INT FC compute (13x clock disadvantage -> ~46x per-clock
+efficiency). The 2403 us system wall is overhead-bound (per-call SG-DMA +
+12-slot FIFO warmup, ~95% idle); batching / im2col-GEMM amortizes it. Do NOT
+headline the old ~8x-vs-O0 number — it is superseded by this matched-O3 result.
